@@ -3153,9 +3153,40 @@ OWNER_COMMANDS = BOT_COMMANDS + [
 
 async def _post_init(app: Application) -> None:
     """Telegramdagi «/» menyusini to'ldiradi — buyruqlarni eslash shart emas."""
-    from telegram import BotCommand, BotCommandScopeChat
+    from telegram import (
+        BotCommand,
+        BotCommandScopeAllPrivateChats,
+        BotCommandScopeChat,
+        BotCommandScopeDefault,
+    )
 
-    await app.bot.set_my_commands([BotCommand(c, d) for c, d in BOT_COMMANDS])
+    # Nega bitta emas, ikkita ko'lam (scope) va til tozalash:
+    #
+    # Telegram «/» ro'yxatini ko'lam bo'yicha tanlaydi va eng aniqrog'i
+    # yutadi:  chat  >  all_private_chats  >  default. Har birining
+    # ustiga yana foydalanuvchi ILOVASINING tili qo'yiladi: ruscha
+    # Telegram avval "ru" ro'yxatini qidiradi, topmasa umumiysini oladi.
+    #
+    # Muhimi: bir marta yozilgan ro'yxat Telegram serverida QOLADI —
+    # kod o'zgargani bilan o'chmaydi. Shuning uchun eski (yoki bo'sh)
+    # all_private_chats ro'yxati yangi default ro'yxatni soya qilib
+    # qo'yishi mumkin. Ega buni sezmaydi: unda o'z chat ko'lami bor va
+    # u hammasidan ustun turadi. Natijada buyruqlar faqat egada
+    # ko'rinadi, oddiy foydalanuvchida esa yo'q — aynan shu holat
+    # jonli botda yuz berdi.
+    #
+    # Yechim: bir xil ro'yxatni ikkala ko'lamga ham yozamiz va tilga
+    # bog'langan eski nusxalarni o'chiramiz, toki umumiy ro'yxat
+    # hammaga yetib borsin.
+    commands = [BotCommand(c, d) for c, d in BOT_COMMANDS]
+    for scope in (BotCommandScopeDefault(), BotCommandScopeAllPrivateChats()):
+        await app.bot.set_my_commands(commands, scope=scope)
+        for code in ("en", "ru", "uz"):
+            try:
+                await app.bot.delete_my_commands(scope=scope, language_code=code)
+            except Exception as exc:
+                log.warning("Eski «%s» ro'yxatini o'chirib bo'lmadi: %s", code, exc)
+    log.info("«/» menyusi hammaga o'rnatildi: %d ta buyruq", len(commands))
 
     # Profil matnlari — Telegram ularni keshlaydi, faqat o'zgargani yuboriladi.
     try:
