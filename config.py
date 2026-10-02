@@ -483,6 +483,19 @@ CATEGORY_ICONS = {
 }
 
 
+# Foydalanuvchiga ko'rinadigan nom. Kodda va bazada kategoriya o'z nomi
+# bilan qoladi: eski yozuvlar, byudjetlar va o'rganilgan qoidalar shu
+# nomga bog'langan — qayta nomlash ularning hammasini ko'chirishni
+# talab qilardi. Faqat ko'rinish o'zgaradi.
+CATEGORY_LABELS = {
+    "oylik": "ish haqi",
+}
+
+
+def category_label(name: str) -> str:
+    return CATEGORY_LABELS.get(name, name)
+
+
 def fallback_category(kind: str) -> str:
     if kind == KIND_KIRIM:
         return "boshqa kirim"

@@ -305,10 +305,15 @@ def debts_text(user_id: int) -> str:
 
 
 def receipt_text(data: dict, day_total: float | None = None) -> str:
-    """Chek tahlili: kategoriyalar kesimi, tekshiruv natijasi, to'liq ro'yxat."""
+    """Chek tahlili: kategoriyalar kesimi, tekshiruv natijasi, to'liq ro'yxat.
+
+    Mahsulot summalari bu yerga kelganda chekdagi yakuniy jamiga
+    moslangan (`ai.apply_receipt_total`): chegirma kategoriyalar o'rtasida
+    taqsimlangan, ya'ni ulushlar va saqlangan summa bir xil hisobda.
+    """
     items = data["mahsulotlar"]
     check = data["tekshiruv"]
-    total = check["hisoblangan"]
+    stored = round(sum(i["summa"] for i in items), 2)
     # Chek dollarda bo'lishi ham mumkin — summalar shu valyutada ko'rsatiladi.
     cur = data.get("valyuta") or "som"
 
@@ -325,38 +330,43 @@ def receipt_text(data: dict, day_total: float | None = None) -> str:
     lines.append("<b>Kategoriyalar bo'yicha:</b>")
     for name, amounts in sorted(by_cat.items(), key=lambda kv: sum(kv[1]), reverse=True):
         subtotal = sum(amounts)
-        share = subtotal / total if total else 0
+        share = subtotal / stored if stored else 0
         icon = config.CATEGORY_ICONS.get(name, "•")
         lines.append(
-            f"{icon} {esc(name)} — {fmt_money(subtotal, cur)} ({share * 100:.0f}%)"
+            f"{icon} {esc(config.category_label(name))} — "
+            f"{fmt_money(subtotal, cur)} ({share * 100:.0f}%)"
         )
         lines.append(f"   <code>{_bar(share)}</code> {len(amounts)} ta")
 
     lines.append("")
-    lines.append(f"💵 <b>Mahsulotlar jami: {fmt_money(total, cur)}</b>")
+    lines.append(f"💵 Mahsulotlar jami: {fmt_money(check['hisoblangan'], cur)}")
 
     if data.get("chegirma"):
-        lines.append(f"🏷 Chegirma: −{fmt_money(data['chegirma'], cur)}")
+        tail = (" <i>(narxlarda hisobga olingan)</i>"
+                if check.get("narxlar") == "chegirmadan_keyin" else "")
+        lines.append(f"🏷 Chegirma: −{fmt_money(data['chegirma'], cur)}{tail}")
 
     # Tekshiruv — chekdagi JAMI bilan solishtirish.
     if check["holat"] == "mos":
-        lines.append(f"✅ Chekdagi jami bilan mos: {fmt_money(check['chekdagi'], cur)}")
+        lines.append(f"✅ <b>Chekdagi jami: {fmt_money(check['chekdagi'], cur)}</b> — mos")
     elif check["holat"] == "farqli":
-        lines.append(f"⚠️ Chekdagi jami: {fmt_money(check['chekdagi'], cur)}")
+        lines.append(f"⚠️ <b>Chekdagi jami: {fmt_money(check['chekdagi'], cur)}</b>")
         farq = check["farq"]
         yon = "ortiq" if farq > 0 else "kam"
         lines.append(
-            f"   <i>Farq: {fmt_money(abs(farq), cur)} {yon} chiqdi — "
-            f"ba'zi qatorlar noto'g'ri o'qilgan bo'lishi mumkin.</i>"
+            f"   <i>Mahsulotlar {fmt_money(abs(farq), cur)} {yon} chiqdi — "
+            f"ba'zi qatorlar noto'g'ri o'qilgan bo'lishi mumkin. "
+            f"Saqlangan summa chekdagi jamiga tenglandi.</i>"
         )
     else:
         lines.append("<i>ℹ️ Chekda yakuniy summa ko'rinmadi — tekshirib bo'lmadi.</i>")
 
-    # Eng qimmat mahsulot — tahlil uchun foydali.
+    # Eng qimmat mahsulot — tahlil uchun foydali (chekdagi narxi bilan).
     if len(items) > 1:
-        top = max(items, key=lambda i: i["summa"])
+        top = max(items, key=lambda i: i.get("summa_asl", i["summa"]))
         lines.append(
-            f"🔝 Eng qimmati: {esc(top['nomi'])} — {fmt_money(top['summa'], cur)}"
+            f"🔝 Eng qimmati: {esc(top['nomi'])} — "
+            f"{fmt_money(top.get('summa_asl', top['summa']), cur)}"
         )
 
     if day_total:

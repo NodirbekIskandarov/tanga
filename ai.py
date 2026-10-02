@@ -618,24 +618,93 @@ def _normalize_receipt(payload: dict[str, Any], today: date) -> dict[str, Any]:
     }
 
 
+def receipt_tolerance(total: float, currency: str = "som") -> float:
+    """Chek jamini solishtirishdagi ruxsat etilgan farq.
+
+    So'm uchun max(1 000 so'm, jamining 1 %). Yaxlitlash, tiyinlar va
+    bitta-ikkita xira raqam shu oraliqqa sig'adi; undan kattasi haqiqiy
+    o'qish xatosi.
+    """
+    floor = 1.0 if currency == "usd" else 1000.0
+    return max(floor, abs(total) * 0.01)
+
+
 def receipt_check(data: dict[str, Any]) -> dict[str, Any]:
     """Chekni tekshiradi: mahsulotlar yig'indisini Python hisoblab, chekdagi
-    JAMI bilan solishtiradi. Arifmetika AI'ga ishonib topshirilmaydi."""
+    JAMI bilan solishtiradi. Arifmetika AI'ga ishonib topshirilmaydi.
+
+    Chegirma bor chekda qator narxlari ikki xil yozilgan bo'lishi mumkin:
+      * chegirmaGACHA — qatorlar yig'indisi minus chegirma = JAMI;
+      * chegirmaDAN KEYIN — qatorlarda allaqachon arzonlashgan narx,
+        chegirma qatori faqat ma'lumot uchun: yig'indi = JAMI.
+    Ilgari faqat birinchisi tekshirilardi va ikkinchi turdagi chekda
+    chegirma IKKI MARTA ayirilib, yolg'on «farq» ogohlantirishi chiqardi
+    (va chek behuda qayta o'qilardi). Endi ikkalasi ham sinab ko'riladi;
+    ogohlantirish faqat hech biri mos kelmaganda chiqadi.
+
+    Qaytaradi: holat (mos | farqli | jami_yoq), hisoblangan (qatorlar
+    yig'indisi), chekdagi, farq (eng yaqin talqindagi farq, ishorasi bilan)
+    va narxlar (chegirmagacha | chegirmadan_keyin | None).
+    """
     computed = round(sum(item["summa"] for item in data["mahsulotlar"]), 2)
     discount = data.get("chegirma") or 0.0
     printed = data.get("chekdagi_jami")
 
-    expected = round(computed - discount, 2)
     if printed is None:
         return {"holat": "jami_yoq", "hisoblangan": computed,
-                "chekdagi": None, "farq": None}
+                "chekdagi": None, "farq": None, "narxlar": None}
 
-    diff = round(expected - printed, 2)
-    # Yaxlitlash xatosi uchun kichik bag'rikenglik.
-    tolerance = max(1.0, abs(printed) * 0.001)
+    tolerance = receipt_tolerance(printed, data.get("valyuta") or "som")
+    # (farq, talqin) — qaysi biri JAMI ga yaqinroq bo'lsa o'sha olinadi.
+    candidates = [(round(computed - printed, 2), "chegirmadan_keyin")]
+    if discount:
+        candidates.append((round(computed - discount - printed, 2), "chegirmagacha"))
+    diff, mode = min(candidates, key=lambda c: abs(c[0]))
+
     holat = "mos" if abs(diff) <= tolerance else "farqli"
-    return {"holat": holat, "hisoblangan": computed,
-            "chekdagi": printed, "farq": diff}
+    return {"holat": holat, "hisoblangan": computed, "chekdagi": printed,
+            "farq": diff, "narxlar": mode if holat == "mos" else None}
+
+
+def fit_to_total(amounts: list[float], target: float,
+                 currency: str = "som") -> list[float]:
+    """Summalarni mutanosib o'zgartirib, yig'indisini AYNAN `target` ga
+    tenglaydi.
+
+    Chekdan saqlanadigan pul doim chekdagi yakuniy jamiga teng bo'lishi
+    kerak — chegirma ham, yaxlitlash ham kategoriyalar o'rtasida ulushiga
+    qarab taqsimlanadi. Yaxlitlashdan qolgan qoldiq eng katta qatorga
+    qo'shiladi, shunda yig'indi bir so'mgacha aniq chiqadi.
+    """
+    total = sum(amounts)
+    if not amounts or total <= 0 or target <= 0:
+        return list(amounts)
+    digits = 2 if currency == "usd" else 0
+    scaled = [round(a * target / total, digits) for a in amounts]
+    remainder = round(target - sum(scaled), digits)
+    if remainder:
+        biggest = max(range(len(scaled)), key=lambda i: scaled[i])
+        scaled[biggest] = round(scaled[biggest] + remainder, digits)
+    return scaled
+
+
+def apply_receipt_total(data: dict[str, Any]) -> dict[str, Any]:
+    """Mahsulot summalarini chekdagi yakuniy jamiga moslaydi.
+
+    Chekda JAMI ko'rinmasa, boshqa ishonchli raqam yo'q — summalar
+    o'qilganicha qoladi. Asl qator narxi `summa_asl` da saqlanadi
+    (to'liq ro'yxatda ko'rsatish uchun).
+    """
+    target = data.get("chekdagi_jami")
+    items = data["mahsulotlar"]
+    if not target or not items:
+        return data
+    fitted = fit_to_total([i["summa"] for i in items], target,
+                          data.get("valyuta") or "som")
+    for item, amount in zip(items, fitted):
+        item["summa_asl"] = item["summa"]
+        item["summa"] = amount
+    return data
 
 
 async def parse_receipt(
@@ -711,6 +780,7 @@ async def parse_receipt(
                 data, check = data2, check2
 
     data["tekshiruv"] = check
+    apply_receipt_total(data)
     data["_usage"] = usage
     return data
 
