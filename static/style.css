@@ -510,6 +510,17 @@ html, body {
 .btn:active { transform: scale(0.97); }
 .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; }
 .btn-secondary { background: var(--card-2); color: var(--text); }
+
+/* Kirim kiritilmagan oy: «Farq» o'rniga chiqim jami va shu taklif. */
+.cta-inline {
+  display: block; width: 100%;
+  margin-top: 12px; padding: 12px 14px;
+  border: 1px dashed var(--line); border-radius: var(--r-md);
+  background: transparent; color: var(--text);
+  font-size: 13.5px; font-weight: 600; line-height: 1.35; text-align: left;
+  cursor: pointer;
+}
+.cta-inline.hidden { display: none; }
 .btn-danger { background: var(--critical); color: #fff; }
 .btn-good { background: var(--good); color: #fff; }
 

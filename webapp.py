@@ -437,6 +437,7 @@ def api_transactions(
     kind: str | None = None,
     search: str | None = None,
     receipt_id: str | None = None,
+    group_receipts: bool = False,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: dict = Depends(current_user),
@@ -467,7 +468,8 @@ def api_transactions(
     # bir necha yillik yozuv to'planganda ham tez ishlashi kerak.
     result = db.search_transactions(
         user["user_id"], start_d, end_d, kind=kind, currency=currency,
-        search=search, receipt_id=receipt_id, limit=limit, offset=offset)
+        search=search, receipt_id=receipt_id, limit=limit, offset=offset,
+        group_receipts=group_receipts)
 
     return {
         "total_count": result["total_count"],
@@ -485,13 +487,27 @@ def api_delete_transaction(tx_id: int, user: dict = Depends(current_user)):
 
 
 def _serialize_tx(row) -> dict:
-    return {
+    out = {
         "id": row["id"], "date": row["occurred_on"], "kind": row["kind"],
         "amount": row["amount"], "currency": row["currency"],
         "category": row["category"], "note": row["note"],
         "person": row["person"], "receipt_id": row["receipt_id"],
         "settled": bool(row["settled"]),
     }
+    # group_receipts=1 da chek qatori: mahsulotlar soni va do'kon.
+    if "n" in row.keys():
+        out["items_count"] = row["n"]
+        out["shop"] = row["shop"] or ""
+    return out
+
+
+@app.delete("/api/receipts/{receipt_id}")
+def api_delete_receipt(receipt_id: str, user: dict = Depends(current_user)):
+    """Butun chek: mahsulotlar va sarlavha bitta tranzaksiyada."""
+    removed = db.delete_receipt(user["user_id"], receipt_id)
+    if not removed:
+        raise HTTPException(404, "Chek topilmadi")
+    return {"deleted": removed}
 
 
 class TxUpdate(BaseModel):

@@ -109,3 +109,25 @@ def test_debt_repayment_switch_from_expense(client):
     assert r.status_code == 200 and r.json()["kind"] == "qarz_qaytardim"
     r = client.patch(f"/api/transactions/{tx}", headers=h, json={"kind": "jamgarma"})
     assert r.status_code == 400
+
+
+def test_receipt_is_one_row_in_mini_app_and_deletes_whole(client):
+    h = _user(57)
+    day = tiers.today().isoformat()
+    db.add_receipt(57, "rc2", shop="Makro", occurred_on=day, currency="som",
+                   printed_total=None, discount=None,
+                   items=[{"kind": "chiqim", "amount": a, "category": "oziq-ovqat",
+                           "note": f"m{a}"} for a in (1_000, 2_000, 3_000)])
+    db.add_transaction(57, "chiqim", 25_000, "transport", "taksi", occurred_on=day)
+
+    data = client.get("/api/transactions?group_receipts=1", headers=h).json()
+    assert data["total_count"] == 2
+    receipt = next(i for i in data["items"] if i["receipt_id"])
+    assert (receipt["items_count"], receipt["amount"], receipt["shop"]) == (3, 6_000, "Makro")
+
+    # Guruhlanmagan so'rov (kategoriya filtri, chek tafsiloti) — mahsulotlar.
+    assert client.get("/api/transactions", headers=h).json()["total_count"] == 4
+
+    assert client.delete("/api/receipts/rc2", headers=h).json()["deleted"] == 3
+    assert db.get_receipt(57, "rc2") is None
+    assert client.delete("/api/receipts/rc2", headers=h).status_code == 404

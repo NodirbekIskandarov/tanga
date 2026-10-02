@@ -847,6 +847,7 @@ def search_transactions(
     receipt_id: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    group_receipts: bool = False,
 ) -> dict:
     """Filtrlash, jamlash va sahifalash — hammasi SQL tomonida.
 
@@ -878,18 +879,41 @@ def search_transactions(
 
     clause = " AND ".join(where)
     with get_conn() as conn:
-        total = int(conn.execute(
-            f"SELECT COUNT(*) FROM transactions WHERE {clause}", params).fetchone()[0])
         totals = {
             r["currency"]: round(float(r["s"]), 2)
             for r in conn.execute(
                 f"SELECT currency, SUM(amount) s FROM transactions "
                 f"WHERE {clause} GROUP BY currency", params).fetchall()
         }
-        items = conn.execute(
-            f"""SELECT * FROM transactions WHERE {clause}
-                ORDER BY occurred_on DESC, id DESC LIMIT ? OFFSET ?""",
-            params + [limit, offset]).fetchall()
+        if group_receipts:
+            # Chek BITTA qator: mahsulotlar receipt_id bo'yicha yig'iladi.
+            # Sahifalash ham guruhlar bo'yicha — chek ikki sahifaga
+            # bo'linib ketmaydi.
+            key = "CASE WHEN t.receipt_id IS NULL THEN 'tx' || t.id ELSE t.receipt_id END"
+            source = f"(SELECT * FROM transactions WHERE {clause}) t"
+            total = int(conn.execute(
+                f"SELECT COUNT(DISTINCT {key}) FROM {source}", params).fetchone()[0])
+            items = [dict(r) for r in conn.execute(
+                f"""SELECT MAX(t.id) AS id, t.receipt_id, COUNT(*) AS n,
+                           SUM(t.amount) AS amount, MAX(t.currency) AS currency,
+                           MAX(t.occurred_on) AS occurred_on, MAX(t.kind) AS kind,
+                           MAX(t.category) AS category, MAX(t.note) AS note,
+                           MAX(t.person) AS person, MAX(t.settled) AS settled,
+                           MAX(r.shop) AS shop
+                    FROM {source}
+                    LEFT JOIN receipts r
+                      ON r.user_id = t.user_id AND r.receipt_id = t.receipt_id
+                    GROUP BY {key}
+                    ORDER BY MAX(t.occurred_on) DESC, MAX(t.id) DESC
+                    LIMIT ? OFFSET ?""",
+                params + [limit, offset]).fetchall()]
+        else:
+            total = int(conn.execute(
+                f"SELECT COUNT(*) FROM transactions WHERE {clause}", params).fetchone()[0])
+            items = conn.execute(
+                f"""SELECT * FROM transactions WHERE {clause}
+                    ORDER BY occurred_on DESC, id DESC LIMIT ? OFFSET ?""",
+                params + [limit, offset]).fetchall()
 
     return {"total_count": total, "totals": totals, "items": items}
 

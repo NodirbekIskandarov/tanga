@@ -42,6 +42,11 @@
   // Qarz qaytarish o'z yo'nalishining rangida: men qaytargan pul — men
   // olgan qarz rangida, menga qaytarilgani — men bergan qarz rangida.
   STATUS.qarz_qaytardim = STATUS.qarz_oldim;
+  // Qo'rqitmaydigan ranglar: kirim yo'q oyda chiqim halqasi — neytral;
+  // chiqim kirimdan oshgan oyda — qizil emas, sokin sariq.
+  const CALM = SCHEME === "light"
+    ? { neutral: "#8a94a6", over: "#c98500" }
+    : { neutral: "#7d8799", over: "#d9a441" };
   STATUS.qarz_qaytdi = STATUS.qarz_berdim;
 
   const CATEGORY_PALETTE = SCHEME === "light"
@@ -471,6 +476,8 @@
 
   function renderCurrentKind() {
     const cur = state.currency;
+    // Kirim taklifi faqat «Hammasi» ko'rinishida (pastda qayta yoqiladi).
+    document.getElementById("incomeCta").classList.add("hidden");
 
     if (state.kind === "qarz") {
       renderQarzKind();
@@ -492,14 +499,25 @@
     }
 
     if (state.kind === ALL) {
-      renderDonut(
-        [
-          { value: data.kirim, color: STATUS.kirim },
-          { value: data.chiqim, color: STATUS.chiqim },
-        ],
-        fmtMoneyParts(data.farq, cur),
-        "Farq"
-      );
+      // Kirim yozilmagan davrda «Farq» = −chiqim: katta qizil manfiy son
+      // odamni qo'rqitadi, lekin hech narsa aytmaydi (kirim shunchaki
+      // kiritilmagan). Shunda chiqim jami neytral rangda va kirimni
+      // kiritish taklifi ko'rsatiladi; «Farq» faqat kirim bo'lganda.
+      const noIncome = !data.kirim;
+      document.getElementById("incomeCta").classList.toggle("hidden", !noIncome || !data.chiqim);
+      if (noIncome) {
+        renderDonut([{ value: data.chiqim, color: CALM.neutral }],
+          fmtMoneyParts(data.chiqim, cur), "Chiqim");
+      } else {
+        renderDonut(
+          [
+            { value: data.kirim, color: STATUS.kirim },
+            { value: data.chiqim, color: data.farq < 0 ? CALM.over : STATUS.chiqim },
+          ],
+          fmtMoneyParts(data.farq, cur),
+          "Farq"
+        );
+      }
       // Jamg'arma halqaga QO'SHILMAYDI: halqa kirim/chiqim nisbatini
       // ko'rsatadi, jamg'arma esa sarflangan pul emas. Lekin yorliqda
       // turadi — «avval o'zingga to'la» qoidasi ko'zga tashlansin.
@@ -725,6 +743,8 @@
     const params = new URLSearchParams({
       start: state.summary.start, end: state.summary.end,
       limit: state.recentLimit, offset: state.recentOffset,
+      // Chek — bitta qator (mahsulotlari bosilganda ochiladi).
+      group_receipts: "1",
     });
     // «hammasi» — valyuta filtri yo'q degani, uni serverga yubormaymiz.
     if (state.currency !== ALL) params.set("currency", state.currency);
@@ -809,7 +829,64 @@
     };
   }
 
+  function buildReceiptRow(tx) {
+    const div = document.createElement("div");
+    div.className = "tx-row";
+    const name = tx.shop ? `${tx.shop} cheki` : "Chek";
+    div.innerHTML = `
+      <div class="tx-icon">🧾</div>
+      <div class="tx-main">
+        <div class="tx-note">${escapeHtml(name)}</div>
+        <div class="tx-meta">${fmtDate(tx.date)} · ${tx.items_count} mahsulot</div>
+      </div>
+      <div class="tx-amount chiqim">${kindIcon("chiqim")} ${fmtMoney(tx.amount, tx.currency)}</div>
+    `;
+    div.onclick = () => openReceiptSheet(tx);
+    return div;
+  }
+
+  /** Chek: mahsulotlar ro'yxati (har biri bosilsa — kategoriyasini
+   * tuzatish) va butun chekni o'chirish. */
+  async function openReceiptSheet(tx) {
+    const body = document.getElementById("detailBody");
+    const name = tx.shop ? `${tx.shop} cheki` : "Chek";
+    body.innerHTML = `
+      <div class="sheet-titlebar">
+        <div class="tx-detail-header">
+          <span style="font-size:22px">🧾</span>
+          <span class="tx-detail-amount">${fmtMoney(tx.amount, tx.currency)}</span>
+        </div>
+        <button class="icon-btn" id="detailClose" aria-label="Yopish">✕</button>
+      </div>
+      <div class="tx-detail-meta">${escapeHtml(name)} · ${fmtDate(tx.date)} · ${tx.items_count} mahsulot</div>
+      <div id="receiptAll" class="tx-list">${skeleton(3)}</div>
+      <div class="sheet-actions">
+        <button class="btn btn-danger" id="deleteReceiptBtn">🗑 Butun chekni o'chirish</button>
+      </div>`;
+    openSheet("detailBackdrop");
+    body.querySelector("#detailClose").onclick = () => closeSheet("detailBackdrop");
+    body.querySelector("#deleteReceiptBtn").onclick = () =>
+      confirmAction("Butun chek o'chirilsinmi?", async () => {
+        try {
+          await api(`/api/receipts/${encodeURIComponent(tx.receipt_id)}`, { method: "DELETE" });
+          haptic("success"); toast("Chek o'chirildi");
+          closeSheet("detailBackdrop");
+          refreshAll();
+        } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
+      });
+    try {
+      const data = await api(`/api/transactions?receipt_id=${encodeURIComponent(tx.receipt_id)}&limit=200`);
+      const el = body.querySelector("#receiptAll");
+      el.innerHTML = "";
+      data.items.forEach((item) => el.appendChild(buildTxRow(item)));
+    } catch (e) {
+      body.querySelector("#receiptAll").innerHTML =
+        `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+    }
+  }
+
   function buildTxRow(tx) {
+    if (tx.receipt_id && tx.items_count) return buildReceiptRow(tx);
     const div = document.createElement("div");
     div.className = "tx-row";
     const icon = tx.kind.startsWith("qarz") ? "🤝" : catIcon(tx.category);
@@ -1021,10 +1098,11 @@
     amount: "", note: "", person: "",
   };
 
-  function openAddSheet() {
-    addForm.kind = "chiqim";
+  function openAddSheet(kind, category) {
+    addForm.kind = typeof kind === "string" ? kind : "chiqim";
     addForm.currency = state.currencies[0] || "som";
-    addForm.category = (state.me.categories_by_kind.chiqim || [])[0] || "";
+    addForm.category = (typeof category === "string" && category) ||
+      (state.me.categories_by_kind[addForm.kind] || [])[0] || "";
     addForm.date = todayIso();
     addForm.amount = "";
     addForm.note = "";
@@ -1272,7 +1350,8 @@
       loadRecent(true);
     };
 
-    document.getElementById("fabAdd").onclick = openAddSheet;
+    document.getElementById("fabAdd").onclick = () => openAddSheet();
+    document.getElementById("incomeCta").onclick = () => openAddSheet("kirim", "oylik");
     document.getElementById("csvBtn").onclick = exportCsv;
 
     document.getElementById("detailBackdrop").onclick = (ev) => {
