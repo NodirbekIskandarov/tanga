@@ -65,3 +65,20 @@ def user_id():
     uid = 1001
     db.get_or_create_user(uid, "Test", None)
     return uid
+
+
+def pytest_terminal_summary(terminalreporter):
+    """Jonli AI testidan keyin natijalar jadvali (pytest -m live)."""
+    from tests import live_results
+    if not live_results.RESULTS:
+        return
+    tr = terminalreporter
+    tr.section("Jonli AI natijalari")
+    tr.write_line("| # | Xabar | Kutilgan | Model javobi | Natija |")
+    tr.write_line("|---|---|---|---|---|")
+    for i, (group, text, want, got, ok) in enumerate(live_results.RESULTS, 1):
+        mark = "✅" if ok else "❌"
+        tag = "" if group == "jadval" else " *(qo'shimcha)*"
+        tr.write_line(f"| {i} | {text}{tag} | {want} | {got} | {mark} |")
+    passed = sum(1 for r in live_results.RESULTS if r[4])
+    tr.write_line(f"\n{passed}/{len(live_results.RESULTS)} to'g'ri")

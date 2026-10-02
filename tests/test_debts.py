@@ -63,6 +63,13 @@ def test_repayment_reduces_debt_by_person_fifo(user_id):
     assert db.open_debts(user_id) == []
 
 
+def test_person_names_match_across_scripts(user_id):
+    assert db.person_key("Akmal") == db.person_key("Акмал") == db.person_key(" akmal ")
+    _add(user_id, "qarz_berdim", 200_000, "Акмал", day="2026-09-01")
+    _add(user_id, "qarz_qaytdi", 200_000, "Akmal", day="2026-09-05")
+    assert db.open_debts(user_id) == []
+
+
 def test_repayment_does_not_close_later_debt_or_other_direction(user_id):
     _add(user_id, "qarz_qaytdi", 100_000, "Akmal", day="2026-09-01")
     _add(user_id, "qarz_berdim", 100_000, "Akmal", day="2026-09-05")

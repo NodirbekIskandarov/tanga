@@ -888,8 +888,14 @@ def recent(user_id: int, limit: int = 10) -> list[sqlite3.Row]:
 
 def person_key(name: str | None) -> str:
     """Qarzdagi shaxs ismini solishtirish uchun: «Akmal», «akmal»,
-    «Akmal » — bitta odam. Apostrof turlari ham birlashtiriladi."""
-    raw = (name or "").casefold().strip()
+    «Akmal », «Акмал» — bitta odam. Apostrof turlari ham birlashtiriladi.
+
+    Ism lotinda ham, kirillda ham yozilishi mumkin (qarz bir yozuvda
+    berilib, boshqasida qaytarilishi mumkin) — shuning uchun solishtirish
+    bitta yozuvga (kirill) keltirib qilinadi.
+    """
+    import translit
+    raw = translit.to_cyrillic((name or "").strip()).casefold()
     for ch in "ʻʼ‘’`'":
         raw = raw.replace(ch, "")
     return " ".join(raw.split())
