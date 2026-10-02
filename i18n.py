@@ -81,23 +81,6 @@ T = {
         "uz": "Bot hozircha yopiq sinovda.\nSizning ID: {id}",
         "ru": "Бот пока в закрытом тестировании.\nВаш ID: {id}",
     },
-    "expired": {
-        "uz": ("⏳ <b>Bepul muddat tugadi</b>\n\n"
-               "Botdan foydalanishni davom ettirish uchun obuna kerak.\n"
-               "Quyidagi tariflardan birini tanlang yoki <b>{contact}</b> ga yozing.\n\n"
-               "<i>Ma'lumotlaringiz saqlanib turibdi — obunadan keyin hammasi "
-               "joyida bo'ladi.</i>"),
-        "ru": ("⏳ <b>Бесплатный период закончился</b>\n\n"
-               "Чтобы продолжить пользоваться ботом, нужна подписка.\n"
-               "Выберите тариф ниже или напишите <b>{contact}</b>.\n\n"
-               "<i>Ваши данные сохранены — после оплаты всё будет на месте.</i>"),
-    },
-    "limit_reached": {
-        "uz": ("⛔ Bugungi {label} chegarasi tugadi ({limit} ta).\n"
-               "Ertaga yangilanadi."),
-        "ru": ("⛔ Дневной лимит исчерпан: {label} ({limit}).\n"
-               "Обновится завтра."),
-    },
     "ai_error": {
         "uz": "⚠️ AI bilan bog'lanishda xatolik. Birozdan keyin urinib ko'ring.",
         "ru": "⚠️ Ошибка связи с AI. Попробуйте чуть позже.",
@@ -118,41 +101,6 @@ T = {
     },
 
     # ---- Obuna va to'lov ----
-    "plans_title": {"uz": "💎 <b>Obuna tariflari</b>", "ru": "💎 <b>Тарифы подписки</b>"},
-    "plans_trial": {
-        "uz": ("🎁 Bepul sinovingiz faol — <b>{days} kun</b> qoldi.\n"
-               "<i>Hoziroq obuna bo'lsangiz, qolgan bepul kunlar yo'qolmaydi — "
-               "obuna muddati ularning ustiga qo'shiladi.</i>"),
-        "ru": ("🎁 Пробный период активен — осталось <b>{days} дн.</b>\n"
-               "<i>Если оформите подписку сейчас, оставшиеся бесплатные дни не "
-               "пропадут — срок подписки добавится к ним.</i>"),
-    },
-    "plans_active": {
-        "uz": ("✅ Obunangiz faol — <b>{days} kun</b> qoldi.\n"
-               "<i>Uzaytirsangiz, yangi muddat mavjudining ustiga qo'shiladi.</i>"),
-        "ru": ("✅ Подписка активна — осталось <b>{days} дн.</b>\n"
-               "<i>При продлении новый срок добавится к текущему.</i>"),
-    },
-    "plans_includes": {
-        "uz": ("<b>Obunada nima bor:</b>\n"
-               "• Cheksiz matnli yozuv va chek o'qish\n"
-               "• Grafik boshqaruv paneli\n"
-               "• Savol-javob va barcha hisobotlar\n"
-               "• Byudjet va kunlik eslatma\n"
-               "• CSV eksport"),
-        "ru": ("<b>Что входит в подписку:</b>\n"
-               "• Неограниченные записи и распознавание чеков\n"
-               "• Графическая панель управления\n"
-               "• Вопросы-ответы и все отчёты\n"
-               "• Бюджеты и ежедневные напоминания\n"
-               "• Экспорт в CSV"),
-    },
-    "plans_pick": {
-        "uz": "Kerakli tarifni tanlang — keyin to'lov rekvizitlari ko'rsatiladi.",
-        "ru": "Выберите тариф — после этого появятся реквизиты для оплаты.",
-    },
-    "plan_month_price": {"uz": "oyiga {price}", "ru": "{price} в месяц"},
-    "plan_save": {"uz": "{pct}% tejash", "ru": "экономия {pct}%"},
     "owner_no_sub": {
         "uz": "👑 Siz bot egasisiz — obuna kerak emas, cheksiz foydalanasiz.",
         "ru": "👑 Вы владелец бота — подписка не нужна, доступ без ограничений.",
@@ -322,22 +270,6 @@ T = {
     },
 
     # ---- Muddat ogohlantirishi ----
-    "expiry_trial": {
-        "uz": "🎁 <b>Bepul sinovingizga {days} kun qoldi</b>",
-        "ru": "🎁 <b>До конца пробного периода {days} дн.</b>",
-    },
-    "expiry_trial_today": {
-        "uz": "🎁 <b>Bepul sinovingiz bugun tugaydi</b>",
-        "ru": "🎁 <b>Пробный период заканчивается сегодня</b>",
-    },
-    "expiry_trial_body": {
-        "uz": ("Shu vaqt ichida <b>{n} ta</b> yozuv qildingiz.\n\n"
-               "Obuna bo'lsangiz — hammasi joyida qoladi va davom etaverasiz. "
-               "Qolgan bepul kunlar yo'qolmaydi."),
-        "ru": ("За это время вы сделали <b>{n}</b> записей.\n\n"
-               "Оформите подписку — всё сохранится и вы продолжите работу. "
-               "Оставшиеся бесплатные дни не пропадут."),
-    },
     "expiry_sub": {
         "uz": "⏳ <b>Obunangizga {days} kun qoldi</b>",
         "ru": "⏳ <b>До конца подписки {days} дн.</b>",
@@ -1189,6 +1121,198 @@ T = {
         "ru": "\n\n🔥 Ваша лучшая серия — {n} дней. Начнём новую?",
     },
 }
+
+
+# --------------------------------------------------------------------------- #
+# Tanga PRO: tariflar, paywall, sinov va chegaralar (4-bosqich)
+# --------------------------------------------------------------------------- #
+
+T.update({
+    # ---- Tariflar sahifasi (4.5) — funksiya ro'yxati emas, foyda ----
+    "pro_title": {"uz": "💎 <b>Tanga PRO</b>", "ru": "💎 <b>Tanga PRO</b>"},
+    "pro_pitch": {
+        "uz": ("Pulingiz qayerga ketayotganini ko'rish — bepul.\n"
+               "Uni maqsadga yo'naltirish — PRO."),
+        "ru": ("Видеть, куда уходят деньги, — бесплатно.\n"
+               "Направить их к цели — PRO."),
+    },
+    "pro_features": {
+        "uz": ("✅ Maqsadlar va «qachon erishaman» bashorati\n"
+               "✅ Cheksiz chek o'qish\n"
+               "✅ Barcha oylar tahlili va solishtirish\n"
+               "✅ Qarz va byudjet eslatmalari\n"
+               "✅ «Avval o'zingizga to'lang» avtomatik rejasi"),
+        "ru": ("✅ Цели и прогноз «когда достигну»\n"
+               "✅ Безлимитное распознавание чеков\n"
+               "✅ Анализ всех месяцев и сравнение\n"
+               "✅ Напоминания о долгах и бюджете\n"
+               "✅ Автоплан «Сначала заплати себе»"),
+    },
+    "plan_best_line": {
+        "uz": "⭐ <b>{label} — {price}</b> (oyiga {monthly}, {pct}% tejash)",
+        "ru": "⭐ <b>{label} — {price}</b> ({monthly} в месяц, экономия {pct}%)",
+    },
+    "plan_line": {"uz": "   {label} — {price}", "ru": "   {label} — {price}"},
+    "plan_founders_line": {
+        "uz": "🎁 <b>{label}: birinchi yil {price}</b> (qolgan joylar: {left}/{total})",
+        "ru": "🎁 <b>{label}: первый год {price}</b> (осталось мест: {left}/{total})",
+    },
+    "plan_label_12m": {"uz": "Yillik", "ru": "Годовой"},
+    "plan_label_1m": {"uz": "Oylik", "ru": "Месячный"},
+    "plan_label_f12": {"uz": "Asoschilar taklifi", "ru": "Предложение основателям"},
+    "plan_best_badge": {"uz": "⭐ Eng foydali", "ru": "⭐ Самый выгодный"},
+    "pro_status_trial": {
+        "uz": "🎁 PRO sinov faol — <b>{days} kun</b> qoldi. Hoziroq to'lasangiz, qolgan kunlar yo'qolmaydi.",
+        "ru": "🎁 Пробный PRO активен — осталось <b>{days} дн.</b> Оплатите сейчас — оставшиеся дни сохранятся.",
+    },
+    "pro_status_sub": {
+        "uz": "✅ PRO faol — <b>{days} kun</b> qoldi. Uzaytirsangiz, yangi muddat ustiga qo'shiladi.",
+        "ru": "✅ PRO активен — осталось <b>{days} дн.</b> При продлении срок добавится к текущему.",
+    },
+    "pro_pick": {
+        "uz": "<i>Tarifni tanlang — keyin to'lov rekvizitlari chiqadi.</i>",
+        "ru": "<i>Выберите тариф — затем появятся реквизиты для оплаты.</i>",
+    },
+    "plan_unavailable": {
+        "uz": "Bu tarif endi mavjud emas. /obuna dan joriy tariflarni ko'ring.",
+        "ru": "Этот тариф больше недоступен. Актуальные тарифы: /obuna",
+    },
+
+    # ---- Paywall (4.3): nima qulflangan, PRO nima beradi, bitta tugma ----
+    "pro_btn": {"uz": "💎 PRO ga o'tish", "ru": "💎 Перейти на PRO"},
+    "pro_continue_btn": {"uz": "💎 PRO ni davom ettirish", "ru": "💎 Продолжить PRO"},
+    "paywall_receipts": {
+        "uz": ("🧾 <b>Bu oygi {limit} ta bepul chek ishlatildi.</b>\n\n"
+               "Keyingi bepul cheklar {date} da ochiladi. Hozircha xarajatni "
+               "matn bilan yozishingiz mumkin — bu cheksiz.\n\n"
+               "PRO'da chek o'qish cheksiz: har bir mahsulot o'z kategoriyasiga "
+               "tushadi."),
+        "ru": ("🧾 <b>{limit} бесплатных чека в этом месяце использованы.</b>\n\n"
+               "Следующие откроются {date}. Пока можно записывать расходы "
+               "текстом — это без ограничений.\n\n"
+               "В PRO чеки без ограничений: каждый товар попадает в свою категорию."),
+    },
+    "paywall_history": {
+        "uz": ("📊 <b>Bepul versiyada joriy oy tahlili ochiq.</b>\n\n"
+               "O'tgan oylar, yillik hisobot va oylarni solishtirish — PRO'da. "
+               "Yozuvlaringiz saqlanib turibdi, hech biri yo'qolmagan."),
+        "ru": ("📊 <b>В бесплатной версии доступен текущий месяц.</b>\n\n"
+               "Прошлые месяцы, годовой отчёт и сравнение месяцев — в PRO. "
+               "Все ваши записи сохранены."),
+    },
+    "paywall_budget": {
+        "uz": ("💰 <b>Byudjet — PRO imkoniyati.</b>\n\n"
+               "Kategoriyaga oylik chegara qo'yasiz, yaqinlashganda ogohlantiraman."),
+        "ru": ("💰 <b>Бюджет — функция PRO.</b>\n\n"
+               "Задайте лимит на категорию — предупрежу, когда приблизитесь."),
+    },
+    "paywall_csv": {
+        "uz": ("📤 <b>CSV eksport — PRO imkoniyati.</b>\n\n"
+               "Barcha yozuvlaringiz Excel'da ochiladigan faylda."),
+        "ru": ("📤 <b>Экспорт в CSV — функция PRO.</b>\n\n"
+               "Все записи в файле, который открывается в Excel."),
+    },
+    "paywall_qa": {
+        "uz": ("💬 <b>Bugungi {limit} ta bepul savol ishlatildi.</b>\n\n"
+               "Ertaga yana {limit} ta ochiladi. PRO'da savollar cheksiz."),
+        "ru": ("💬 <b>{limit} бесплатных вопроса на сегодня использованы.</b>\n\n"
+               "Завтра откроются ещё {limit}. В PRO — без ограничений."),
+    },
+    # Bir kunda ikkinchi marta — qisqa, tugmasiz.
+    "paywall_short": {
+        "uz": "🔒 {feature} — PRO imkoniyati. Batafsil: /obuna",
+        "ru": "🔒 {feature} — функция PRO. Подробнее: /obuna",
+    },
+    "feature_receipts": {"uz": "Chek o'qish (bu oy limit tugadi)",
+                         "ru": "Распознавание чеков (лимит месяца исчерпан)"},
+    "feature_history": {"uz": "O'tgan davrlar tahlili", "ru": "Анализ прошлых периодов"},
+    "feature_budget": {"uz": "Byudjet", "ru": "Бюджет"},
+    "feature_csv": {"uz": "CSV eksport", "ru": "Экспорт в CSV"},
+    "feature_qa": {"uz": "AI savollar (bugungi limit tugadi)",
+                   "ru": "Вопросы AI (дневной лимит исчерпан)"},
+
+    # ---- Adolatli foydalanish chegarasi — muloyim, qachon yangilanishi bilan ----
+    "fair_limit": {
+        "uz": ("⏸ Bugun {limit} ta {what} — bu kunlik chegara.\n"
+               "Ertaga soat 00:00 da (Toshkent vaqti) yangilanadi. Kiritilgan "
+               "hamma narsa saqlangan."),
+        "ru": ("⏸ Сегодня {limit} {what} — это дневной лимит.\n"
+               "Обновится завтра в 00:00 (по Ташкенту). Всё введённое сохранено."),
+    },
+    "what_matn": {"uz": "yozuv kiritildi", "ru": "записей"},
+    "what_chek": {"uz": "chek o'qildi", "ru": "чеков"},
+    "what_qa": {"uz": "savol berildi", "ru": "вопросов"},
+
+    # ---- Teskari sinov (4.4) ----
+    "trial_active": {
+        "uz": "🎁 <b>{days} kunlik PRO sizda faol</b> — barcha imkoniyatlar ochiq.",
+        "ru": "🎁 <b>У вас активен PRO на {days} дн.</b> — все возможности открыты.",
+    },
+    "trial_day5": {
+        "uz": ("⏳ <b>PRO yana {days} kun faol.</b>\n\n"
+               "Shu vaqtgacha: {entries} ta yozuv, {receipts} ta chek{goal}.\n\n"
+               "Hozir davom ettirsangiz, qolgan kunlar yo'qolmaydi."),
+        "ru": ("⏳ <b>PRO активен ещё {days} дн.</b>\n\n"
+               "За это время: {entries} записей, {receipts} чеков{goal}.\n\n"
+               "Продлите сейчас — оставшиеся дни сохранятся."),
+    },
+    "trial_goal_part": {"uz": ", maqsadingizning {pct}%", "ru": ", {pct}% цели"},
+    "trial_ended": {
+        "uz": ("🔔 <b>PRO sinov tugadi.</b>\n\n"
+               "<b>Bepul versiyada qoladi:</b>\n"
+               "• matn bilan cheksiz yozuv\n"
+               "• bugun, hafta va joriy oy hisobotlari\n"
+               "• qarzlar ro'yxati\n\n"
+               "<b>Qulflanadi:</b>\n{locks}"),
+        "ru": ("🔔 <b>Пробный PRO закончился.</b>\n\n"
+               "<b>Бесплатно остаётся:</b>\n"
+               "• безлимитные записи текстом\n"
+               "• отчёты за сегодня, неделю и текущий месяц\n"
+               "• список долгов\n\n"
+               "<b>Закроется:</b>\n{locks}"),
+    },
+    "lock_history": {"uz": "• {month}dan oldingi tahlilingiz",
+                     "ru": "• анализ до {month}"},
+    "lock_goal": {"uz": "• «{goal}» maqsadingiz bashorati",
+                  "ru": "• прогноз цели «{goal}»"},
+    "lock_receipts": {"uz": "• chek o'qish (oyiga {n} ta)",
+                      "ru": "• распознавание чеков ({n} в месяц)"},
+    "lock_budget": {"uz": "• byudjet ogohlantirishlari",
+                    "ru": "• уведомления о бюджете"},
+
+    # ---- /holat ----
+    "status_free": {
+        "uz": "🆓 <b>Bepul versiya</b>",
+        "ru": "🆓 <b>Бесплатная версия</b>",
+    },
+    "status_free_limits": {
+        "uz": "Bu oy chek: {left}/{total} qoldi · Bugun savol: {qa_left}/{qa_total} qoldi",
+        "ru": "Чеков в этом месяце: осталось {left}/{total} · Вопросов сегодня: {qa_left}/{qa_total}",
+    },
+    "status_free_hint": {
+        "uz": "<i>PRO: cheksiz chek, barcha oylar tahlili, byudjet va CSV.</i>",
+        "ru": "<i>PRO: безлимитные чеки, анализ всех месяцев, бюджет и CSV.</i>",
+    },
+
+    # ---- Ega uchun oddiy rejim (2.4) ----
+    "sim_on": {
+        "uz": ("🧪 <b>Oddiy rejim yoqildi.</b>\n\nEndi bot sizni obunasiz, sinovi "
+               "tugagan foydalanuvchi sifatida ko'radi: limitlar, paywall va "
+               "tariflar oddiy odamdagidek. To'lov tasdiqlash o'zgarmaydi.\n\n"
+               "O'chirish: /oddiy_rejim off"),
+        "ru": ("🧪 <b>Обычный режим включён.</b>\n\nБот видит вас как пользователя "
+               "без подписки с закончившимся пробным периодом. Подтверждение "
+               "оплаты не меняется.\n\nВыключить: /oddiy_rejim off"),
+    },
+    "sim_off": {
+        "uz": "👑 Oddiy rejim o'chirildi — yana bot egasisiz.",
+        "ru": "👑 Обычный режим выключен — вы снова владелец.",
+    },
+    "sim_usage": {
+        "uz": "Foydalanish: <code>/oddiy_rejim on</code> yoki <code>/oddiy_rejim off</code>\nHozir: {state}",
+        "ru": "Использование: <code>/oddiy_rejim on</code> или <code>/oddiy_rejim off</code>\nСейчас: {state}",
+    },
+})
 
 
 def _resolve(entry: dict, lang: str, fallback: str) -> str:

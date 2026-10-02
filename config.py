@@ -147,6 +147,11 @@ def private_key_pragma() -> str:
             "Yangi kalit: python -c "
             "\"import secrets; print(secrets.token_hex(32))\"")
     return _key_pragma(PRIVATE_DB_KEY, "PRIVATE_DB_KEY")
+# Shartlar va maxfiylik siyosatiga rozilik versiyasi. Shartlar o'zgarsa
+# oshiriladi va roziligi eskirganlardan qaytadan so'raladi. Bot ham, Mini
+# App ham shu qiymatni tekshiradi.
+CONSENT_VERSION = "2026-08-1"
+
 CURRENCY = os.getenv("CURRENCY", "so'm")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
 
@@ -302,27 +307,44 @@ def card_pretty() -> str:
 # --------------------------------------------------------------------------- #
 # Obuna tariflari
 #
-# Narxni o'zgartirish uchun shu ro'yxatni tahrirlang — bot matnlari, tejash
-# foizi va oylik narx avtomatik qayta hisoblanadi.
-# Uzoq muddatli obuna ataylab arzonroq: AI xarajati past, shuning uchun
-# obunachini uzoq muddatga "qulflash" foydali.
+# Tarif ro'yxati SHU YERDA, narxlar esa admin panelning «Sozlamalar»
+# ekranida (`app_settings`, kalit `plan_price_<kod>`) — bot ham, admin
+# panel ham o'sha jadvalni o'qiydi. Quyidagi narx — jadvalda qiymat
+# bo'lmasa ishlatiladigan boshlang'ich qiymat.
+#
+# Kodlar ATAYLAB eski: PRO oylik = «1m», PRO yillik = «12m». Admin panel
+# so'rovni tasdiqlaganda tarifni kod bo'yicha o'z ro'yxatidan topadi —
+# kod o'zgarsa tasdiqlash ishlamay qoladi.
+#
+# `public` — yangi xarid uchun ko'rsatiladimi. 3 va 6 oylik endi
+# sotilmaydi, lekin ro'yxatda qoladi: eski so'rovlar va to'lov tarixi
+# ular orqali nomlanadi, faol obunalar o'z muddatigacha ishlaydi.
 # --------------------------------------------------------------------------- #
 
 SUBSCRIPTION_PLANS = [
-    {"code": "1m",  "days": 30,  "months": 1,  "price": 37_000,  "label": "Oylik"},
-    {"code": "3m",  "days": 90,  "months": 3,  "price": 99_000,  "label": "3 oylik"},
-    {"code": "6m",  "days": 180, "months": 6,  "price": 179_000, "label": "6 oylik"},
-    {"code": "12m", "days": 365, "months": 12, "price": 289_000, "label": "Yillik"},
+    # Ro'yxatdagi tartib — ekrandagi tartib: eng foydalisi birinchi.
+    {"code": "12m", "days": 365, "months": 12, "price": 149_000,
+     "label": "PRO yillik", "public": True, "best": True},
+    {"code": "1m",  "days": 30,  "months": 1,  "price": 19_000,
+     "label": "PRO oylik", "public": True},
+    # Asoschilar taklifi: birinchi FOUNDERS_LIMIT ta to'lovchi uchun.
+    {"code": "f12", "days": 365, "months": 12, "price": 99_000,
+     "label": "Asoschilar taklifi", "public": True, "founders": True},
+    {"code": "3m",  "days": 90,  "months": 3,  "price": 99_000,
+     "label": "3 oylik", "public": False},
+    {"code": "6m",  "days": 180, "months": 6,  "price": 179_000,
+     "label": "6 oylik", "public": False},
 ]
+MONTHLY_PLAN_CODE = "1m"
+FOUNDERS_LIMIT = int(os.getenv("FOUNDERS_LIMIT", "100"))
 
 
 def plans() -> list[dict]:
-    """Joriy tariflar.
+    """Barcha tariflar (yashirinlari ham) joriy narxlari bilan.
 
     Narx admin panelning «Sozlamalar» ekranida o'zgartiriladi va bazadagi
     `app_settings` jadvaliga tushadi. Bot shu jadvalni o'qiydi, ya'ni narx
-    bir joyda turadi — ilgari ro'yxat ikki loyihada takrorlanardi va
-    o'zgartirishda biri unutilib qolishi mumkin edi.
+    bir joyda turadi.
     """
     overrides = runtime_settings()
     result = []
@@ -337,23 +359,81 @@ def plans() -> list[dict]:
 
 
 def plan_by_code(code: str) -> dict | None:
+    """Har qanday tarif — yashirini ham (eski so'rov nomini ko'rsatish uchun)."""
     return next((p for p in plans() if p["code"] == code), None)
 
 
+def founders_left() -> int:
+    """Asoschilar taklifida qolgan joylar.
+
+    Tasdiqlangan va to'lov cheki yuborib tekshiruvda turgan so'rovlar
+    hisoblanadi — tanlab, lekin to'lamaganlar joy egallamaydi.
+    """
+    try:
+        import db
+        taken = db.founders_taken()
+    except Exception:
+        taken = 0
+    return max(0, FOUNDERS_LIMIT - taken)
+
+
+def public_plans() -> list[dict]:
+    """Yangi xarid uchun ko'rsatiladigan tariflar. Asoschilar taklifi
+    joylar tugagach o'z-o'zidan yopiladi."""
+    left = None
+    out = []
+    for p in plans():
+        if not p.get("public"):
+            continue
+        if p.get("founders"):
+            left = founders_left() if left is None else left
+            if left <= 0:
+                continue
+            p["left"] = left
+        out.append(p)
+    return out
+
+
+def purchasable_plan(code: str) -> dict | None:
+    """Tanlangan tarifni hozir sotib olish mumkinmi — eski xabardagi 3 oylik
+    tugmasi yoki yopilgan asoschilar taklifi bo'lsa None."""
+    return next((p for p in public_plans() if p["code"] == code), None)
+
+
 def plan_monthly_price(plan: dict) -> int:
-    return round(plan["price"] / plan["months"])
+    """Oyiga to'g'ri keladigan narx, yuzlikka yaxlitlangan: 149 000 / 12
+    = 12 417 -> 12 400. Reklama matnida aniq tiyin emas, tushunarli son."""
+    value = plan["price"] / plan["months"]
+    return int(round(value, -2)) if plan["months"] > 1 else int(value)
 
 
 def plan_discount_percent(plan: dict) -> int:
     """Oylik tarifga nisbatan necha foiz tejaladi."""
-    base = plans()[0]["price"] * plan["months"]
+    monthly = plan_by_code(MONTHLY_PLAN_CODE)
+    base = (monthly["price"] if monthly else 0) * plan["months"]
     if base <= 0 or plan["price"] >= base:
         return 0
     return round((base - plan["price"]) / base * 100)
 
+
 # --------------------------------------------------------------------------- #
-# Kunlik limitlar — suiiste'moldan himoya. Egalarga qo'llanmaydi.
-# Bitta foydalanuvchi cheksiz so'rov yuborib katta xarajat keltirmasligi uchun.
+# Bepul va PRO darajasi
+#
+# PRO — sinov muddati, obuna yoki ega. Qolgan hamma — Bepul: botdan
+# foydalanadi, lekin ayrim imkoniyatlar yopiq (tiers.py).
+# --------------------------------------------------------------------------- #
+
+# Bepul: oyiga shuncha chek. Chek o'qish eng qimmat amal (Opus/Sonnet
+# vision), shuning uchun bepul darajada eng qattiq cheklangan.
+FREE_RECEIPTS_PER_MONTH = int(os.getenv("FREE_RECEIPTS_PER_MONTH", "3"))
+# Bepul: kuniga shuncha AI savol.
+FREE_QA_PER_DAY = int(os.getenv("FREE_QA_PER_DAY", "3"))
+
+# --------------------------------------------------------------------------- #
+# Kunlik limitlar — suiiste'moldan himoya, Bepul ham, PRO ham uchun
+# («adolatli foydalanish»). Egalarga qo'llanmaydi. Matnli yozuv oddiy
+# odam hech qachon yetmaydigan darajada: odat shakllanishiga xalaqit
+# bermaydi, lekin skript bilan cheksiz AI chaqiruvini to'xtatadi.
 # --------------------------------------------------------------------------- #
 LIMIT_TEXT_PER_DAY = int(os.getenv("LIMIT_TEXT_PER_DAY", "120"))
 LIMIT_RECEIPT_PER_DAY = int(os.getenv("LIMIT_RECEIPT_PER_DAY", "25"))

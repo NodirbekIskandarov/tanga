@@ -104,6 +104,12 @@
     if (!res.ok) {
       let detail = res.statusText;
       try { detail = (await res.json()).detail || detail; } catch (_) {}
+      // 402 — Bepul daraja chegarasi: {paywall, message}.
+      if (detail && typeof detail === "object") {
+        const err = new Error(detail.message || "PRO imkoniyati");
+        err.paywall = detail.paywall;
+        throw err;
+      }
       throw new Error(detail);
     }
     if (res.status === 204) return null;
@@ -374,8 +380,43 @@
     state.me = await api("/api/me");
   }
 
+  /** PRO imkoniyatga urilganda: Telegram'ning o'z oynasi va «PRO ga
+   * o'tish» — bot tariflar sahifasini ochadi (/start pro). */
+  function showPaywall(message) {
+    haptic("warning");
+    const bot = state.me && state.me.bot_username;
+    const go = () => {
+      if (bot && tg && tg.openTelegramLink) tg.openTelegramLink(`https://t.me/${bot}?start=pro`);
+      else toast("Botda /obuna buyrug'ini bosing");
+    };
+    const text = message.length > 250 ? message.slice(0, 247) + "…" : message;
+    if (tg && tg.showPopup) {
+      tg.showPopup({
+        title: "💎 Tanga PRO",
+        message: text,
+        buttons: [{ id: "pro", type: "default", text: "💎 PRO ga o'tish" }, { type: "close" }],
+      }, (id) => { if (id === "pro") go(); });
+    } else if (confirm(text + "\n\nPRO ga o'tasizmi?")) {
+      go();
+    }
+  }
+
   async function loadSummary() {
-    const data = await api(`/api/summary?period=${state.period}&ref=${state.ref}`);
+    let data;
+    try {
+      data = await api(`/api/summary?period=${state.period}&ref=${state.ref}`);
+    } catch (e) {
+      if (!e.paywall || !state.lastGood) throw e;
+      // Bepul darajada joriy oydan oldingi davr — oxirgi ko'ringan davrga
+      // qaytamiz va PRO taklifini ko'rsatamiz.
+      state.period = state.lastGood.period;
+      state.ref = state.lastGood.ref;
+      document.querySelectorAll("#periodTabs button").forEach((b) =>
+        b.classList.toggle("active", b.dataset.period === state.period));
+      showPaywall(e.message);
+      return;
+    }
+    state.lastGood = { period: state.period, ref: state.ref };
     state.summary = data;
     document.getElementById("rangeLabel").textContent = data.label;
 
@@ -1133,6 +1174,7 @@
         window.open(url, "_blank");
       }
     } catch (e) {
+      if (e.paywall) { showPaywall(e.message); return; }
       haptic("error");
       toast("Yuklab bo'lmadi: " + e.message);
     }

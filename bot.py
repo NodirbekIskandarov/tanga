@@ -40,6 +40,7 @@ import config
 import db
 import i18n
 import learning
+import tiers
 import rates
 import reports
 import sharecard
@@ -331,17 +332,26 @@ Jamlanmalarni dastur aniq hisoblaydi, AI faqat
 tushuntiradi \u2014 shuning uchun sonlar to'g'ri bo'ladi.
 
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
-\U0001F48E <b>11. OBUNA VA LIMITLAR</b>
+\U0001F48E <b>11. BEPUL VA PRO</b>
+
+Birinchi 7 kun \u2014 <b>to'liq PRO</b>. Keyin bot ishlashda
+davom etadi, Bepul versiyada:
+\u2022 matn bilan yozuv \u2014 cheksiz
+\u2022 bugun, hafta va joriy oy hisobotlari
+\u2022 oyiga 3 ta chek, kuniga 3 ta AI savol
+\u2022 qarzlar ro'yxati
+
+PRO'da: cheksiz chek va savol, barcha oylar tahlili,
+yillik hisobot, byudjet, CSV eksport.
 
 /obuna \u2014 tariflar va to'lov. To'lovdan keyin chek
 suratini yuborasiz, admin tasdiqlaydi.
 
-/holat \u2014 obunangiz qachon tugashi va <b>bugungi
-limitlaringiz</b>. Har kuni AI chaqiruvlariga chegara bor \u2014
-limit tugasa ertaga yangilanadi.
+/holat \u2014 darajangiz, PRO qachon tugashi va
+qolgan limitlar.
 
 /taklif \u2014 do'stingizni taklif qiling. U bot bilan
-ishlashni boshlasa, <b>ikkalangizga ham bepul kun</b>
+ishlashni boshlasa, <b>ikkalangizga ham +7 kun PRO</b>
 qo'shiladi.
 
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
@@ -383,14 +393,6 @@ yo'q \u2014 ya'ni bu va'da emas, texnik to'siq.
 # Ruxsat
 # --------------------------------------------------------------------------- #
 
-SUBSCRIBE_TEXT = (
-    "⏳ <b>Bepul muddat tugadi</b>\n\n"
-    "Botdan foydalanishni davom ettirish uchun obuna kerak.\n"
-    "Quyidagi tariflardan birini tanlang yoki <b>{contact}</b> ga yozing.\n\n"
-    "<i>Ma'lumotlaringiz saqlanib turibdi — obunadan keyin hammasi joyida bo'ladi.</i>"
-)
-
-
 def _support_contact() -> str:
     return config.SUPPORT_CONTACT or "administrator"
 
@@ -413,17 +415,13 @@ async def _deny(msg, user, access) -> None:
     if msg is None:
         return
     lang = lang_of(user.id)
+    # Sinov yoki obuna tugashi endi kirishni YOPMAYDI — odam Bepul
+    # darajaga o'tadi. Rad etish faqat shu ikki holatda.
     if access["status"] == "blocked":
         await msg.reply_text(i18n.t(lang, "blocked"))
     elif access["status"] == "not_allowed":
         log.info("Yopiq rejim: id=%s username=%s", user.id, user.username)
         await msg.reply_text(i18n.t(lang, "closed_beta", id=user.id))
-    else:  # expired
-        await msg.reply_text(
-            i18n.t(lang, "expired", contact=reports.esc(_support_contact())),
-            parse_mode=ParseMode.HTML,
-            reply_markup=plans_keyboard(lang),
-        )
 
 
 def skip_consent(func):
@@ -503,16 +501,9 @@ def owner_only(func):
 
 
 # --------------------------------------------------------------------------- #
-# Kunlik limitlar — bitta foydalanuvchi cheksiz xarajat keltirmasligi uchun.
+# Limitlar — Bepul/PRO chegaralari va adolatli foydalanish (tiers.py).
 # Egalarga qo'llanmaydi.
 # --------------------------------------------------------------------------- #
-
-LIMITS = {
-    "matn": (config.LIMIT_TEXT_PER_DAY, "matnli yozuv"),
-    "chek": (config.LIMIT_RECEIPT_PER_DAY, "chek"),
-    "savol": (config.LIMIT_QA_PER_DAY, "savol"),
-}
-
 
 # Oylik sarf ogohlantirishi oyiga bir marta yuborilsin.
 _budget_warned: dict[str, bool] = {}
@@ -582,19 +573,57 @@ async def check_quota(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if not await _budget_ok(update, context):
         return None
 
-    if user_id in config.OWNER_IDS:
+    if db.is_privileged(user_id):
         return db.usage_begin(user_id, operation)
 
-    limit, label = LIMITS[operation]
-    used = db.count_today(user_id, operation)
-    if used >= limit:
+    access = db.access_status(user_id)
+    verdict = tiers.check(user_id, access, operation)
+    if verdict is None:
+        return db.usage_begin(user_id, operation)
+
+    lang = lang_of(user_id, context)
+    if verdict["type"] == "paywall":
+        date_text = reports.fmt_date(tiers.next_month_start().isoformat())
+        await show_paywall(update, context, verdict["feature"],
+                           limit=verdict["limit"], date=date_text)
+    else:
+        what = {"matn": "what_matn", "chek": "what_chek", "qa": "what_qa"}[verdict["feature"]]
         await update.effective_message.reply_text(
-            f"⏳ Bugungi <b>{label}</b> limiti tugadi ({limit} ta).\n"
-            "Ertaga yarim tundan keyin yangilanadi.",
-            parse_mode=ParseMode.HTML,
-        )
-        return None
-    return db.usage_begin(user_id, operation)
+            i18n.t(lang, "fair_limit", limit=verdict["limit"], what=i18n.t(lang, what)))
+    return None
+
+
+async def show_paywall(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                       feature: str, **fmt) -> None:
+    """PRO imkoniyatga urilganda: nima qulflangan, PRO nima beradi va
+    bitta tugma.
+
+    Bir xil paywall kuniga BIR marta to'liq ko'rinishda chiqadi; shu kuni
+    takrorlansa — bitta qisqa qator, tugmasiz. Har biri hodisa sifatida
+    yoziladi: qaysi funksiya ko'proq PRO ga undashini /statistika ko'rsatadi.
+    """
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    first_today = not db.event_today(user_id, "paywall_korsatildi", feature)
+    db.log_event(user_id, "paywall_korsatildi", feature)
+
+    msg = update.effective_message
+    if update.callback_query and not first_today:
+        await update.callback_query.answer(
+            i18n.t(lang, "paywall_short", feature=i18n.t(lang, f"feature_{feature}")),
+            show_alert=True)
+        return
+    if not first_today:
+        await msg.reply_text(
+            i18n.t(lang, "paywall_short", feature=i18n.t(lang, f"feature_{feature}")))
+        return
+    if update.callback_query:
+        await update.callback_query.answer()
+    await msg.reply_text(
+        i18n.t(lang, f"paywall_{feature}", **fmt),
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+            i18n.t(lang, "pro_btn"), callback_data=f"pro:{feature}")]]))
 
 
 # --------------------------------------------------------------------------- #
@@ -752,18 +781,26 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _consent_ok(update, context)
         return
 
+    if payload == "pro":                   # Mini App'dagi «PRO ga o'tish»
+        await send_plans(update, context)
+        return
     if payload:                            # taklif havolasi: /start ref12345
         await _apply_referral(update, context, payload)
         access = db.access_status(user.id)
 
     lang = lang_of(user.id, context)
-    is_new = len(db.all_rows(user.id)) == 0
+    is_new = db.tx_count(user.id) == 0
     name = f", {reports.esc(user.first_name)}" if user.first_name else ""
 
     if is_new:
         # Yangi odamga uzun matn emas — bitta misol va bitta tugma.
+        db.log_event(user.id, "start")
+        welcome = i18n.t(lang, "welcome", name=name)
+        if access["status"] == "trial":
+            # Teskari sinov: odam PRO ichida boshlaydi va buni aniq bilsin.
+            welcome += "\n\n" + i18n.t(lang, "trial_active", days=config.trial_days())
         await update.effective_message.reply_text(
-            i18n.t(lang, "welcome", name=name),
+            welcome,
             parse_mode=ParseMode.HTML,
             reply_markup=main_menu(lang),
         )
@@ -889,9 +926,17 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+PRO_PERIODS = ("otgan_oy", "yil")
+
+
 def _period_command(period: str):
     @private_only
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        # O'tgan oy va yil — PRO. Bugun, kecha, hafta, joriy oy — hamma uchun.
+        if period in PRO_PERIODS and not tiers.allows(
+                context.user_data.get("access"), "history"):
+            await show_paywall(update, context, "history")
+            return
         text = reports.summary_text(update.effective_user.id, period)
         # Oy va yil hisobotini rasm qilib ulashsa bo'ladi — do'stlarga
         # ko'rsatiladigan natija botni o'zi reklama qiladi.
@@ -913,6 +958,9 @@ async def on_share_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = update.effective_user.id
     period = (query.data or "share:oy").split(":", 1)[1]
+    if period in PRO_PERIODS and not tiers.allows(db.access_status(user_id), "history"):
+        await show_paywall(update, context, "history")
+        return
 
     await query.answer("🖼")
     start, end, label = reports.period_range(period)
@@ -1005,6 +1053,11 @@ async def cmd_settle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @private_only
 @skip_consent            # o'z ma'lumotini olish — rozilikka bog'liq bo'lmagan huquq
 async def cmd_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # CSV — PRO. /ochirish oldidagi «avval CSV» tugmasi esa _send_csv ni
+    # to'g'ridan-to'g'ri chaqiradi va hamma uchun ochiq qoladi.
+    if not tiers.allows(context.user_data.get("access"), "csv"):
+        await show_paywall(update, context, "csv")
+        return
     await _send_csv(update, context, update.effective_user.id)
 
 
@@ -1192,6 +1245,7 @@ async def _process_receipt(update: Update, context, images: list, caption: str):
         await status.edit_text(f"🤔 {reports.esc(hint)}", parse_mode=ParseMode.HTML)
         return
 
+    db.log_event(user_id, "chek_yuborildi")
     rules = learning.rules_for(user_id)
     for item in data["mahsulotlar"]:
         item["kategoriya"] = learning.apply(rules, config.KIND_CHIQIM,
@@ -1527,6 +1581,8 @@ async def _celebrate(update: Update, context: ContextTypes.DEFAULT_TYPE,
                 lines.append(i18n.t(lang, "streak_grew", n=streak["streak"]))
 
         total = db.tx_count(user_id)
+        if total == added:
+            db.log_event(user_id, "birinchi_yozuv")
         # Bitta xabarda bir nechta yozuv bo'lishi mumkin — bosqichdan
         # «sakrab o'tib ketmasligi» uchun oraliqni tekshiramiz.
         for mark in ENTRY_MILESTONES:
@@ -1570,6 +1626,11 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Obuna va hisobni o'chirish tugmalari kirish chegarasidan OLDIN keladi —
     # muddati tugagan foydalanuvchi ham to'lov qila olishi va ma'lumotini
     # o'chira olishi kerak.
+    if data.startswith("pro:"):
+        # Paywall'dagi «💎 PRO ga o'tish» — tariflar sahifasi.
+        await query.answer()
+        await send_plans(update, context)
+        return
     if data.startswith(("sub:", "subok:", "subno:")):
         await on_subscription_callback(update, context)
         return
@@ -1587,10 +1648,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Boshqa hamma tugma uchun bot bilan bir xil kirish qoidasi.
     access = db.access_status(user_id, user.first_name or "", user.username)
     if not access["ok"]:
-        await query.answer(
-            "Obuna muddati tugagan." if access["status"] == "expired" else "Ruxsat yo'q.",
-            show_alert=True,
-        )
+        await query.answer("Ruxsat yo'q.", show_alert=True)
         return
 
     if not db.has_consent(user_id, CONSENT_VERSION):
@@ -1799,51 +1857,58 @@ def _fmt_price(amount: int) -> str:
     return f"{amount:,}".replace(",", " ") + " so'm"
 
 
+def _plan_label(plan: dict, lang: str) -> str:
+    key = f"plan_label_{plan['code']}"
+    label = i18n.t(lang, key)
+    return plan["label"] if label == key else label
+
+
 def plans_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
+    """Yangi xarid uchun tariflar: yillik birinchi («⭐ Eng foydali»)."""
     rows = []
-    for p in config.plans():
-        disc = config.plan_discount_percent(p)
-        suffix = f" · −{disc}%" if disc else ""
-        rows.append([
-            InlineKeyboardButton(
-                f"{p['label']} — {_fmt_price(p['price'])}{suffix}",
-                callback_data=f"sub:{p['code']}",
-            )
-        ])
+    for p in config.public_plans():
+        label = _plan_label(p, lang)
+        if p.get("best"):
+            label = f"⭐ {label}"
+        elif p.get("founders"):
+            label = f"🎁 {label}"
+        rows.append([InlineKeyboardButton(
+            f"{label} — {_fmt_price(p['price'])}", callback_data=f"sub:{p['code']}")])
     return InlineKeyboardMarkup(rows)
 
 
 def plans_text(access: dict | None = None, lang: str = "uz") -> str:
-    lines = [i18n.t(lang, "plans_title"), ""]
+    """Tariflar sahifasi (4.5): foyda bilan boshlanadi, keyin narxlar."""
+    lines = [i18n.t(lang, "pro_title"), "", i18n.t(lang, "pro_pitch"), "",
+             i18n.t(lang, "pro_features"), ""]
+
+    for p in config.public_plans():
+        label = _plan_label(p, lang)
+        price = _fmt_price(p["price"])
+        if p.get("best"):
+            lines.append(i18n.t(lang, "plan_best_line", label=label, price=price,
+                                monthly=_fmt_price(config.plan_monthly_price(p)),
+                                pct=config.plan_discount_percent(p)))
+        elif p.get("founders"):
+            lines.append(i18n.t(lang, "plan_founders_line", label=label, price=price,
+                                left=p["left"], total=config.FOUNDERS_LIMIT))
+        else:
+            lines.append(i18n.t(lang, "plan_line", label=label, price=price))
 
     status = (access or {}).get("status")
     if status == "trial":
-        lines += [i18n.t(lang, "plans_trial", days=access["days_left"]), ""]
+        lines += ["", i18n.t(lang, "pro_status_trial", days=access["days_left"])]
     elif status == "subscribed":
-        lines += [i18n.t(lang, "plans_active", days=access["days_left"]), ""]
-
-    for p in config.plans():
-        disc = config.plan_discount_percent(p)
-        line = f"<b>{p['label']}</b> — {_fmt_price(p['price'])}"
-        if disc:
-            line += "  <b>(" + i18n.t(lang, "plan_save", pct=disc) + ")</b>"
-        lines.append(line)
-        if p["months"] > 1:
-            per = _fmt_price(config.plan_monthly_price(p))
-            lines.append("    <i>" + i18n.t(lang, "plan_month_price", price=per) + "</i>")
-
-    lines += ["", i18n.t(lang, "plans_includes"), "", i18n.t(lang, "plans_pick")]
+        lines += ["", i18n.t(lang, "pro_status_sub", days=access["days_left"])]
+    lines += ["", i18n.t(lang, "pro_pick")]
     return "\n".join(lines)
 
 
-async def cmd_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Tariflarni ko'rsatadi. ATAYLAB kirish chegarasidan tashqarida —
-    muddati tugagan foydalanuvchi ham tarifni ko'ra olishi kerak."""
+async def send_plans(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
-    if user is None:
-        return
     access = db.access_status(user.id, user.first_name or "", user.username)
     lang = lang_of(user.id, context)
+    db.log_event(user.id, "obuna_ochildi")
 
     if access["status"] == "owner":
         await update.effective_message.reply_text(
@@ -1856,6 +1921,13 @@ async def cmd_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
         plans_text(access, lang), parse_mode=ParseMode.HTML,
         reply_markup=plans_keyboard(lang)
     )
+
+
+async def cmd_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tariflarni ko'rsatadi. ATAYLAB kirish chegarasidan tashqarida."""
+    if update.effective_user is None:
+        return
+    await send_plans(update, context)
 
 
 def payment_text(plan: dict, lang: str = "uz") -> str:
@@ -1895,9 +1967,11 @@ async def on_subscription_callback(update: Update, context: ContextTypes.DEFAULT
                            show_alert=True)
         return
 
-    plan = config.plan_by_code(data[4:])
+    # Faqat hozir sotilayotgan tarif: eski xabardagi 3/6 oylik tugmasi yoki
+    # joylari tugagan asoschilar taklifi qayta ochilmaydi.
+    plan = config.purchasable_plan(data[4:])
     if not plan:
-        await query.answer("Tarif topilmadi", show_alert=True)
+        await query.answer(i18n.t(lang, "plan_unavailable"), show_alert=True)
         return
 
     # To'lov so'rovi ham shaxsiy ma'lumot — rozilikdan oldin yaratilmaydi.
@@ -2012,9 +2086,8 @@ async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYP
 # Ma'lumot huquqlari: maxfiylik va hisobni o'chirish
 # --------------------------------------------------------------------------- #
 
-# Shartlar o'zgarsa bu raqam oshiriladi va roziligi eskirganlardan
-# qaytadan so'raladi.
-CONSENT_VERSION = "2026-08-1"
+# Shartlar o'zgarsa config.CONSENT_VERSION oshiriladi.
+CONSENT_VERSION = config.CONSENT_VERSION
 
 def _terms_text(lang: str) -> str:
     """Ommaviy oferta matni. Rekvizitlar .env da to'ldirilgan bo'lsa
@@ -2286,6 +2359,9 @@ def _parse_amount_uz(text: str) -> float | None:
 @private_only
 async def cmd_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/byudjet — ro'yxat; /byudjet <kategoriya> <summa> — o'rnatish."""
+    if not tiers.allows(context.user_data.get("access"), "budget"):
+        await show_paywall(update, context, "budget")
+        return
     user_id = update.effective_user.id
     args = context.args or []
     msg = update.effective_message
@@ -2723,6 +2799,10 @@ async def check_budget_alerts(context: ContextTypes.DEFAULT_TYPE, user_id: int,
     Har daraja (80% va 100%) oyiga bir marta ogohlantiradi — aks holda
     har yozuvda xabar kelib bezdirardi.
     """
+    # Byudjet ogohlantirishi — PRO. Sinov tugaganda qo'yilgan byudjetlar
+    # o'chirilmaydi, faqat jim turadi; obuna bo'lsa yana ishlaydi.
+    if not tiers.allows(db.access_status(user_id), "budget"):
+        return
     month = datetime.now(config.TZ).strftime("%Y-%m")
     for r in db.budget_status(user_id):
         if r["category"] not in categories:
@@ -2824,6 +2904,28 @@ async def cmd_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "".join(text), parse_mode=ParseMode.HTML, disable_web_page_preview=True)
 
 
+@owner_only
+async def cmd_sim_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/oddiy_rejim on|off — ega o'zini obunasiz, sinovi tugagan
+    foydalanuvchidek ko'radi: limitlar, paywall, tariflar va /holat oddiy
+    odamdagidek. Faqat ko'rinish: to'lov tasdiqlash mantig'iga tegilmaydi.
+    """
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    arg = (context.args or [""])[0].lower()
+    if arg in ("on", "yoq", "ha", "1"):
+        db.set_sim_free(user_id, True)
+        await update.effective_message.reply_text(i18n.t(lang, "sim_on"),
+                                                  parse_mode=ParseMode.HTML)
+    elif arg in ("off", "ochir", "yo'q", "0"):
+        db.set_sim_free(user_id, False)
+        await update.effective_message.reply_text(i18n.t(lang, "sim_off"))
+    else:
+        state = "on" if not db.is_privileged(user_id) else "off"
+        await update.effective_message.reply_text(
+            i18n.t(lang, "sim_usage", state=state), parse_mode=ParseMode.HTML)
+
+
 @private_only
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -2831,32 +2933,37 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     lang = lang_of(user_id, context)
 
-    if access["status"] == "owner":
+    status = access["status"]
+    if status == "owner":
         head = i18n.t(lang, "status_owner")
-    elif access["status"] == "subscribed":
+    elif status == "subscribed":
         head = i18n.t(lang, "status_sub", until=_fmt_dt(access["until"]),
                       days=access["days_left"])
-    else:
+    elif status == "trial":
         head = i18n.t(lang, "status_trial", until=_fmt_dt(access["until"]),
                       days=access["days_left"])
+    else:
+        head = i18n.t(lang, "status_free")
 
     lines = [head, ""]
 
-    if access["status"] != "owner":
-        lines.append(i18n.t(lang, "status_limits"))
-        for op, (limit, label) in LIMITS.items():
-            used = db.count_today(user_id, op)
-            lines.append(f"  {label}: {used} / {limit}")
-        lines.append("")
+    if status == "free":
+        lines.append(i18n.t(
+            lang, "status_free_limits",
+            left=tiers.receipts_left(user_id, access),
+            total=config.FREE_RECEIPTS_PER_MONTH,
+            qa_left=max(0, config.FREE_QA_PER_DAY - db.count_today(user_id, "savol")),
+            qa_total=config.FREE_QA_PER_DAY))
+        lines += [i18n.t(lang, "status_free_hint"), ""]
 
-    n = len(db.all_rows(user_id))
-    lines.append(i18n.t(lang, "status_rows", n=n))
+    lines.append(i18n.t(lang, "status_rows", n=db.tx_count(user_id)))
 
     # Ega bo'lmaganlarga tariflar shu yerdan ham ochiladi — sinov davri
     # faol bo'lsa ham obuna sotib olish mumkin.
     kb = None
-    if access["status"] != "owner":
+    if status in ("trial", "subscribed"):
         lines += ["", i18n.t(lang, "status_extend_hint")]
+    if status != "owner":
         kb = plans_keyboard(lang)
 
     await update.effective_message.reply_text(
@@ -2908,7 +3015,8 @@ async def job_daily_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def job_expiry_warning(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Muddati tugayotganlarni ogohlantiradi — konversiyaning asosiy manbai."""
+    """Obunasi tugayotganlarni ogohlantiradi. Sinov muddatining o'z
+    xabarlari bor — job_trial_notices."""
     rows = db.users_expiring((3, 1))
     if not rows:
         return
@@ -2917,17 +3025,10 @@ async def job_expiry_warning(context: ContextTypes.DEFAULT_TYPE) -> None:
         user_id = r["user_id"]
         try:
             lang = lang_of(user_id)
-            total = len(db.all_rows(user_id))
-            if r["kind"] == "sinov":
-                head = (i18n.t(lang, "expiry_trial", days=r["days_left"])
-                        if r["days_left"] > 0
-                        else i18n.t(lang, "expiry_trial_today"))
-                body = i18n.t(lang, "expiry_trial_body", n=total)
-            else:
-                head = (i18n.t(lang, "expiry_sub", days=r["days_left"])
-                        if r["days_left"] > 0
-                        else i18n.t(lang, "expiry_sub_today"))
-                body = i18n.t(lang, "expiry_sub_body")
+            head = (i18n.t(lang, "expiry_sub", days=r["days_left"])
+                    if r["days_left"] > 0
+                    else i18n.t(lang, "expiry_sub_today"))
+            body = i18n.t(lang, "expiry_sub_body")
             await context.bot.send_message(
                 user_id, f"{head}\n\n{body}", parse_mode=ParseMode.HTML,
                 reply_markup=plans_keyboard(lang))
@@ -2937,6 +3038,72 @@ async def job_expiry_warning(context: ContextTypes.DEFAULT_TYPE) -> None:
             log.info("Ogohlantirish yuborilmadi: %s", user_id)
         await asyncio.sleep(0.06)
     log.info("Muddat ogohlantirishi: %s ta yuborildi", sent)
+
+
+def trial_summary_text(user_id: int, lang: str, days_left: int) -> str:
+    """5-kun xabari: «PRO yana 2 kun faol. Shu vaqtgacha: X ta yozuv,
+    Y ta chek, maqsadingizning Z%»."""
+    counts = db.activity_counts(user_id)
+    goal_part = ""
+    prof = db.savings_profile(user_id)
+    goal = float(prof.get("goal") or 0)
+    if goal > 0:
+        pct = min(100, round(db.savings_balance(user_id) / goal * 100))
+        goal_part = i18n.t(lang, "trial_goal_part", pct=pct)
+    return i18n.t(lang, "trial_day5", days=max(1, days_left),
+                  entries=counts["entries"], receipts=counts["receipts"],
+                  goal=goal_part)
+
+
+def trial_ended_text(user_id: int, lang: str) -> str:
+    """Sinov tugadi: nima qoladi va SHU odam uchun aniq nima qulflanadi."""
+    locks = []
+    counts = db.activity_counts(user_id)
+    month_start = tiers.month_start()
+    if counts["first_day"] and counts["first_day"] < month_start.isoformat():
+        month = reports.UZ_MONTHS[month_start.month - 1]
+        locks.append(i18n.t(lang, "lock_history", month=month))
+    prof = db.savings_profile(user_id)
+    if float(prof.get("goal") or 0) > 0:
+        note = (prof.get("goal_note") or "").strip() or "Jamg'arma"
+        locks.append(i18n.t(lang, "lock_goal", goal=reports.esc(note)))
+    locks.append(i18n.t(lang, "lock_receipts", n=config.FREE_RECEIPTS_PER_MONTH))
+    if db.list_budgets(user_id):
+        locks.append(i18n.t(lang, "lock_budget"))
+    return i18n.t(lang, "trial_ended", locks="\n".join(locks))
+
+
+async def job_trial_notices(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Teskari sinov xabarlari (4.4): 5-kun va sinov tugagan kun.
+
+    Bu xabarlar joriy etilishidan oldin sinovi tugaganlar hech narsa
+    olmaydi (db.trial_notices) — ularga yozish faqat /xabar_yubor orqali
+    va ega tasdig'i bilan.
+    """
+    sent = 0
+    for r in db.trial_notices():
+        user_id = r["user_id"]
+        try:
+            lang = lang_of(user_id)
+            if r["kind"] == "day5":
+                text = trial_summary_text(user_id, lang, r["days_left"])
+                await context.bot.send_message(
+                    user_id, text, parse_mode=ParseMode.HTML,
+                    reply_markup=plans_keyboard(lang))
+                db.mark_warned(user_id, db.TRIAL_STAGE_DAY5)
+            else:
+                text = trial_ended_text(user_id, lang) + "\n\n" + plans_text(lang=lang)
+                await context.bot.send_message(
+                    user_id, text, parse_mode=ParseMode.HTML,
+                    reply_markup=plans_keyboard(lang))
+                db.mark_warned(user_id, db.TRIAL_STAGE_ENDED)
+                db.log_event(user_id, "sinov_tugadi")
+            sent += 1
+        except Exception:
+            log.info("Sinov xabari yuborilmadi: %s", user_id)
+        await asyncio.sleep(0.06)
+    if sent:
+        log.info("Sinov xabarlari: %s ta yuborildi", sent)
 
 
 async def job_weekly_digest(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3109,6 +3276,11 @@ def schedule_jobs(app: Application) -> None:
                   job_kwargs={"trigger": "cron", "hour": 10, "minute": 0,
                               "timezone": config.TZ},
                   name="muddat-ogohlantirishi")
+    # 10:05 da: sinov muddati xabarlari (5-kun va tugagan kun).
+    jq.run_custom(job_trial_notices,
+                  job_kwargs={"trigger": "cron", "hour": 10, "minute": 5,
+                              "timezone": config.TZ},
+                  name="sinov-xabarlari")
     # Kursni ertalab yangilaymiz — kun davomida yozuvlar tarmoqqa
     # chiqmasdan, bazadagi kurs bilan hisoblanadi.
     jq.run_custom(job_refresh_rates,
@@ -3235,6 +3407,7 @@ BOT_SHORT_DESCRIPTION = (
 OWNER_COMMANDS = BOT_COMMANDS + [
     ("id", "Telegram ID'ingiz"),
     ("panel", "Admin boshqaruv paneli"),
+    ("oddiy_rejim", "Oddiy foydalanuvchi sifatida sinash: on/off"),
 ]
 
 
@@ -3396,6 +3569,7 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("holat", cmd_status))
     app.add_handler(CommandHandler("id", cmd_id))
     app.add_handler(CommandHandler("panel", cmd_panel))
+    app.add_handler(CommandHandler("oddiy_rejim", cmd_sim_mode))
     app.add_handler(CommandHandler(["til", "lang", "yazyk"], cmd_lang))
     app.add_handler(CommandHandler(["maxfiylik", "privacy"], cmd_privacy))
     app.add_handler(CommandHandler(["shartlar", "oferta", "terms"], cmd_terms))

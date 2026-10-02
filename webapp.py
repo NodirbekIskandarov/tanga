@@ -31,6 +31,7 @@ import config
 import db
 import learning
 import reports
+import tiers
 
 app = FastAPI(title="Tanga — boshqaruv paneli")
 
@@ -85,15 +86,22 @@ def _validate_init_data(init_data: str) -> dict:
     if not isinstance(user_id, int):
         raise HTTPException(401, "foydalanuvchi ID topilmadi")
 
-    # Kirish huquqi bot bilan BIR XIL qoidada tekshiriladi: ega — cheksiz,
-    # boshqalar — bepul sinov yoki amaldagi obuna.
+    # Kirish huquqi bot bilan BIR XIL qoidada tekshiriladi: ega va PRO —
+    # to'liq, Bepul daraja — joriy oy (tiers.py). Faqat bloklangan va
+    # yopiq rejimdagi begona kira olmaydi.
     access = db.access_status(user_id, user.get("first_name", ""), user.get("username"))
     if not access["ok"]:
         detail = {
             "blocked": "Hisobingiz bloklangan.",
             "not_allowed": "Bot hozircha yopiq sinovda.",
-        }.get(access["status"], "Bepul muddat tugadi — obuna kerak.")
+        }.get(access["status"], "Ruxsat yo'q.")
         raise HTTPException(403, detail)
+
+    # Botda har bir amal rozilikdan keyin. Mini App ham shunday: endi
+    # Bepul daraja hammaga ochiq, rozilik bermagan odam panel orqali
+    # ma'lumot qo'sha olmasin.
+    if not db.has_consent(user_id, config.CONSENT_VERSION):
+        raise HTTPException(403, "Avval botda shartlarga rozilik bering: /start")
 
     return {
         "user_id": user_id,
@@ -107,6 +115,40 @@ def current_user(x_telegram_init_data: str = Header(default="")) -> dict:
     user = _validate_init_data(x_telegram_init_data)
     _check_rate(user["user_id"])
     return user
+
+
+# --------------------------------------------------------------------------- #
+# Bepul daraja chegarasi (paywall)
+# --------------------------------------------------------------------------- #
+
+def _paywall(user: dict, feature: str) -> None:
+    """402 + botdagi bilan bir xil paywall matni. Mini App uni «PRO ga
+    o'tish» tugmasi bilan ko'rsatadi; hodisa botdagidek yoziladi."""
+    import re
+    import i18n
+    db.log_event(user["user_id"], "paywall_korsatildi", f"app_{feature}")
+    lang = i18n.normalize(db.get_lang(user["user_id"]))
+    text = i18n.t(lang, f"paywall_{feature}")
+    raise HTTPException(402, {"paywall": feature,
+                              "message": re.sub(r"<[^>]+>", "", text)})
+
+
+_BOT_USERNAME: str | None = None
+
+
+def _bot_username() -> str:
+    """Mini App'dagi «PRO ga o'tish» tugmasi botga t.me/<bot>?start=pro
+    havolasi bilan qaytaradi. Nom bir marta getMe orqali olinadi."""
+    global _BOT_USERNAME
+    if _BOT_USERNAME is None:
+        import urllib.request
+        try:
+            url = f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/getMe"
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                _BOT_USERNAME = json.loads(resp.read())["result"]["username"]
+        except Exception:
+            _BOT_USERNAME = ""
+    return _BOT_USERNAME
 
 
 # --------------------------------------------------------------------------- #
@@ -214,6 +256,11 @@ def api_me(user: dict = Depends(current_user)):
     return {
         "user_id": user["user_id"],
         "first_name": user["first_name"],
+        # Bepul darajada panel joriy oy bilan cheklangan (tiers.py).
+        "tier": access.get("tier", "pro"),
+        "history_from": (None if tiers.is_pro(access)
+                         else tiers.month_start().isoformat()),
+        "bot_username": _bot_username(),
         "subscription": {
             "status": access.get("status", "trial"),
             "days_left": access.get("days_left"),
@@ -248,6 +295,9 @@ def api_summary(
 ):
     ref_date = _parse_date(ref, reports.today())
     start, end, label = _compute_range(period, ref_date)
+    if period == "yil" or not tiers.history_allowed(user["access"], start):
+        if not tiers.is_pro(user["access"]):
+            _paywall(user, "history")
 
     uid = user["user_id"]
 
@@ -393,6 +443,10 @@ def api_transactions(
 ):
     start_d = _parse_date(start, date(2000, 1, 1))
     end_d = _parse_date(end, reports.today())
+    # Bepul daraja: ro'yxat joriy oydan boshlanadi (xato emas, jim cheklov —
+    # qidiruv va «yana yuklash» ham shu chegarada ishlaydi).
+    if not tiers.is_pro(user["access"]):
+        start_d = max(start_d, tiers.month_start())
     # Vergul bilan bir nechta tur berilishi mumkin — «Jamg'arma»
     # yorlig'i qo'yilgan va yechilgan pulni birga ko'rsatadi.
     if kind and "," in kind:
@@ -521,6 +575,8 @@ def api_create_transaction(body: TxCreate, user: dict = Depends(current_user)):
 @app.post("/api/export/token")
 def api_export_token(user: dict = Depends(current_user)):
     """Bir martalik, 60 soniya yashaydigan yuklab olish tokeni."""
+    if not tiers.allows(user["access"], "csv"):
+        _paywall(user, "csv")
     return {"token": _issue_export_token(user["user_id"]), "ttl": EXPORT_TOKEN_TTL}
 
 

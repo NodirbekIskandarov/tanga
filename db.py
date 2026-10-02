@@ -215,6 +215,21 @@ CREATE TABLE IF NOT EXISTS entry_counts (
 );
 CREATE INDEX IF NOT EXISTS idx_entry_day ON entry_counts(day);
 
+-- Mahsulot analitikasi uchun hodisalar: start, birinchi yozuv, paywall
+-- ko'rsatildi va hokazo. MOLIYAVIY MA'LUMOT YO'Q — faqat hodisa nomi va
+-- qisqa izoh (masalan qaysi funksiyada paywall chiqdi). Shuning uchun
+-- asosiy bazada: admin panel ham o'qishi mumkin.
+CREATE TABLE IF NOT EXISTS events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    name       TEXT    NOT NULL,
+    detail     TEXT    NOT NULL DEFAULT '',
+    day        TEXT    NOT NULL,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_events_user ON events(user_id, name, day);
+CREATE INDEX IF NOT EXISTS idx_events_name ON events(name, day);
+
 -- Admin panel foydalanuvchini o'chirganda uning shaxsiy yozuvlarini
 -- O'ZI o'chira olmaydi — shaxsiy bazaning kaliti unda yo'q. Shuning
 -- uchun u shu yerga so'rov qoldiradi, bot esa uni bajaradi.
@@ -262,6 +277,8 @@ TABLE_MIGRATIONS = [
     ("users", "winback_at", "ALTER TABLE users ADD COLUMN winback_at TEXT"),
     # Yozuv kiritilgan paytdagi kurs va asosiy valyutadagi qiymati.
     # Shu ikkisi bo'lgani uchun so'm va dollar bitta jamlanmada qo'shiladi.
+    # Ega uchun «oddiy rejim»: o'zini obunasiz foydalanuvchidek ko'radi.
+    ("users", "sim_free", "ALTER TABLE users ADD COLUMN sim_free INTEGER NOT NULL DEFAULT 0"),
     ("transactions", "rate", "ALTER TABLE transactions ADD COLUMN rate REAL NOT NULL DEFAULT 1"),
     ("transactions", "amount_base", "ALTER TABLE transactions ADD COLUMN amount_base REAL"),
 ]
@@ -1096,38 +1113,78 @@ def get_or_create_user(user_id: int, first_name: str = "", username: str | None 
 
 
 def access_status(user_id: int, first_name: str = "", username: str | None = None) -> dict:
-    """Foydalanuvchining kirish holati.
+    """Foydalanuvchining kirish holati va darajasi.
 
-    Qaytaradi: {"ok": bool, "status": str, "until": datetime|None, "days_left": int|None}
-    status: owner | trial | subscribed | expired | blocked | not_allowed
+    Qaytaradi: {"ok", "status", "tier", "until", "days_left"}
+      status: owner | trial | subscribed | free | blocked | not_allowed
+      tier:   "pro" (ega, sinov, obuna) yoki "free"
+
+    Sinov va obuna tugagan odam endi YOPILMAYDI — Bepul darajaga o'tadi
+    (`ok` True). Faqat bloklangan va yopiq rejimdagi begona kira olmaydi.
+
+    Ega `/oddiy_rejim on` qilgan bo'lsa (`users.sim_free`), u oddiy,
+    obunasiz, sinovi tugagan foydalanuvchidek ko'rinadi — paywall va
+    sinov xabarlarini o'z ko'zi bilan tekshirishi uchun.
     """
+    def result(ok, status, until=None, days_left=None):
+        tier = "pro" if status in ("owner", "trial", "subscribed") else "free"
+        return {"ok": ok, "status": status, "tier": tier, "until": until,
+                "days_left": days_left}
+
     if user_id in config.OWNER_IDS:
         # Egaga muddat tekshirilmaydi, lekin tashrifi baribir yozilishi
         # kerak: aks holda admin paneldagi «oxirgi faollik» ustuni ega
         # uchun muzlab qoladi va statistikani buzadi.
-        get_or_create_user(user_id, first_name, username)
-        return {"ok": True, "status": "owner", "until": None, "days_left": None}
+        row = get_or_create_user(user_id, first_name, username)
+        if row["sim_free"]:
+            return result(True, "free", None, 0)
+        return result(True, "owner")
 
     # ALLOWED_USER_IDS to'ldirilgan bo'lsa — yopiq rejim (sinov guruhi uchun).
     if config.ALLOWED_USER_IDS and user_id not in config.ALLOWED_USER_IDS:
-        return {"ok": False, "status": "not_allowed", "until": None, "days_left": None}
+        return result(False, "not_allowed")
 
     row = get_or_create_user(user_id, first_name, username)
     if row["blocked"]:
-        return {"ok": False, "status": "blocked", "until": None, "days_left": None}
+        return result(False, "blocked")
 
     now = _now()
     sub = _parse_dt(row["subscribed_until"])
     if sub and sub > now:
-        return {"ok": True, "status": "subscribed", "until": sub,
-                "days_left": max(0, (sub - now).days)}
+        return result(True, "subscribed", sub, max(0, (sub - now).days))
 
     trial = _parse_dt(row["trial_ends_at"])
     if trial and trial > now:
-        return {"ok": True, "status": "trial", "until": trial,
-                "days_left": max(0, (trial - now).days)}
+        return result(True, "trial", trial, max(0, (trial - now).days))
 
-    return {"ok": False, "status": "expired", "until": sub or trial, "days_left": 0}
+    return result(True, "free", sub or trial, 0)
+
+
+def is_privileged(user_id: int) -> bool:
+    """Haqiqiy ega (limitsiz). Oddiy rejimdagi ega — oddiy foydalanuvchi."""
+    if user_id not in config.OWNER_IDS:
+        return False
+    with get_conn() as conn:
+        row = conn.execute("SELECT sim_free FROM users WHERE user_id = ?",
+                           (user_id,)).fetchone()
+    return not (row and row["sim_free"])
+
+
+def set_sim_free(user_id: int, on: bool) -> None:
+    get_or_create_user(user_id)
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET sim_free = ? WHERE user_id = ?",
+                     (1 if on else 0, user_id))
+
+
+def founders_taken() -> int:
+    """Asoschilar taklifi egallagan joylar: tasdiqlangan va chek yuborib
+    tekshiruvda turgan so'rovlar. Sxema admin panel bilan umumiy."""
+    with get_conn() as conn:
+        return int(conn.execute(
+            "SELECT COUNT(*) FROM subscription_requests "
+            "WHERE plan_code = 'f12' AND status IN ('tasdiqlandi', 'tekshiruvda')"
+        ).fetchone()[0])
 
 
 def grant_subscription(user_id: int, days: int) -> datetime:
@@ -1809,8 +1866,61 @@ def users_for_reminder(hour: int) -> list[int]:
     return out
 
 
+TRIAL_STAGE_DAY5 = 5    # warned_stage: «PRO yana 2 kun» xabari yuborilgan
+TRIAL_STAGE_ENDED = 7   # warned_stage: «sinov tugadi» xabari yuborilgan
+
+
+def trial_notices() -> list[dict]:
+    """Sinov muddati xabarlari kerak bo'lganlar (4.4).
+
+      * day5  — sinovga 2 kun yoki kamroq qoldi va hali xabar olmagan;
+      * ended — sinov oxirgi 3 kun ichida tugagan, obuna yo'q va 5-kun
+        xabarini olgan.
+
+    «ended» faqat 5-kun xabarini olganlarga: bu xabarlar joriy etilishidan
+    OLDIN sinovi tugaganlar hech qanday avtomatik xabar olmaydi — ular
+    jimgina Bepul darajaga o'tadi.
+    """
+    now = datetime.now(config.TZ)
+    out = []
+    with get_conn() as conn:
+        rows = conn.execute("SELECT * FROM users WHERE blocked = 0").fetchall()
+    for r in rows:
+        if r["user_id"] in config.OWNER_IDS:
+            continue
+        sub = _parse_dt(r["subscribed_until"])
+        if sub and sub > now:
+            continue                       # obunachi — unga obuna xabarlari
+        trial = _parse_dt(r["trial_ends_at"])
+        if not trial:
+            continue
+        stage = r["warned_stage"] or 0
+        if trial > now:
+            left = max(0, math.ceil((trial - now).total_seconds() / 86400))
+            if left <= 2 and stage == 0:
+                out.append({"user_id": r["user_id"], "kind": "day5",
+                            "days_left": left})
+        elif stage == TRIAL_STAGE_DAY5 and now - trial <= timedelta(days=3):
+            out.append({"user_id": r["user_id"], "kind": "ended", "days_left": 0})
+    return out
+
+
+def activity_counts(user_id: int) -> dict:
+    """Sinov xulosasi uchun: oddiy yozuvlar va cheklar soni."""
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT SUM(CASE WHEN receipt_id IS NULL THEN 1 ELSE 0 END) AS entries,
+                      COUNT(DISTINCT receipt_id) AS receipts,
+                      MIN(occurred_on) AS first_day
+               FROM transactions WHERE user_id = ?""", (user_id,)).fetchone()
+    return {"entries": int(row["entries"] or 0), "receipts": int(row["receipts"] or 0),
+            "first_day": row["first_day"]}
+
+
 def users_expiring(stages: tuple[int, ...] = (3, 1)) -> list[dict]:
-    """Muddati tugashiga `stages` kun qolganlar. Har daraja bir marta.
+    """OBUNASI tugashiga `stages` kun qolganlar. Har daraja bir marta.
+
+    Sinov muddati bu yerda emas — uning o'z xabarlari bor (trial_notices).
 
     `warned_stage` — oxirgi yuborilgan ogohlantirish darajasi. Muddat
     uzaytirilsa nolga qaytariladi, shunda keyingi safar yana yuboriladi.
@@ -1822,11 +1932,8 @@ def users_expiring(stages: tuple[int, ...] = (3, 1)) -> list[dict]:
             if r["user_id"] in config.OWNER_IDS:
                 continue
             sub = _parse_dt(r["subscribed_until"])
-            trial = _parse_dt(r["trial_ends_at"])
             if sub and sub > now:
                 expires, kind = sub, "obuna"
-            elif trial and trial > now:
-                expires, kind = trial, "sinov"
             else:
                 continue
             # Yuqoriga yaxlitlaymiz: 1 kun 23 soat qolgan bo'lsa bu «2 kun»,
@@ -1892,6 +1999,7 @@ def erase_user(user_id: int) -> dict:
                      (user_id,))
         conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM entry_counts WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM events WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM private_erase_queue WHERE user_id = ?", (user_id,))
     return {"transactions": tx, "usage": usage}
 
@@ -1983,6 +2091,49 @@ def count_today(user_id: int, operation: str) -> int:
             (user_id, _today_str(), operation),
         ).fetchone()
         return int(row["n"])
+
+
+def count_since(user_id: int, operation: str, since: date) -> int:
+    """`since` kunidan beri shu amal necha marta bajarilgan (masalan Bepul
+    darajadagi oylik chek chegarasi uchun)."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM usage_log "
+            "WHERE user_id = ? AND day >= ? AND operation = ?",
+            (user_id, since.isoformat(), operation)).fetchone()
+        return int(row["n"])
+
+
+# --------------------------------------------------------------------------- #
+# Hodisalar (analitika)
+# --------------------------------------------------------------------------- #
+
+def log_event(user_id: int, name: str, detail: str = "") -> None:
+    """Hodisani yozadi. Xato bo'lsa jimgina o'tib ketadi — analitika
+    asosiy javobni hech qachon buzmasligi kerak."""
+    try:
+        with get_conn() as conn:
+            conn.execute(
+                "INSERT INTO events (user_id, name, detail, day) VALUES (?, ?, ?, ?)",
+                (user_id, name, detail[:64], _today_str()))
+    except Exception:
+        import logging
+        logging.getLogger(__name__).info("Hodisa yozilmadi: %s %s", name, detail)
+
+
+def event_today(user_id: int, name: str, detail: str = "") -> bool:
+    with get_conn() as conn:
+        return conn.execute(
+            "SELECT 1 FROM events WHERE user_id = ? AND name = ? AND detail = ? "
+            "AND day = ? LIMIT 1",
+            (user_id, name, detail, _today_str())).fetchone() is not None
+
+
+def event_count(user_id: int, name: str) -> int:
+    with get_conn() as conn:
+        return int(conn.execute(
+            "SELECT COUNT(*) FROM events WHERE user_id = ? AND name = ?",
+            (user_id, name)).fetchone()[0])
 
 
 def month_cost() -> float:
