@@ -71,14 +71,32 @@ def _bar(share: float, width: int = 10) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
+def debt_lines(t: dict, currency: str = "som") -> list[str]:
+    """Davr ichidagi qarz harakati — kirim/chiqim va «Farq» dan ALOHIDA.
+
+    Qarz berish va qaytarish pul harakati, lekin xarajat ham, daromad
+    ham emas: shuning uchun yuqoridagi jamlarga qo'shilmaydi, faqat shu
+    yerda ko'rinadi.
+    """
+    rows = [
+        (config.KIND_QARZ_BERDIM, "Qarz berdim"),
+        (config.KIND_QARZ_OLDIM, "Qarz oldim"),
+        (config.KIND_QARZ_QAYTARDIM, "Qarzimni qaytardim"),
+        (config.KIND_QARZ_QAYTDI, "Menga qaytarildi"),
+    ]
+    out = [f"{config.KIND_ICONS[k]} {label}: {fmt_money(t[k], currency)}"
+           for k, label in rows if t.get(k)]
+    if not out:
+        return []
+    return ["", "<b>Qarzlar</b> <i>(chiqimga kirmaydi)</i>"] + out
+
+
 def _currency_block(user_id: int, start: date, end: date, currency: str, days: int) -> list[str]:
     """Bitta valyuta uchun kirim/chiqim/farq va kategoriyalar bloki."""
     t = db.totals(user_id, start, end, currency)
     kirim = t[config.KIND_KIRIM]
     chiqim = t[config.KIND_CHIQIM]
     balans = kirim - chiqim
-    qarz_berdim = t[config.KIND_QARZ_BERDIM]
-    qarz_oldim = t[config.KIND_QARZ_OLDIM]
 
     lines: list[str] = []
     lines.append(f"🔺 Kirim:  {fmt_money(kirim, currency)}")
@@ -95,12 +113,7 @@ def _currency_block(user_id: int, start: date, end: date, currency: str, days: i
             lines.append(f"{icon} {esc(name)} — {fmt_money(total, currency)} ({share * 100:.0f}%)")
             lines.append(f"   <code>{_bar(share)}</code> {cnt} ta")
 
-    if qarz_berdim or qarz_oldim:
-        lines.append("")
-        if qarz_berdim:
-            lines.append(f"📤 Qarz berdim: {fmt_money(qarz_berdim, currency)}")
-        if qarz_oldim:
-            lines.append(f"📥 Qarz oldim: {fmt_money(qarz_oldim, currency)}")
+    lines += debt_lines(t, currency)
 
     if chiqim and days >= 2:
         lines.append("")
@@ -153,14 +166,7 @@ def summary_text(user_id: int, period: str) -> str:
             lines.append(f"{icon} {esc(name)} — {fmt_money(total)} ({share * 100:.0f}%)")
             lines.append(f"   <code>{_bar(share)}</code> {cnt} ta")
 
-    qarz_berdim = t[config.KIND_QARZ_BERDIM]
-    qarz_oldim = t[config.KIND_QARZ_OLDIM]
-    if qarz_berdim or qarz_oldim:
-        lines.append("")
-        if qarz_berdim:
-            lines.append(f"📤 Qarz berdim: {fmt_money(qarz_berdim)}")
-        if qarz_oldim:
-            lines.append(f"📥 Qarz oldim: {fmt_money(qarz_oldim)}")
+    lines += debt_lines(t)
 
     # Jamg'arma ATAYLAB "Farq" dan tashqarida turadi: u sarflangan pul
     # emas, shuning uchun chiqimga qo'shilmaydi. Lekin daromadga nisbatan
@@ -326,7 +332,7 @@ def debts_text(user_id: int) -> str:
         by_currency: dict[str, float] = {}
         for r in group:
             cur = r["currency"] if "currency" in r.keys() else "som"
-            by_currency[cur] = by_currency.get(cur, 0.0) + r["amount"]
+            by_currency[cur] = by_currency.get(cur, 0.0) + r["remaining"]
         totals_str = " + ".join(
             fmt_money(v, c) for c, v in sorted(by_currency.items(), key=lambda kv: kv[0] != "som")
         )
@@ -334,8 +340,12 @@ def debts_text(user_id: int) -> str:
         for r in group:
             who = esc(r["person"] or "noma'lum")
             cur = r["currency"] if "currency" in r.keys() else "som"
+            # Qisman qaytarilgan bo'lsa — qoldiq va asl summa ikkalasi.
+            paid = ""
+            if r["remaining"] < float(r["amount"]):
+                paid = f" <i>(qoldiq; asli {fmt_money(r['amount'], cur)})</i>"
             lines.append(
-                f"   • {who}: {fmt_money(r['amount'], cur)}"
+                f"   • {who}: {fmt_money(r['remaining'], cur)}{paid}"
                 f" ({fmt_date(r['occurred_on'])}) <code>#{r['id']}</code>"
             )
         lines.append("")

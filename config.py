@@ -385,6 +385,13 @@ KIND_CHIQIM = "chiqim"
 KIND_KIRIM = "kirim"
 KIND_QARZ_BERDIM = "qarz_berdim"   # men birovga qarz berdim
 KIND_QARZ_OLDIM = "qarz_oldim"     # men birovdan qarz oldim
+# Qarzni qaytarish — ikki yo'nalish. Ikkalasi ham pul harakati, lekin
+# XARAJAT ham, DAROMAD ham EMAS: qarzni qaytarish yangi sarf emas, eski
+# majburiyatning yopilishi. Kredit to'lovi ham shu turga kiradi.
+# Ilgari bunday yozuv kirim yoki «boshqa chiqim» bo'lib tushardi va
+# oylik chiqimning katta qismini egallab, statistikani buzardi.
+KIND_QARZ_QAYTARDIM = "qarz_qaytardim"  # men qarzimni qaytardim (pul chiqdi)
+KIND_QARZ_QAYTDI = "qarz_qaytdi"        # menga qarz qaytarildi (pul kirdi)
 
 # Shaxsiy jamg'arma. ATAYLAB chiqim EMAS: jamg'armaga qo'yilgan pul
 # sarflanmagan, u hamon odamning o'ziniki — faqat boshqa cho'ntakka
@@ -397,8 +404,17 @@ KIND_JAMGARMA = "jamgarma"                  # jamg'armaga qo'ydim
 KIND_JAMGARMA_YECHDIM = "jamgarma_yechdim"  # jamg'armadan oldim
 
 KINDS = [KIND_CHIQIM, KIND_KIRIM, KIND_QARZ_BERDIM, KIND_QARZ_OLDIM,
-         KIND_JAMGARMA, KIND_JAMGARMA_YECHDIM]
-DEBT_KINDS = [KIND_QARZ_BERDIM, KIND_QARZ_OLDIM]
+         KIND_JAMGARMA, KIND_JAMGARMA_YECHDIM,
+         KIND_QARZ_QAYTARDIM, KIND_QARZ_QAYTDI]
+# Qarz bilan bog'liq hamma tur — kundalik kirim/chiqim statistikasiga
+# KIRMAYDI ("Bugungi chiqim", kategoriya foizlari, "Farq").
+DEBT_KINDS = [KIND_QARZ_BERDIM, KIND_QARZ_OLDIM,
+              KIND_QARZ_QAYTARDIM, KIND_QARZ_QAYTDI]
+# Ochiq qolishi mumkin bo'lgan qarzlar (qaytarilishi kutiladi).
+DEBT_OPEN_KINDS = [KIND_QARZ_BERDIM, KIND_QARZ_OLDIM]
+# Qaytarish qaysi qarzni yopadi: men qaytarsam — men olgan qarzni,
+# menga qaytarilsa — men bergan qarzni.
+REPAYS = {KIND_QARZ_QAYTARDIM: KIND_QARZ_OLDIM, KIND_QARZ_QAYTDI: KIND_QARZ_BERDIM}
 SAVINGS_KINDS = [KIND_JAMGARMA, KIND_JAMGARMA_YECHDIM]
 
 KIND_LABELS = {
@@ -408,6 +424,8 @@ KIND_LABELS = {
     KIND_QARZ_OLDIM: "Qarz oldim",
     KIND_JAMGARMA: "Jamg'armaga",
     KIND_JAMGARMA_YECHDIM: "Jamg'armadan yechdim",
+    KIND_QARZ_QAYTARDIM: "Qarzimni qaytardim",
+    KIND_QARZ_QAYTDI: "Qarz qaytdi",
 }
 
 KIND_ICONS = {
@@ -417,6 +435,19 @@ KIND_ICONS = {
     KIND_QARZ_OLDIM: "📥",
     KIND_JAMGARMA: "🏦",
     KIND_JAMGARMA_YECHDIM: "🏧",
+    KIND_QARZ_QAYTARDIM: "↩️",
+    KIND_QARZ_QAYTDI: "↪️",
+}
+
+# Yozuv turini qo'lda tuzatish: qaysi turdan qaysiga o'tish mumkin.
+# Qarz berdim/oldim ATAYLAB yo'q — ular shaxsga bog'liq va noto'g'ri
+# almashtirilsa ochiq qarzlar ro'yxati buziladi. Jamg'arma ham yo'q —
+# qoldiqni jimgina buzardi.
+KIND_SWITCHES = {
+    KIND_CHIQIM: [KIND_KIRIM, KIND_QARZ_QAYTARDIM],
+    KIND_KIRIM: [KIND_CHIQIM, KIND_QARZ_QAYTDI],
+    KIND_QARZ_QAYTARDIM: [KIND_CHIQIM],
+    KIND_QARZ_QAYTDI: [KIND_KIRIM],
 }
 
 # «Avval o'zingga to'la» — daromadning kamida shuncha qismi jamg'armaga.

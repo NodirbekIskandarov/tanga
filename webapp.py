@@ -224,6 +224,8 @@ def api_me(user: dict = Depends(current_user)):
         "currency_symbols": config.CURRENCY_SYMBOLS,
         "kind_icons": config.KIND_ICONS,
         "kind_labels": config.KIND_LABELS,
+        "kind_switches": config.KIND_SWITCHES,
+        "category_labels": config.CATEGORY_LABELS,
         "categories_by_kind": {
             config.KIND_CHIQIM: config.EXPENSE_CATEGORIES,
             config.KIND_KIRIM: config.INCOME_CATEGORIES,
@@ -231,6 +233,8 @@ def api_me(user: dict = Depends(current_user)):
             config.KIND_QARZ_OLDIM: config.DEBT_CATEGORIES,
             config.KIND_JAMGARMA: config.SAVINGS_CATEGORIES,
             config.KIND_JAMGARMA_YECHDIM: config.SAVINGS_CATEGORIES,
+            config.KIND_QARZ_QAYTARDIM: config.DEBT_CATEGORIES,
+            config.KIND_QARZ_QAYTDI: config.DEBT_CATEGORIES,
         },
     }
 
@@ -253,6 +257,9 @@ def api_summary(
             "farq": totals[config.KIND_KIRIM] - totals[config.KIND_CHIQIM],
             "qarz_berdim": totals[config.KIND_QARZ_BERDIM],
             "qarz_oldim": totals[config.KIND_QARZ_OLDIM],
+            # Qarz qaytarish — «farq» ga ham, kategoriyalarga ham KIRMAYDI.
+            "qarz_qaytardim": totals[config.KIND_QARZ_QAYTARDIM],
+            "qarz_qaytdi": totals[config.KIND_QARZ_QAYTDI],
             # Jamg'arma «farq» ga KIRMAYDI: u sarflangan pul emas.
             # Sof qiymati (qo'ygan minus yechgan) va ikkala tomoni ham
             # beriladi — «Jamg'arma» yorlig'i ularni alohida chizadi.
@@ -305,23 +312,6 @@ def api_summary(
     }
 
 
-def _base_amount(row) -> float:
-    """Yozuvning asosiy valyutadagi summasi.
-
-    `amount_base` yozuv kiritilganda o'sha kungi kurs bilan hisoblanadi. Eski,
-    kurs joriy etilishidan oldingi yozuvlarda u bo'sh bo'lishi mumkin — u holda
-    hozirgi kurs bilan o'giramiz, aks holda dollar summasi so'mga qo'shilib
-    ketardi.
-    """
-    base = row["amount_base"]
-    if base is not None:
-        return float(base)
-    if row["currency"] == config.CURRENCY_SOM:
-        return float(row["amount"])
-    import rates
-    return rates.to_base(row["amount"], row["currency"])[0]
-
-
 @app.get("/api/debts")
 def api_debts(user: dict = Depends(current_user)):
     rows = db.open_debts(user["user_id"])
@@ -332,16 +322,17 @@ def api_debts(user: dict = Depends(current_user)):
         unified: list[dict] = []
         for r in items:
             cur = r["currency"]
+            # `amount` — qaytarishlar ayirilgan QOLDIQ; asl summa alohida.
             by_cur.setdefault(cur, []).append({
                 "id": r["id"], "person": r["person"] or "noma'lum",
-                "amount": r["amount"], "date": r["occurred_on"],
-                "note": r["note"],
+                "amount": r["remaining"], "original": r["amount"],
+                "date": r["occurred_on"], "note": r["note"],
             })
             # «Hammasi» ko'rinishi uchun asosiy valyutaga o'girilgan nusxa —
             # /api/summary dagi «hammasi» blok bilan bir xil mantiq.
             unified.append({
                 "id": r["id"], "person": r["person"] or "noma'lum",
-                "amount": _base_amount(r), "date": r["occurred_on"],
+                "amount": r["remaining_base"], "date": r["occurred_on"],
                 "note": r["note"], "original_currency": cur,
             })
         totals = {cur: round(sum(i["amount"] for i in lst), 2) for cur, lst in by_cur.items()}
@@ -463,11 +454,11 @@ def api_update_transaction(tx_id: int, body: TxUpdate, user: dict = Depends(curr
         raise HTTPException(404, "Yozuv topilmadi")
 
     if body.kind and body.kind != row["kind"]:
-        # Jamg'armani kirim/chiqimga (va teskarisiga) almashtirish
-        # ATAYLAB taqiqlanadi: bu qoldiqni jimgina buzardi. Kerak
-        # bo'lsa yozuvni o'chirib, qaytadan yozish to'g'ri yo'l.
-        swappable = (config.KIND_CHIQIM, config.KIND_KIRIM)
-        if row["kind"] not in swappable or body.kind not in swappable:
+        # Ruxsat etilgan almashtirishlar config.KIND_SWITCHES da: kirim <->
+        # chiqim va ular <-> qarz qaytarish. Jamg'arma va qarz berdim/oldim
+        # ATAYLAB yo'q — qoldiqni jimgina buzardi. Kerak bo'lsa yozuvni
+        # o'chirib, qaytadan yozish to'g'ri yo'l.
+        if body.kind not in config.KIND_SWITCHES.get(row["kind"], []):
             raise HTTPException(400, "Bu yozuv turini almashtirib bo'lmaydi")
         new_category = body.category or config.fallback_category(body.kind)
         if new_category not in config.categories_for(body.kind):
@@ -506,7 +497,9 @@ def api_create_transaction(body: TxCreate, user: dict = Depends(current_user)):
     currency = config.normalize_currency(body.currency)
     category = config.normalize_category(body.kind, body.category)
     person = (body.person or "").strip() or None
-    if body.kind in config.DEBT_KINDS and not person:
+    # Qarz berish/olishda shaxs shart; qaytarishda ixtiyoriy (bank
+    # krediti to'lovida shaxs yo'q).
+    if body.kind in config.DEBT_OPEN_KINDS and not person:
         raise HTTPException(400, "Qarz uchun shaxs ismi kerak")
     if body.kind not in config.DEBT_KINDS:
         person = None

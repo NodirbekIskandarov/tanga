@@ -638,16 +638,7 @@ def entry_keyboard(tx_ids: list[int], kind: str | None = None) -> InlineKeyboard
             InlineKeyboardButton("🗑 O'chirish", callback_data=f"d:{tx}"),
         ]
         buttons = [row]
-        # Kirim/chiqim almashtirish faqat oddiy yozuvlar uchun — qarz turlari
-        # shaxs maydoniga bog'liq bo'lgani uchun bu yerda almashtirilmaydi.
-        if kind in (config.KIND_CHIQIM, config.KIND_KIRIM):
-            other = config.KIND_KIRIM if kind == config.KIND_CHIQIM else config.KIND_CHIQIM
-            buttons.append([
-                InlineKeyboardButton(
-                    f"🔄 {config.KIND_LABELS[other]}ga almashtirish",
-                    callback_data=f"t:{tx}",
-                )
-            ])
+        buttons += kind_switch_rows(tx, kind)
         return InlineKeyboardMarkup(buttons)
     if tx_ids:
         payload = "D:" + ",".join(map(str, tx_ids))
@@ -657,6 +648,20 @@ def entry_keyboard(tx_ids: list[int], kind: str | None = None) -> InlineKeyboard
                 [[InlineKeyboardButton("🗑 Hammasini o'chirish", callback_data=payload)]]
             )
     return None
+
+
+def kind_switch_rows(tx: int, kind: str | None) -> list[list[InlineKeyboardButton]]:
+    """Turini tuzatish tugmalari: config.KIND_SWITCHES bo'yicha.
+
+    Masalan chiqim -> «Kirim» yoki «Qarzimni qaytardim». Qarz berdim/oldim
+    va jamg'arma bu yerda almashtirilmaydi (shaxs maydoni va qoldiqqa
+    bog'liq). Callback'da tur nomi emas, `config.KINDS` dagi tartib
+    raqami — ro'yxat faqat oxiridan to'ldiriladi, raqamlar o'zgarmaydi.
+    """
+    return [[InlineKeyboardButton(
+        f"🔄 {config.KIND_ICONS[other]} {config.KIND_LABELS[other]}",
+        callback_data=f"T:{tx}:{config.KINDS.index(other)}")]
+        for other in config.KIND_SWITCHES.get(kind or "", [])]
 
 
 def receipt_keyboard(receipt_id: str) -> InlineKeyboardMarkup:
@@ -1675,8 +1680,30 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # --- Turini (kirim/chiqim) almashtirish ---
+    # --- Turini almashtirish ---
 
+    if data.startswith("T:"):
+        _, raw_id, raw_kind = data.split(":")
+        tx_id, kind_idx = int(raw_id), int(raw_kind)
+        row = db.get_transaction(user_id, tx_id)
+        new_kind = config.KINDS[kind_idx] if 0 <= kind_idx < len(config.KINDS) else None
+        if not row or new_kind not in config.KIND_SWITCHES.get(row["kind"], []):
+            await query.answer("Bu yozuv turini almashtirib bo'lmaydi", show_alert=True)
+            return
+        db.update_kind(user_id, tx_id, new_kind, config.fallback_category(new_kind))
+        await query.answer("Turi yangilandi")
+        row = db.get_transaction(user_id, tx_id)
+        hint = ("\n\n<i>Kategoriyani ham to'g'rilash uchun «✏️ Kategoriya» bosing.</i>"
+                if new_kind in (config.KIND_CHIQIM, config.KIND_KIRIM) else
+                "\n\n<i>Qarz to'lovi kundalik chiqim va kirimga kirmaydi.</i>")
+        await query.edit_message_text(
+            f"🔄 {config.KIND_LABELS[new_kind]}\n\n" + reports.transaction_line(row) + hint,
+            parse_mode=ParseMode.HTML,
+            reply_markup=entry_keyboard([tx_id], new_kind),
+        )
+        return
+
+    # Eski xabarlardagi tugma (faqat kirim <-> chiqim).
     if data.startswith("t:"):
         tx_id = int(data[2:])
         row = db.get_transaction(user_id, tx_id)

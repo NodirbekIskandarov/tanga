@@ -875,15 +875,80 @@ def recent(user_id: int, limit: int = 10) -> list[sqlite3.Row]:
         return cur.fetchall()
 
 
-def open_debts(user_id: int) -> list[sqlite3.Row]:
+def person_key(name: str | None) -> str:
+    """Qarzdagi shaxs ismini solishtirish uchun: «Akmal», «akmal»,
+    «Akmal » — bitta odam. Apostrof turlari ham birlashtiriladi."""
+    raw = (name or "").casefold().strip()
+    for ch in "ʻʼ‘’`'":
+        raw = raw.replace(ch, "")
+    return " ".join(raw.split())
+
+
+def open_debts(user_id: int) -> list[dict]:
+    """Ochiq qarzlar — har biri qaytarishlar ayirilgan QOLDIG'I bilan.
+
+    Qaytarish (qarz_qaytdi / qarz_qaytardim) shaxs ismi bo'yicha shu
+    shaxsning eng eski ochiq qarziga, u yopilsa keyingisiga taqsimlanadi
+    (FIFO). Qoidalar:
+      * faqat bir xil yo'nalish: menga qaytarilgan pul men BERGAN qarzni
+        yopadi, men qaytargan pul men OLGAN qarzni;
+      * faqat bir xil valyuta (kurs orqali aralashtirilmaydi);
+      * faqat qaytarishdan OLDIN berilgan qarzga — keyin olingan yangi
+        qarzni eski to'lov yopib qo'ymasin;
+      * qo'lda yopilgan («settled») qarz taqsimotda qatnashmaydi.
+
+    Qoldiq saqlanmaydi, har safar hisoblanadi: qaytarish yozuvi
+    o'chirilsa yoki tahrirlansa qarz o'z-o'zidan qayta ochiladi.
+    Ismsiz qaytarish (masalan bank krediti) hech bir qarzga bog'lanmaydi.
+
+    Har bir element — `transactions` qatori + `remaining` (asl
+    valyutada) va `remaining_base` (asosiy valyutada).
+    """
     with get_conn() as conn:
-        cur = conn.execute(
+        rows = conn.execute(
             """SELECT * FROM transactions
-               WHERE user_id = ? AND kind IN (?, ?) AND settled = 0
+               WHERE user_id = ? AND kind IN (?, ?, ?, ?)
                ORDER BY occurred_on ASC, id ASC""",
-            (user_id, config.KIND_QARZ_BERDIM, config.KIND_QARZ_OLDIM),
-        )
-        return cur.fetchall()
+            (user_id, config.KIND_QARZ_BERDIM, config.KIND_QARZ_OLDIM,
+             config.KIND_QARZ_QAYTDI, config.KIND_QARZ_QAYTARDIM)).fetchall()
+
+    debts = [dict(r) for r in rows
+             if r["kind"] in config.DEBT_OPEN_KINDS and not r["settled"]]
+    for d in debts:
+        d["remaining"] = float(d["amount"])
+
+    for pay in rows:
+        target_kind = config.REPAYS.get(pay["kind"])
+        key = person_key(pay["person"])
+        if not target_kind or not key:
+            continue
+        left = float(pay["amount"])
+        for d in debts:
+            if left <= 0:
+                break
+            if (d["kind"] != target_kind or d["remaining"] <= 0
+                    or person_key(d["person"]) != key
+                    or d["currency"] != pay["currency"]
+                    or d["occurred_on"] > pay["occurred_on"]):
+                continue
+            used = min(left, d["remaining"])
+            d["remaining"] = round(d["remaining"] - used, 2)
+            left -= used
+
+    result = []
+    for d in debts:
+        if d["remaining"] <= 0:
+            continue
+        amount = float(d["amount"]) or 1.0
+        base = d["amount_base"]
+        if base is None:
+            # Kurs joriy etilishidan oldingi yozuv: dollar summasi so'mga
+            # to'g'ridan-to'g'ri qo'shilib ketmasin.
+            import rates
+            base = rates.to_base(d["amount"], d["currency"])[0]
+        d["remaining_base"] = round(float(base) * d["remaining"] / amount, 2)
+        result.append(d)
+    return result
 
 
 def all_rows(user_id: int) -> list[sqlite3.Row]:
@@ -1468,7 +1533,7 @@ def net_worth(user_id: int) -> dict:
     saving = savings_balance(user_id)
     berdim = oldim = 0.0
     for r in open_debts(user_id):
-        amount = float(r["amount_base"] if r["amount_base"] is not None else r["amount"])
+        amount = r["remaining_base"]
         if r["kind"] == config.KIND_QARZ_BERDIM:
             berdim += amount              # menga qaytariladi — aktiv
         else:

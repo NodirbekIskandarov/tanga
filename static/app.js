@@ -39,6 +39,10 @@
         qarz_oldim: "#eb6834", jamgarma: "#7048c4", jamgarma_yechdim: "#b07d18" }
     : { kirim: "#0ca30c", chiqim: "#e66767", qarz_berdim: "#3987e5",
         qarz_oldim: "#d95926", jamgarma: "#a98ae0", jamgarma_yechdim: "#e0b155" };
+  // Qarz qaytarish o'z yo'nalishining rangida: men qaytargan pul — men
+  // olgan qarz rangida, menga qaytarilgani — men bergan qarz rangida.
+  STATUS.qarz_qaytardim = STATUS.qarz_oldim;
+  STATUS.qarz_qaytdi = STATUS.qarz_berdim;
 
   const CATEGORY_PALETTE = SCHEME === "light"
     ? ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
@@ -346,6 +350,8 @@
               <span class="cat-name">${escapeHtml(item.person)}</span>
               <span class="cat-amount">${fmtMoney(item.amount, currency)}</span>
             </div>
+            ${item.original && item.original > item.amount
+              ? `<div class="tx-meta">qoldiq · asli ${fmtMoney(item.original, currency)}</div>` : ""}
             <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${(share * 100).toFixed(0)}%;background:${color}"></div></div>
           </div>
           <button class="cat-settle" data-settle-id="${item.id}">Yopish</button>
@@ -503,9 +509,27 @@
     ], cur);
     const berdimItems = state.debts.qarz_berdim.items[cur] || [];
     const oldimItems = state.debts.qarz_oldim.items[cur] || [];
+    // Shu davrda qaytarilgan pul — chiqim ham, kirim ham emas, shuning
+    // uchun faqat shu yerda ko'rinadi.
+    const period = state.summary && state.summary.by_currency[cur];
+    const repaid = period
+      ? [["↩️ Qarzimni qaytardim", period.qarz_qaytardim],
+         ["↪️ Menga qaytarildi", period.qarz_qaytdi]].filter((r) => r[1])
+      : [];
+    const repaidHtml = repaid.length
+      ? `<div class="section-label">Shu davrda qaytarilgan</div>` +
+        repaid.map(([label, value]) => `
+          <div class="cat-row">
+            <div class="cat-info"><div class="cat-name-row">
+              <span class="cat-name">${escapeHtml(label)}</span>
+              <span class="cat-amount">${fmtMoney(value, cur)}</span>
+            </div></div>
+          </div>`).join("")
+      : "";
     listEl.innerHTML =
       renderPersonSection("📤 Menga qarzdorlar", berdimItems, cur, STATUS.qarz_berdim, "qarz_berdim") +
-      renderPersonSection("📥 Men qarzdorman", oldimItems, cur, STATUS.qarz_oldim, "qarz_oldim");
+      renderPersonSection("📥 Men qarzdorman", oldimItems, cur, STATUS.qarz_oldim, "qarz_oldim") +
+      repaidHtml;
     bindSettleButtons();
   }
 
@@ -809,7 +833,10 @@
   function openDetailSheet(tx) {
     state.detailTx = tx;
     const isDebt = tx.kind.startsWith("qarz");
-    const canToggleKind = tx.kind === "kirim" || tx.kind === "chiqim";
+    // Qaysi turga almashtirish mumkinligi serverdan keladi
+    // (config.KIND_SWITCHES): kirim <-> chiqim va ular <-> qarz qaytarish.
+    const switches = (state.me.kind_switches && state.me.kind_switches[tx.kind]) || [];
+    const canSettle = tx.kind === "qarz_berdim" || tx.kind === "qarz_oldim";
     const cats = (state.me.categories_by_kind[tx.kind] || []);
 
     let html = `
@@ -838,19 +865,18 @@
       </div>`;
     }
 
-    if (canToggleKind) {
-      const other = tx.kind === "kirim" ? "chiqim" : "kirim";
-      html += `<button class="btn btn-secondary" id="toggleKindBtn" style="width:100%;margin-bottom:10px">
-        🔄 ${escapeHtml(kindLabel(other))}ga almashtirish
+    switches.forEach((other) => {
+      html += `<button class="btn btn-secondary" data-switch-kind="${escapeHtml(other)}" style="width:100%;margin-bottom:10px">
+        🔄 ${kindIcon(other)} ${escapeHtml(kindLabel(other))} deb belgilash
       </button>`;
-    }
+    });
 
     if (tx.receipt_id) {
       html += `<div id="receiptItems" class="sheet-row"><div class="sheet-label">🧾 Shu chekdagi boshqa mahsulotlar</div><div class="spinner">Yuklanmoqda…</div></div>`;
     }
 
     html += `<div class="sheet-actions">
-      ${isDebt && !tx.settled ? '<button class="btn btn-good" id="settleBtn">✅ Yopish</button>' : ""}
+      ${canSettle && !tx.settled ? '<button class="btn btn-good" id="settleBtn">✅ Yopish</button>' : ""}
       <button class="btn btn-danger" id="deleteBtn">🗑 O'chirish</button>
     </div>`;
 
@@ -863,8 +889,9 @@
     body.querySelectorAll("#catChips .chip").forEach((chip) => {
       chip.onclick = () => updateTxCategory(tx.id, chip.dataset.cat);
     });
-    const toggleBtn = body.querySelector("#toggleKindBtn");
-    if (toggleBtn) toggleBtn.onclick = () => toggleTxKind(tx.id, tx.kind === "kirim" ? "chiqim" : "kirim");
+    body.querySelectorAll("[data-switch-kind]").forEach((btn) => {
+      btn.onclick = () => toggleTxKind(tx.id, btn.dataset.switchKind);
+    });
     const settleBtn = body.querySelector("#settleBtn");
     if (settleBtn) settleBtn.onclick = () => confirmAction("Bu qarzni yopilgan deb belgilaysizmi?", () => settleDebt(tx.id));
     body.querySelector("#deleteBtn").onclick = () =>
@@ -988,6 +1015,7 @@
         <div class="sheet-label">Turi</div>
         <div class="chip-grid">
           ${["chiqim", "kirim", "qarz_berdim", "qarz_oldim",
+             "qarz_qaytardim", "qarz_qaytdi",
              "jamgarma", "jamgarma_yechdim"].map((k) =>
             `<button class="chip ${k === addForm.kind ? "active" : ""}" data-kind="${k}">${kindIcon(k)} ${escapeHtml(kindLabel(k))}</button>`
           ).join("")}
