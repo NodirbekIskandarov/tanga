@@ -1308,6 +1308,30 @@ T.update({
         "uz": "👑 Oddiy rejim o'chirildi — yana bot egasisiz.",
         "ru": "👑 Обычный режим выключен — вы снова владелец.",
     },
+    # ---- /xabar_yubor: mavjud foydalanuvchilarga bir martalik xabar ----
+    "broadcast_default": {
+        "uz": ("🪙 <b>Tanga'da yangiliklar</b>\n\n"
+               "• Qarz to'lovlari endi xarajatga qo'shilmaydi — oylik "
+               "statistikangiz aniqroq\n"
+               "• Chek bitta yozuv bo'lib saqlanadi, chegirma to'g'ri hisoblanadi\n"
+               "• Kategoriyani bir marta tuzatsangiz, bot uni eslab qoladi\n"
+               "{founders}\n\n"
+               "Tariflar: /obuna"),
+        "ru": ("🪙 <b>Новое в Tanga</b>\n\n"
+               "• Платежи по долгам больше не считаются расходами — "
+               "статистика точнее\n"
+               "• Чек сохраняется одной записью, скидка учитывается правильно\n"
+               "• Исправьте категорию один раз — бот запомнит\n"
+               "{founders}\n\n"
+               "Тарифы: /obuna"),
+    },
+    "broadcast_founders": {
+        "uz": ("\n🎁 <b>Asoschilar taklifi:</b> PRO birinchi yil — {price} "
+               "(odatda {yearly}). Faqat birinchi {total} kishi uchun, qolgan "
+               "joylar: {left}."),
+        "ru": ("\n🎁 <b>Предложение основателям:</b> PRO на первый год — {price} "
+               "(обычно {yearly}). Только для первых {total}, осталось мест: {left}."),
+    },
     "sim_usage": {
         "uz": "Foydalanish: <code>/oddiy_rejim on</code> yoki <code>/oddiy_rejim off</code>\nHozir: {state}",
         "ru": "Использование: <code>/oddiy_rejim on</code> или <code>/oddiy_rejim off</code>\nСейчас: {state}",

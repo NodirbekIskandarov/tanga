@@ -36,6 +36,7 @@ from telegram.ext import (
 )
 
 import ai
+import broadcast
 import config
 import db
 import i18n
@@ -1626,6 +1627,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Obuna va hisobni o'chirish tugmalari kirish chegarasidan OLDIN keladi —
     # muddati tugagan foydalanuvchi ham to'lov qila olishi va ma'lumotini
     # o'chira olishi kerak.
+    if data.startswith("bc:"):
+        await broadcast.on_broadcast_callback(update, context)
+        return
     if data.startswith("pro:"):
         # Paywall'dagi «💎 PRO ga o'tish» — tariflar sahifasi.
         await query.answer()
@@ -3408,6 +3412,7 @@ OWNER_COMMANDS = BOT_COMMANDS + [
     ("id", "Telegram ID'ingiz"),
     ("panel", "Admin boshqaruv paneli"),
     ("oddiy_rejim", "Oddiy foydalanuvchi sifatida sinash: on/off"),
+    ("xabar_yubor", "Foydalanuvchilarga xabar (ko'rish va tasdiq bilan)"),
 ]
 
 
@@ -3570,6 +3575,7 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("id", cmd_id))
     app.add_handler(CommandHandler("panel", cmd_panel))
     app.add_handler(CommandHandler("oddiy_rejim", cmd_sim_mode))
+    app.add_handler(CommandHandler("xabar_yubor", owner_only(broadcast.cmd_broadcast)))
     app.add_handler(CommandHandler(["til", "lang", "yazyk"], cmd_lang))
     app.add_handler(CommandHandler(["maxfiylik", "privacy"], cmd_privacy))
     app.add_handler(CommandHandler(["shartlar", "oferta", "terms"], cmd_terms))

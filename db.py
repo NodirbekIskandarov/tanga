@@ -2202,6 +2202,27 @@ def top_spenders(days: int = 30, limit: int = 10) -> list[dict]:
         ]
 
 
+def broadcast_audience(days: int = 30) -> list[int]:
+    """/xabar_yubor oluvchilari: oxirgi `days` kunda yozuv kiritgan,
+    bloklanmagan va joriy shartlarga rozi bo'lganlar. Eng faoli (ko'p kun
+    yozganlar) birinchi. Egalar kirmaydi — ular «Menga sinov» bilan ko'radi.
+
+    Faqat `entry_counts` (sanoq) va `users` dan — moliyaviy ma'lumot
+    o'qilmaydi.
+    """
+    since = (_now().date() - timedelta(days=days)).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT e.user_id, COUNT(*) AS active_days
+               FROM entry_counts e JOIN users u ON u.user_id = e.user_id
+               WHERE e.day >= ? AND u.blocked = 0 AND u.consent_at IS NOT NULL
+                 AND u.consent_version = ?
+               GROUP BY e.user_id
+               ORDER BY active_days DESC, e.user_id""",
+            (since, config.CONSENT_VERSION)).fetchall()
+    return [r["user_id"] for r in rows if r["user_id"] not in config.OWNER_IDS]
+
+
 def user_count() -> dict:
     with get_conn() as conn:
         now_iso = _now().isoformat()
