@@ -36,6 +36,7 @@ from telegram.ext import (
 )
 
 import ai
+import analytics
 import broadcast
 import config
 import db
@@ -3184,6 +3185,14 @@ async def cmd_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 @owner_only
+async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/statistika — faollik, saqlanish, voronka va paywall'lar (faqat ega)."""
+    data = await asyncio.to_thread(analytics.report)
+    for chunk in _split_message(analytics.report_text(data)):
+        await update.effective_message.reply_text(chunk, parse_mode=ParseMode.HTML)
+
+
+@owner_only
 async def cmd_sim_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/oddiy_rejim on|off — ega o'zini obunasiz, sinovi tugagan
     foydalanuvchidek ko'radi: limitlar, paywall, tariflar va /holat oddiy
@@ -3747,6 +3756,7 @@ OWNER_COMMANDS = BOT_COMMANDS + [
     ("panel", "Admin boshqaruv paneli"),
     ("oddiy_rejim", "Oddiy foydalanuvchi sifatida sinash: on/off"),
     ("xabar_yubor", "Foydalanuvchilarga xabar (ko'rish va tasdiq bilan)"),
+    ("statistika", "Faollik, saqlanish, voronka, paywall"),
 ]
 
 
@@ -3913,6 +3923,7 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("id", cmd_id))
     app.add_handler(CommandHandler("panel", cmd_panel))
     app.add_handler(CommandHandler("oddiy_rejim", cmd_sim_mode))
+    app.add_handler(CommandHandler("statistika", cmd_stats))
     app.add_handler(CommandHandler("xabar_yubor", owner_only(broadcast.cmd_broadcast)))
     app.add_handler(CommandHandler(["til", "lang", "yazyk"], cmd_lang))
     app.add_handler(CommandHandler(["maxfiylik", "privacy"], cmd_privacy))
