@@ -68,6 +68,17 @@ CREATE TABLE IF NOT EXISTS shaxsiy.receipts (
     PRIMARY KEY (user_id, receipt_id)
 );
 
+-- Foydalanuvchi tuzatishlaridan o'rganilgan kategoriyalar (learning.py).
+-- «suv» -> oziq-ovqat: keyingi «suv» yozuvlarida AI javobidan ustun.
+CREATE TABLE IF NOT EXISTS shaxsiy.category_rules (
+    user_id    INTEGER NOT NULL,
+    keyword    TEXT    NOT NULL,
+    kind       TEXT    NOT NULL,
+    category   TEXT    NOT NULL,
+    updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, keyword, kind)
+);
+
 -- Kategoriya bo'yicha oylik byudjet. Bu ham shaxsiy moliya: odam nimaga
 -- qancha ajratgani uning daromadi haqida ham gapiradi.
 CREATE TABLE IF NOT EXISTS shaxsiy.budgets (
@@ -1868,6 +1879,7 @@ def erase_user(user_id: int) -> dict:
         conn.execute("DELETE FROM budgets WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM savings_profile WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM receipts WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM category_rules WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM subscription_requests WHERE user_id = ?", (user_id,))
         # Taklif qilganlar zanjiri uzilmasin — havola bo'sh qoladi.
         conn.execute("UPDATE users SET referred_by = NULL WHERE referred_by = ?",
@@ -1895,6 +1907,7 @@ def drain_erase_queue() -> int:
             conn.execute("DELETE FROM budgets WHERE user_id = ?", (uid,))
             conn.execute("DELETE FROM savings_profile WHERE user_id = ?", (uid,))
             conn.execute("DELETE FROM receipts WHERE user_id = ?", (uid,))
+            conn.execute("DELETE FROM category_rules WHERE user_id = ?", (uid,))
             conn.execute("DELETE FROM entry_counts WHERE user_id = ?", (uid,))
         # Navbat qatorining o'zi ham qoldirilmaydi: unda foydalanuvchi
         # id si turadi, ya'ni u ham iz.

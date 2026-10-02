@@ -110,7 +110,8 @@ def _currency_block(user_id: int, start: date, end: date, currency: str, days: i
         for name, total, cnt in cats[:8]:
             share = total / chiqim if chiqim else 0
             icon = config.CATEGORY_ICONS.get(name, "•")
-            lines.append(f"{icon} {esc(name)} — {fmt_money(total, currency)} ({share * 100:.0f}%)")
+            lines.append(f"{icon} {esc(config.category_label(name))} — "
+                         f"{fmt_money(total, currency)} ({share * 100:.0f}%)")
             lines.append(f"   <code>{_bar(share)}</code> {cnt} ta")
 
     lines += debt_lines(t, currency)
@@ -163,7 +164,8 @@ def summary_text(user_id: int, period: str) -> str:
         for name, total, cnt in cats[:8]:
             share = total / chiqim if chiqim else 0
             icon = config.CATEGORY_ICONS.get(name, "•")
-            lines.append(f"{icon} {esc(name)} — {fmt_money(total)} ({share * 100:.0f}%)")
+            lines.append(f"{icon} {esc(config.category_label(name))} — "
+                         f"{fmt_money(total)} ({share * 100:.0f}%)")
             lines.append(f"   <code>{_bar(share)}</code> {cnt} ta")
 
     lines += debt_lines(t)
@@ -252,12 +254,20 @@ def _yearly_savings(user_id: int, start: date, end: date) -> str:
 def transaction_line(row, with_id: bool = True) -> str:
     icon = config.KIND_ICONS.get(row["kind"], "•")
     cat_icon = config.CATEGORY_ICONS.get(row["category"], "")
-    note = row["note"] or row["category"]
+    label = config.category_label(row["category"])
     person = f" — {esc(row['person'])}" if row["person"] else ""
     tail = f" <code>#{row['id']}</code>" if with_id else ""
     currency = row["currency"] if "currency" in row.keys() else "som"
+    # Izoh bo'lsa kategoriya ham yonida ko'rinadi: «nonga · 🥦 oziq-ovqat».
+    # Qarz turlarida kategoriya doim «qarz» — uning o'rnida shaxs turadi.
+    if row["kind"] in config.DEBT_KINDS:
+        body = esc(row["note"] or config.KIND_LABELS.get(row["kind"], label))
+    elif row["note"]:
+        body = f"{esc(row['note'])} · {cat_icon} {esc(label)}"
+    else:
+        body = f"{cat_icon} {esc(label)}"
     return (
-        f"{icon} {fmt_money(row['amount'], currency)} · {cat_icon} {esc(note)}{person}"
+        f"{icon} {fmt_money(row['amount'], currency)} · {body}{person}"
         f" · <i>{fmt_date(row['occurred_on'])}</i>{tail}"
     )
 
@@ -453,7 +463,7 @@ def saved_text(rows: list[dict]) -> str:
         body = [
             f"{icon} <b>{esc(config.KIND_LABELS[r['turi']])}</b> saqlandi",
             f"💵 {fmt_money(r['summa'], cur)}",
-            f"{cat_icon} {esc(r['kategoriya'])}",
+            f"{cat_icon} {esc(config.category_label(r['kategoriya']))}",
         ]
         if r.get("izoh"):
             body.append(f"📝 {esc(r['izoh'])}")
@@ -463,8 +473,26 @@ def saved_text(rows: list[dict]) -> str:
         return "\n".join(body)
 
     lines = [f"✅ <b>{len(rows)} ta yozuv saqlandi</b>", ""]
-    for r in rows:
-        icon = config.KIND_ICONS[r["turi"]]
-        note = r.get("izoh") or r["kategoriya"]
-        lines.append(f"{icon} {fmt_money(r['summa'], r.get('valyuta', 'som'))} · {esc(note)}")
+    lines += [saved_line(r) for r in rows]
+    lines.append("")
+    lines.append("<i>Tuzatish uchun pastdagi «✏️» tugmasini bosing.</i>")
     return "\n".join(lines)
+
+
+def saved_line(r: dict) -> str:
+    """Ko'p yozuvli xabardagi bitta qator — kategoriyasi bilan:
+    🔻 8 000 so'm · nonga · 🥦 oziq-ovqat
+
+    Qarz turlarida kategoriya o'rniga shaxs (yoki tur nomi) — ularning
+    kategoriyasi doim «qarz» va hech narsa aytmaydi.
+    """
+    icon = config.KIND_ICONS[r["turi"]]
+    money = fmt_money(r["summa"], r.get("valyuta", "som"))
+    note = r.get("izoh") or ""
+    if r["turi"] in config.DEBT_KINDS:
+        tail = esc(r.get("shaxs") or config.KIND_LABELS[r["turi"]])
+    else:
+        cat = r["kategoriya"]
+        tail = f"{config.CATEGORY_ICONS.get(cat, '')} {esc(config.category_label(cat))}".strip()
+    parts = [money] + ([esc(note)] if note else []) + [tail]
+    return f"{icon} " + " · ".join(parts)

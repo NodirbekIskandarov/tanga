@@ -39,6 +39,7 @@ import ai
 import config
 import db
 import i18n
+import learning
 import rates
 import reports
 import sharecard
@@ -630,7 +631,8 @@ def collect_menu(lang: str = "uz") -> ReplyKeyboardMarkup:
     )
 
 
-def entry_keyboard(tx_ids: list[int], kind: str | None = None) -> InlineKeyboardMarkup | None:
+def entry_keyboard(tx_ids: list[int], kind: str | None = None,
+                   items: list[dict] | None = None) -> InlineKeyboardMarkup | None:
     if len(tx_ids) == 1:
         tx = tx_ids[0]
         row = [
@@ -640,14 +642,25 @@ def entry_keyboard(tx_ids: list[int], kind: str | None = None) -> InlineKeyboard
         buttons = [row]
         buttons += kind_switch_rows(tx, kind)
         return InlineKeyboardMarkup(buttons)
-    if tx_ids:
-        payload = "D:" + ",".join(map(str, tx_ids))
-        # Telegram callback_data uchun chegara — 64 bayt.
-        if len(payload.encode()) <= 64:
-            return InlineKeyboardMarkup(
-                [[InlineKeyboardButton("🗑 Hammasini o'chirish", callback_data=payload)]]
-            )
-    return None
+    if not tx_ids:
+        return None
+    # Ko'p yozuvli xabar: har bir yozuv uchun alohida «✏️» tugmasi — u
+    # o'sha yozuvni o'z tugmalari (kategoriya, tur, o'chirish) bilan
+    # alohida xabarda ochadi.
+    buttons = []
+    for i, tx in enumerate(tx_ids):
+        label = f"✏️ {i + 1}-yozuv"
+        if items and i < len(items):
+            it = items[i]
+            note = (it.get("izoh") or config.category_label(it["kategoriya"]))[:18]
+            label = f"✏️ {reports.fmt_money(it['summa'], it.get('valyuta', 'som'))} · {note}"
+        buttons.append([InlineKeyboardButton(label, callback_data=f"e:{tx}")])
+    payload = "D:" + ",".join(map(str, tx_ids))
+    # Telegram callback_data uchun chegara — 64 bayt.
+    if len(payload.encode()) <= 64:
+        buttons.append([InlineKeyboardButton("🗑 Hammasini o'chirish",
+                                             callback_data=payload)])
+    return InlineKeyboardMarkup(buttons)
 
 
 def kind_switch_rows(tx: int, kind: str | None) -> list[list[InlineKeyboardButton]]:
@@ -664,6 +677,11 @@ def kind_switch_rows(tx: int, kind: str | None) -> list[list[InlineKeyboardButto
         for other in config.KIND_SWITCHES.get(kind or "", [])]
 
 
+# CATEGORY_REGISTRY dagi birinchi shuncha kategoriya eski «s:» tugmalari
+# yaratilgan paytda mavjud edi.
+LEGACY_CATEGORY_COUNT = 23
+
+
 def receipt_keyboard(receipt_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
@@ -677,9 +695,12 @@ def receipt_keyboard(receipt_id: str) -> InlineKeyboardMarkup:
 def category_keyboard(tx_id: int, kind: str) -> InlineKeyboardMarkup:
     cats = config.categories_for(kind)
     buttons, row = [], []
-    for idx, name in enumerate(cats):
+    for name in cats:
         icon = config.CATEGORY_ICONS.get(name, "•")
-        row.append(InlineKeyboardButton(f"{icon} {name}", callback_data=f"s:{tx_id}:{idx}"))
+        # Raqam config.CATEGORY_REGISTRY dan — u o'zgarmaydi.
+        idx = config.CATEGORY_REGISTRY.index(name)
+        row.append(InlineKeyboardButton(f"{icon} {config.category_label(name)}",
+                                        callback_data=f"k:{tx_id}:{idx}"))
         if len(row) == 2:
             buttons.append(row)
             row = []
@@ -1171,6 +1192,11 @@ async def _process_receipt(update: Update, context, images: list, caption: str):
         await status.edit_text(f"🤔 {reports.esc(hint)}", parse_mode=ParseMode.HTML)
         return
 
+    rules = learning.rules_for(user_id)
+    for item in data["mahsulotlar"]:
+        item["kategoriya"] = learning.apply(rules, config.KIND_CHIQIM,
+                                            item["nomi"], item["kategoriya"])
+
     receipt_id = uuid.uuid4().hex[:10]
     shop = data["dokon"]
     currency = data.get("valyuta") or "som"
@@ -1418,6 +1444,13 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
         await message.reply_text(f"🤔 {reports.esc(hint)}", parse_mode=ParseMode.HTML)
         return
 
+    # Foydalanuvchining o'z tuzatishlaridan o'rganilgan qoidalar AI
+    # javobidan ustun turadi.
+    rules = learning.rules_for(user_id)
+    for item in parsed["yozuvlar"]:
+        item["kategoriya"] = learning.apply(rules, item["turi"], item["izoh"],
+                                            item["kategoriya"])
+
     saved_ids: list[int] = []
     for item in parsed["yozuvlar"]:
         tx_id = db.add_transaction(
@@ -1444,7 +1477,7 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
     single_kind = parsed["yozuvlar"][0]["turi"] if len(saved_ids) == 1 else None
     await message.reply_text(
         body, parse_mode=ParseMode.HTML,
-        reply_markup=entry_keyboard(saved_ids, single_kind),
+        reply_markup=entry_keyboard(saved_ids, single_kind, parsed["yozuvlar"]),
     )
 
     # Byudjet oshdimi? Faqat shu yozuvga tegishli kategoriyalarni tekshiramiz.
@@ -1582,6 +1615,20 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🗑 Yozuv o'chirildi.")
         return
 
+    if data.startswith("e:"):
+        # Ko'p yozuvli xabardan bitta yozuvni ochish.
+        tx_id = int(data[2:])
+        row = db.get_transaction(user_id, tx_id)
+        if not row:
+            await query.answer("Yozuv topilmadi (o'chirilgan bo'lishi mumkin)",
+                               show_alert=True)
+            return
+        await query.answer()
+        await query.message.reply_text(
+            reports.transaction_line(row), parse_mode=ParseMode.HTML,
+            reply_markup=entry_keyboard([tx_id], row["kind"]))
+        return
+
     if data.startswith("D:"):
         ids = [int(x) for x in data[2:].split(",") if x.isdigit()]
         for tx_id in ids:
@@ -1650,19 +1697,28 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_reply_markup(category_keyboard(tx_id, row["kind"]))
         return
 
-    if data.startswith("s:"):
-        _, raw_id, raw_idx = data.split(":")
+    if data.startswith(("k:", "s:")):
+        prefix, raw_id, raw_idx = data.split(":")
         tx_id, idx = int(raw_id), int(raw_idx)
         row = db.get_transaction(user_id, tx_id)
         if not row:
             await query.answer("Yozuv topilmadi", show_alert=True)
             return
-        cats = config.categories_for(row["kind"])
-        if not 0 <= idx < len(cats):
+        if prefix == "k":
+            names = config.CATEGORY_REGISTRY
+        else:
+            # Eski xabardagi tugma: raqam o'sha paytdagi ro'yxatda edi —
+            # keyin qo'shilgan kategoriyalarsiz.
+            names = [c for c in config.categories_for(row["kind"])
+                     if config.CATEGORY_REGISTRY.index(c) < LEGACY_CATEGORY_COUNT]
+        category = names[idx] if 0 <= idx < len(names) else None
+        if category not in config.categories_for(row["kind"]):
             await query.answer("Noto'g'ri kategoriya", show_alert=True)
             return
-        db.update_category(user_id, tx_id, cats[idx])
-        await query.answer("Yangilandi")
+        db.update_category(user_id, tx_id, category)
+        learned = learning.remember(user_id, row["kind"], row["note"], category)
+        await query.answer(f"Eslab qoldim: «{learned}» → {config.category_label(category)}"
+                           if learned else "Yangilandi")
         row = db.get_transaction(user_id, tx_id)
         await query.edit_message_text(
             "✏️ Kategoriya yangilandi\n\n" + reports.transaction_line(row),

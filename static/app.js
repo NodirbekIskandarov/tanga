@@ -155,6 +155,12 @@
     return (state.me && state.me.kind_icons && state.me.kind_icons[kind]) || "•";
   }
 
+  /** Kategoriyaning ko'rinadigan nomi (masalan «oylik» -> «ish haqi»).
+   * Bazada va so'rovlarda asl nom qoladi — faqat ekranda o'zgaradi. */
+  function catLabel(cat) {
+    return (state.me && state.me.category_labels && state.me.category_labels[cat]) || cat;
+  }
+
   function kindLabel(kind) {
     return (state.me && state.me.kind_labels && state.me.kind_labels[kind]) || kind;
   }
@@ -323,7 +329,7 @@
           <div class="cat-icon" style="background:${color}22">${row._other ? "…" : catIcon(row.kategoriya)}</div>
           <div class="cat-info">
             <div class="cat-name-row">
-              <span class="cat-name">${escapeHtml(row.kategoriya)}</span>
+              <span class="cat-name">${escapeHtml(catLabel(row.kategoriya))}</span>
               <span class="cat-amount">${fmtMoney(row.summa, currency)}</span>
             </div>
             <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${(share * 100).toFixed(0)}%;background:${color}"></div></div>
@@ -769,8 +775,8 @@
     div.innerHTML = `
       <div class="tx-icon">${icon}</div>
       <div class="tx-main">
-        <div class="tx-note">${escapeHtml(tx.note || tx.category)}${tx.person ? " — " + escapeHtml(tx.person) : ""}${tx.settled ? " ✅" : ""}</div>
-        <div class="tx-meta">${fmtDate(tx.date)} · ${escapeHtml(tx.category)}${tx.receipt_id ? " · 🧾" : ""}</div>
+        <div class="tx-note">${escapeHtml(tx.note || catLabel(tx.category))}${tx.person ? " — " + escapeHtml(tx.person) : ""}${tx.settled ? " ✅" : ""}</div>
+        <div class="tx-meta">${fmtDate(tx.date)} · ${escapeHtml(catLabel(tx.category))}${tx.receipt_id ? " · 🧾" : ""}</div>
       </div>
       <div class="tx-amount ${tx.kind}">${kindIcon(tx.kind)} ${fmtMoney(tx.amount, tx.currency)}</div>
     `;
@@ -860,7 +866,7 @@
       html += `<div class="sheet-row">
         <div class="sheet-label">Kategoriya</div>
         <div class="chip-grid" id="catChips">
-          ${cats.map((c) => `<button class="chip ${c === tx.category ? "active" : ""}" data-cat="${escapeHtml(c)}">${catIcon(c)} ${escapeHtml(c)}</button>`).join("")}
+          ${cats.map((c) => `<button class="chip ${c === tx.category ? "active" : ""}" data-cat="${escapeHtml(c)}">${catIcon(c)} ${escapeHtml(catLabel(c))}</button>`).join("")}
         </div>
       </div>`;
     }
@@ -1040,7 +1046,7 @@
       <div class="sheet-row">
         <div class="sheet-label">Kategoriya</div>
         <div class="chip-grid">
-          ${cats.map((c) => `<button class="chip ${c === addForm.category ? "active" : ""}" data-cat="${escapeHtml(c)}">${catIcon(c)} ${escapeHtml(c)}</button>`).join("")}
+          ${cats.map((c) => `<button class="chip ${c === addForm.category ? "active" : ""}" data-cat="${escapeHtml(c)}">${catIcon(c)} ${escapeHtml(catLabel(c))}</button>`).join("")}
         </div>
       </div>` : ""}
 

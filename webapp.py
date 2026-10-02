@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 
 import config
 import db
+import learning
 import reports
 
 app = FastAPI(title="Tanga — boshqaruv paneli")
@@ -468,6 +469,9 @@ def api_update_transaction(tx_id: int, body: TxUpdate, user: dict = Depends(curr
         if body.category not in config.categories_for(row["kind"]):
             raise HTTPException(400, "Noto'g'ri kategoriya")
         db.update_category(user["user_id"], tx_id, body.category)
+        # Botdagi tuzatish bilan bir xil: keyingi shunday yozuv o'zi
+        # to'g'ri kategoriyaga tushadi.
+        learning.remember(user["user_id"], row["kind"], row["note"], body.category)
 
     return _serialize_tx(db.get_transaction(user["user_id"], tx_id))
 

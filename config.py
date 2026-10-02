@@ -468,6 +468,9 @@ EXPENSE_CATEGORIES = [
     "sovg'a",
     "xizmatlar",
     "biznes xarajat",
+    # Sovun, shampun, kir yuvish vositasi, paket — ilgari «boshqa chiqim» ga
+    # tushib, chek tahlilida eng katta noaniq bo'lakni hosil qilardi.
+    "uy-ro'zg'or va gigiyena",
     "boshqa chiqim",
 ]
 
@@ -487,6 +490,21 @@ SAVINGS_CATEGORIES = ["jamg'arma"]
 ALL_CATEGORIES = (EXPENSE_CATEGORIES + INCOME_CATEGORIES + DEBT_CATEGORIES
                   + SAVINGS_CATEGORIES)
 
+# Kategoriya tugmalarining callback'i uchun BARQAROR raqamlar. Ro'yxat
+# faqat OXIRIDAN to'ldiriladi: yangi kategoriya ekranda istalgan joyda
+# turishi mumkin, lekin raqami o'zgarmaydi — chatda qolib ketgan eski
+# tugmalar boshqa kategoriyani tanlab qo'ymaydi.
+CATEGORY_REGISTRY = [
+    "oziq-ovqat", "kafe va restoran", "transport", "uy-joy", "kommunal",
+    "aloqa va internet", "salomatlik", "kiyim-kechak", "ta'lim", "dam olish",
+    "sovg'a", "xizmatlar", "biznes xarajat", "boshqa chiqim",
+    "oylik", "biznes daromadi", "qo'shimcha ish", "sotuvdan", "sovg'a olindi",
+    "investitsiya", "boshqa kirim", "qarz", "jamg'arma",
+    # --- keyin qo'shilganlar ---
+    "uy-ro'zg'or va gigiyena",
+]
+assert set(CATEGORY_REGISTRY) == set(ALL_CATEGORIES), "CATEGORY_REGISTRY to'liq emas"
+
 CATEGORY_ICONS = {
     "oziq-ovqat": "🥦",
     "kafe va restoran": "🍽",
@@ -501,6 +519,7 @@ CATEGORY_ICONS = {
     "sovg'a": "🎁",
     "xizmatlar": "🛠",
     "biznes xarajat": "💼",
+    "uy-ro'zg'or va gigiyena": "🧴",
     "boshqa chiqim": "📦",
     "oylik": "💰",
     "biznes daromadi": "📈",
