@@ -47,6 +47,27 @@ CREATE INDEX IF NOT EXISTS shaxsiy.idx_tx_user_kind
 CREATE INDEX IF NOT EXISTS shaxsiy.idx_tx_receipt
     ON transactions(user_id, receipt_id);
 
+-- Chek sarlavhasi. Mahsulotlar hamon `transactions` da alohida qator
+-- bo'lib turadi (kategoriya tahlili, byudjet va AI savollari mahsulot
+-- darajasida ishlaydi) — sarlavha ularni `receipt_id` orqali bitta
+-- chekka birlashtiradi: do'kon nomi, chekdagi jami va chegirma.
+--
+-- Chek summasi bu yerda SAQLANMAYDI, har safar mahsulotlardan
+-- hisoblanadi: Mini App'da bitta mahsulot o'chirilsa ham sarlavha
+-- eskirib qolmaydi. `printed_total` — chekda yozilgan jami, faqat
+-- ma'lumot uchun.
+CREATE TABLE IF NOT EXISTS shaxsiy.receipts (
+    user_id       INTEGER NOT NULL,
+    receipt_id    TEXT    NOT NULL,
+    shop          TEXT    NOT NULL DEFAULT '',
+    occurred_on   TEXT    NOT NULL,
+    currency      TEXT    NOT NULL DEFAULT 'som',
+    printed_total REAL,
+    discount      REAL,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, receipt_id)
+);
+
 -- Kategoriya bo'yicha oylik byudjet. Bu ham shaxsiy moliya: odam nimaga
 -- qancha ajratgani uning daromadi haqida ham gapiradi.
 CREATE TABLE IF NOT EXISTS shaxsiy.budgets (
@@ -547,8 +568,7 @@ def add_transaction(
         return int(cur.lastrowid)
 
 
-def add_many(rows: list[dict]) -> list[int]:
-    """Bir nechta yozuvni bitta tranzaksiyada saqlaydi (chek uchun)."""
+def _insert_many(conn, rows: list[dict]) -> list[int]:
     ids: list[int] = []
     # Kurs bitta chek uchun bir marta hisoblanadi — hamma qator bir kunda
     # va bir valyutada bo'ladi.
@@ -556,34 +576,85 @@ def add_many(rows: list[dict]) -> list[int]:
         (r, *_base_of(r["amount"], r.get("currency", "som"), r["occurred_on"]))
         for r in rows
     ]
-    with get_conn() as conn:
-        for r, rate, amount_base in prepared:
-            cur = conn.execute(
-                """INSERT INTO transactions
-                   (user_id, kind, amount, category, note, person, occurred_on,
-                    raw_text, receipt_id, currency, rate, amount_base)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (r["user_id"], r["kind"], float(r["amount"]), r["category"],
-                 r.get("note", ""), r.get("person"), r["occurred_on"],
-                 r.get("raw_text", ""), r.get("receipt_id"),
-                 r.get("currency", "som"), rate, amount_base),
-            )
-            ids.append(int(cur.lastrowid))
-            _bump_entries(conn, r["user_id"], r["occurred_on"], +1)
+    for r, rate, amount_base in prepared:
+        cur = conn.execute(
+            """INSERT INTO transactions
+               (user_id, kind, amount, category, note, person, occurred_on,
+                raw_text, receipt_id, currency, rate, amount_base)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (r["user_id"], r["kind"], float(r["amount"]), r["category"],
+             r.get("note", ""), r.get("person"), r["occurred_on"],
+             r.get("raw_text", ""), r.get("receipt_id"),
+             r.get("currency", "som"), rate, amount_base),
+        )
+        ids.append(int(cur.lastrowid))
+        _bump_entries(conn, r["user_id"], r["occurred_on"], +1)
     return ids
+
+
+def add_many(rows: list[dict]) -> list[int]:
+    """Bir nechta yozuvni bitta tranzaksiyada saqlaydi."""
+    with get_conn() as conn:
+        return _insert_many(conn, rows)
+
+
+def add_receipt(user_id: int, receipt_id: str, *, shop: str, occurred_on: str,
+                currency: str, printed_total: float | None,
+                discount: float | None, items: list[dict]) -> list[int]:
+    """Chekni saqlaydi: sarlavha va mahsulot qatorlari BITTA tranzaksiyada.
+
+    Ikkalasi ham shaxsiy bazada — yarim saqlangan chek (sarlavhasiz
+    mahsulotlar yoki mahsulotsiz sarlavha) bo'lib qolmaydi.
+    """
+    with get_conn() as conn:
+        conn.execute(
+            """INSERT INTO receipts (user_id, receipt_id, shop, occurred_on,
+                                     currency, printed_total, discount)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, receipt_id, shop or "", occurred_on, currency,
+             printed_total, discount))
+        return _insert_many(conn, [
+            {**item, "user_id": user_id, "receipt_id": receipt_id,
+             "occurred_on": occurred_on, "currency": currency}
+            for item in items
+        ])
+
+
+def get_receipt(user_id: int, receipt_id: str) -> dict | None:
+    """Chek sarlavhasi + mahsulotlardan hisoblangan jami va soni."""
+    with get_conn() as conn:
+        row = conn.execute(
+            """SELECT t.receipt_id, COUNT(*) AS n, SUM(t.amount) AS total,
+                      MIN(t.occurred_on) AS occurred_on, MAX(t.currency) AS currency,
+                      r.shop, r.printed_total, r.discount
+               FROM transactions t
+               LEFT JOIN receipts r
+                 ON r.user_id = t.user_id AND r.receipt_id = t.receipt_id
+               WHERE t.user_id = ? AND t.receipt_id = ?
+               GROUP BY t.receipt_id""",
+            (user_id, receipt_id)).fetchone()
+    return dict(row) if row else None
 
 
 def delete_transaction(user_id: int, tx_id: int) -> bool:
     with get_conn() as conn:
         # Sanoqni kamaytirish uchun qaysi kun ekanini oldindan bilish kerak.
         row = conn.execute(
-            "SELECT occurred_on FROM transactions WHERE id = ? AND user_id = ?",
+            "SELECT occurred_on, receipt_id FROM transactions "
+            "WHERE id = ? AND user_id = ?",
             (tx_id, user_id)).fetchone()
         cur = conn.execute(
             "DELETE FROM transactions WHERE id = ? AND user_id = ?", (tx_id, user_id)
         )
         if cur.rowcount and row:
             _bump_entries(conn, user_id, row["occurred_on"], -1)
+            # Chekning oxirgi mahsuloti o'chirilsa — sarlavha ham ketadi.
+            if row["receipt_id"] and not conn.execute(
+                    "SELECT 1 FROM transactions WHERE user_id = ? AND receipt_id = ?",
+                    (user_id, row["receipt_id"])).fetchone():
+                conn.execute(
+                    "DELETE FROM receipts WHERE user_id = ? AND receipt_id = ?",
+                    (user_id, row["receipt_id"]))
         return cur.rowcount > 0
 
 
@@ -836,6 +907,7 @@ def rows_by_receipt(user_id: int, receipt_id: str) -> list[sqlite3.Row]:
 
 
 def delete_receipt(user_id: int, receipt_id: str) -> int:
+    """Butun chekni o'chiradi: mahsulotlar va sarlavha bitta tranzaksiyada."""
     with get_conn() as conn:
         days = conn.execute(
             "SELECT occurred_on, COUNT(*) n FROM transactions "
@@ -845,9 +917,54 @@ def delete_receipt(user_id: int, receipt_id: str) -> int:
             "DELETE FROM transactions WHERE user_id = ? AND receipt_id = ?",
             (user_id, receipt_id),
         )
+        conn.execute("DELETE FROM receipts WHERE user_id = ? AND receipt_id = ?",
+                     (user_id, receipt_id))
         for d in days:
             _bump_entries(conn, user_id, d["occurred_on"], -d["n"])
         return cur.rowcount
+
+
+def recent_entries(user_id: int, limit: int = 12) -> list[dict]:
+    """«Oxirgi» ro'yxati: oddiy yozuvlar va cheklar aralash, eng yangisi
+    birinchi. Chek mahsulotlari BITTA qatorga yig'iladi.
+
+    Har bir element: oddiy yozuv uchun `receipt_id` bo'sh va qolgan
+    maydonlar `transactions` dagidek; chek uchun esa `n` (mahsulotlar
+    soni), `amount` (jami), `shop` va `id` (chekdagi eng katta id —
+    `/ochir` shu raqam bilan butun chekni o'chiradi).
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT MAX(t.id) AS id, t.receipt_id, COUNT(*) AS n,
+                      SUM(t.amount) AS amount, MAX(t.currency) AS currency,
+                      MAX(t.occurred_on) AS occurred_on,
+                      MAX(t.kind) AS kind, MAX(t.category) AS category,
+                      MAX(t.note) AS note, MAX(t.person) AS person,
+                      MAX(t.settled) AS settled, r.shop
+               FROM transactions t
+               LEFT JOIN receipts r
+                 ON r.user_id = t.user_id AND r.receipt_id = t.receipt_id
+               WHERE t.user_id = ?
+               GROUP BY CASE WHEN t.receipt_id IS NULL
+                             THEN 'tx' || t.id ELSE t.receipt_id END
+               ORDER BY MAX(t.id) DESC
+               LIMIT ?""",
+            (user_id, limit)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def export_rows(user_id: int) -> list[sqlite3.Row]:
+    """CSV uchun: har bir mahsulot qatori o'z cheki identifikatori va
+    do'koni bilan."""
+    with get_conn() as conn:
+        return conn.execute(
+            """SELECT t.*, COALESCE(r.shop, '') AS shop
+               FROM transactions t
+               LEFT JOIN receipts r
+                 ON r.user_id = t.user_id AND r.receipt_id = t.receipt_id
+               WHERE t.user_id = ?
+               ORDER BY t.occurred_on ASC, t.id ASC""",
+            (user_id,)).fetchall()
 
 
 # --------------------------------------------------------------------------- #
@@ -1685,6 +1802,7 @@ def erase_user(user_id: int) -> dict:
                              (user_id,)).rowcount
         conn.execute("DELETE FROM budgets WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM savings_profile WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM receipts WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM subscription_requests WHERE user_id = ?", (user_id,))
         # Taklif qilganlar zanjiri uzilmasin — havola bo'sh qoladi.
         conn.execute("UPDATE users SET referred_by = NULL WHERE referred_by = ?",
@@ -1711,6 +1829,7 @@ def drain_erase_queue() -> int:
             conn.execute("DELETE FROM transactions WHERE user_id = ?", (uid,))
             conn.execute("DELETE FROM budgets WHERE user_id = ?", (uid,))
             conn.execute("DELETE FROM savings_profile WHERE user_id = ?", (uid,))
+            conn.execute("DELETE FROM receipts WHERE user_id = ?", (uid,))
             conn.execute("DELETE FROM entry_counts WHERE user_id = ?", (uid,))
         # Navbat qatorining o'zi ham qoldirilmaydi: unda foydalanuvchi
         # id si turadi, ya'ni u ham iz.

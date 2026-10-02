@@ -20,7 +20,6 @@ import time
 from datetime import date, timedelta
 from urllib.parse import parse_qsl
 
-import csv
 import io
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -531,20 +530,7 @@ def api_export_token(user: dict = Depends(current_user)):
 @app.get("/api/export.csv")
 def api_export_csv(token: str = Query(...)):
     user_id = _consume_export_token(token)
-    rows = db.all_rows(user_id)
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(
-        ["id", "sana", "turi", "summa", "valyuta", "kategoriya", "izoh",
-         "shaxs", "yopilgan", "chek"]
-    )
-    for r in rows:
-        writer.writerow([
-            r["id"], r["occurred_on"], r["kind"], r["amount"], r["currency"],
-            r["category"], r["note"], r["person"] or "", r["settled"],
-            r["receipt_id"] or "",
-        ])
-    content = buf.getvalue().encode("utf-8-sig")
+    content, _ = reports.csv_bytes(user_id)
     return StreamingResponse(
         io.BytesIO(content),
         media_type="text/csv",

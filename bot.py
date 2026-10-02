@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import csv
 import io
 import logging
 import time
@@ -939,10 +938,30 @@ async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Foydalanish: /ochir 12")
         return
     tx_id = int(context.args[0].lstrip("#"))
-    ok = db.delete_transaction(update.effective_user.id, tx_id)
-    await update.message.reply_text(
-        f"🗑 #{tx_id} o'chirildi." if ok else f"#{tx_id} topilmadi."
-    )
+    removed = delete_entry(update.effective_user.id, tx_id)
+    if removed is None:
+        await update.message.reply_text(f"#{tx_id} topilmadi.")
+    elif removed > 1:
+        await update.message.reply_text(
+            f"🗑 Chek o'chirildi ({removed} ta mahsulot).")
+    else:
+        await update.message.reply_text(f"🗑 #{tx_id} o'chirildi.")
+
+
+def delete_entry(user_id: int, tx_id: int) -> int | None:
+    """Botdagi o'chirish: yozuv chekka tegishli bo'lsa BUTUN chek o'chadi.
+
+    «Oxirgi» ro'yxatida chek bitta qator bo'lib ko'rinadi, demak uning
+    raqami chekning o'zini anglatadi. Qaytaradi: o'chgan qatorlar soni
+    yoki yozuv topilmasa None.
+    """
+    row = db.get_transaction(user_id, tx_id)
+    if not row:
+        return None
+    if row["receipt_id"]:
+        _last_receipt.pop(user_id, None)
+        return db.delete_receipt(user_id, row["receipt_id"])
+    return 1 if db.delete_transaction(user_id, tx_id) else None
 
 
 @private_only
@@ -966,29 +985,15 @@ async def cmd_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _send_csv(update: Update, context: ContextTypes.DEFAULT_TYPE,
                     user_id: int) -> None:
     """CSV faylni yuboradi. /csv va hisobni o'chirishdan oldin ishlatiladi."""
-    rows = db.all_rows(user_id)
-    if not rows:
+    content, count = reports.csv_bytes(user_id)
+    if not count:
         await update.effective_message.reply_text("Eksport qilish uchun yozuv yo'q.")
         return
 
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(
-        ["id", "sana", "turi", "summa", "valyuta", "kategoriya", "izoh",
-         "shaxs", "yopilgan", "chek"]
-    )
-    for r in rows:
-        writer.writerow([
-            r["id"], r["occurred_on"], r["kind"], r["amount"],
-            r["currency"] if "currency" in r.keys() else "som",
-            r["category"], r["note"], r["person"] or "", r["settled"],
-            r["receipt_id"] or "",
-        ])
-
-    data = io.BytesIO(buf.getvalue().encode("utf-8-sig"))
+    data = io.BytesIO(content)
     data.name = "hisobot.csv"
     await update.effective_message.reply_document(
-        document=data, filename="hisobot.csv", caption=f"{len(rows)} ta yozuv."
+        document=data, filename="hisobot.csv", caption=f"{count} ta yozuv."
     )
 
 
@@ -1164,21 +1169,20 @@ async def _process_receipt(update: Update, context, images: list, caption: str):
     receipt_id = uuid.uuid4().hex[:10]
     shop = data["dokon"]
     currency = data.get("valyuta") or "som"
-    db.add_many([
-        {
-            "user_id": user_id,
-            "kind": config.KIND_CHIQIM,
-            "amount": item["summa"],
-            "category": item["kategoriya"],
-            "note": item["nomi"],
-            "person": None,
-            "occurred_on": data["sana"],
-            "raw_text": f"chek: {shop}" if shop else "chek",
-            "receipt_id": receipt_id,
-            "currency": currency,
-        }
-        for item in data["mahsulotlar"]
-    ])
+    db.add_receipt(
+        user_id, receipt_id, shop=shop, occurred_on=data["sana"],
+        currency=currency, printed_total=data.get("chekdagi_jami"),
+        discount=data.get("chegirma"),
+        items=[
+            {
+                "kind": config.KIND_CHIQIM,
+                "amount": item["summa"],
+                "category": item["kategoriya"],
+                "note": item["nomi"],
+                "raw_text": f"chek: {shop}" if shop else "chek",
+            }
+            for item in data["mahsulotlar"]
+        ])
 
     start, end, _ = reports.period_range("bugun")
     day_total = db.totals_unified(user_id, start, end)["totals"][config.KIND_CHIQIM]

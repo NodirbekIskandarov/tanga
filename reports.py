@@ -256,15 +256,55 @@ def transaction_line(row, with_id: bool = True) -> str:
     )
 
 
-def recent_text(user_id: int, limit: int = 10) -> str:
-    rows = db.recent(user_id, limit)
-    if not rows:
+def receipt_line(entry: dict, with_id: bool = True) -> str:
+    """Chek bitta qatorda: 🧾 Korzinka cheki — 260 800 so'm (15 mahsulot) · 1-oktabr"""
+    shop = (entry.get("shop") or "").strip()
+    name = f"{esc(shop)} cheki" if shop else "Chek"
+    tail = f" <code>#{entry['id']}</code>" if with_id else ""
+    return (
+        f"🧾 {name} — {fmt_money(entry['amount'], entry.get('currency') or 'som')} "
+        f"({entry['n']} mahsulot) · <i>{fmt_date(entry['occurred_on'])}</i>{tail}"
+    )
+
+
+def recent_text(user_id: int, limit: int = 12) -> str:
+    entries = db.recent_entries(user_id, limit)
+    if not entries:
         return "Hozircha yozuv yo'q."
-    lines = [f"🧾 <b>Oxirgi {len(rows)} ta yozuv</b>", ""]
-    lines += [transaction_line(r) for r in rows]
+    lines = [f"🧾 <b>Oxirgi {len(entries)} ta yozuv</b>", ""]
+    for e in entries:
+        lines.append(receipt_line(e) if e["receipt_id"] else transaction_line(e))
     lines.append("")
-    lines.append("<i>O'chirish uchun:</i> <code>/ochir 12</code>")
+    lines.append("<i>O'chirish uchun:</i> <code>/ochir 12</code> "
+                 "<i>(chek raqami butun chekni o'chiradi)</i>")
     return "\n".join(lines)
+
+
+CSV_HEADER = ["id", "sana", "turi", "summa", "valyuta", "kategoriya", "izoh",
+              "shaxs", "yopilgan", "chek_id", "dokon"]
+
+
+def csv_bytes(user_id: int) -> tuple[bytes, int]:
+    """Barcha yozuvlar CSV ko'rinishida (Excel uchun BOM bilan).
+
+    Chek mahsulotlari alohida qator bo'lib qoladi va har birida o'z
+    cheki identifikatori (`chek_id`) va do'koni turadi — chekni Excel'da
+    qayta yig'ish mumkin bo'lsin.
+    """
+    import csv
+    import io
+
+    rows = db.export_rows(user_id)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(CSV_HEADER)
+    for r in rows:
+        writer.writerow([
+            r["id"], r["occurred_on"], r["kind"], r["amount"], r["currency"],
+            r["category"], r["note"], r["person"] or "", r["settled"],
+            r["receipt_id"] or "", r["shop"] or "",
+        ])
+    return buf.getvalue().encode("utf-8-sig"), len(rows)
 
 
 def debts_text(user_id: int) -> str:
