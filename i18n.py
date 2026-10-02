@@ -47,7 +47,10 @@ BUTTONS = {
     "budget":   {"uz": "💰 Byudjet",     "ru": "💰 Бюджет"},
     "referral": {"uz": "🎁 Taklif",      "ru": "🎁 Пригласить"},
     "subs":     {"uz": "💎 Obuna",       "ru": "💎 Подписка"},
-    "panel":    {"uz": "📊 Boshqaruv paneli", "ru": "📊 Панель управления"},
+    "panel":    {"uz": "📱 Panel",       "ru": "📱 Панель"},
+    "goals":    {"uz": "🎯 Maqsadlar",   "ru": "🎯 Цели"},
+    "pro":      {"uz": "💎 PRO",         "ru": "💎 PRO"},
+    "more":     {"uz": "⚙️ Yana",        "ru": "⚙️ Ещё"},
     "ready":    {"uz": "✅ Tayyor",      "ru": "✅ Готово"},
     "cancel":   {"uz": "❌ Bekor",       "ru": "❌ Отмена"},
 }
@@ -55,24 +58,52 @@ BUTTONS = {
 
 T = {
     # ---- Kirish va umumiy ----
+    # /start — 3–4 qator: salom, uchta misol, (sinov) va bitta chaqiruv.
     "welcome": {
-        "uz": ("👋 <b>Salom{name}!</b>\n\n"
-               "Men Tanga — sizning shaxsiy hisobingiz. Xarajatlaringizni yozib "
-               "boraman, kategoriyalarga ajrataman va hisobot beraman.\n\n"
-               "<b>Boshlash juda oddiy — shunchaki menga yozing:</b>\n\n"
-               "<code>obedga 45 ming</code>\n\n"
-               "Tugmani bosib sinab ko'ring 👇"),
-        "ru": ("👋 <b>Здравствуйте{name}!</b>\n\n"
-               "Я Tanga — ваш личный учёт финансов. Записываю расходы, распределяю "
-               "категориям и составляю отчёты.\n\n"
-               "<b>Начать просто — напишите мне:</b>\n\n"
-               "<code>обед 45 тысяч</code>\n\n"
-               "Нажмите кнопку, чтобы попробовать 👇"),
+        "uz": ("👋 <b>Salom{name}!</b> Men Tanga — pulingiz hisobini yuritaman.\n"
+               "Masalan: <i>«Taksiga 25 ming»</i>, <i>«Oylik 8 mln tushdi»</i> "
+               "yoki chek rasmi.\n"
+               "{trial}"
+               "<b>Birinchi xarajatingizni yozing 👇</b>"),
+        "ru": ("👋 <b>Здравствуйте{name}!</b> Я Tanga — веду учёт ваших денег.\n"
+               "Например: <i>«Такси 25 тысяч»</i>, <i>«Зарплата 8 млн»</i> "
+               "или фото чека.\n"
+               "{trial}"
+               "<b>Напишите свой первый расход 👇</b>"),
     },
-    "try_prompt": {
-        "uz": "Quyidagilardan birini bosing yoki o'zingiz yozing:",
-        "ru": "Нажмите один из примеров или напишите свой:",
+    "welcome_back": {
+        "uz": ("👋 <b>Xush kelibsiz{name}!</b> Yozishda davom eting — "
+               "masalan <i>«Taksiga 25 ming»</i>.\n"
+               "{status}"
+               "Barcha imkoniyatlar: /yordam"),
+        "ru": ("👋 <b>С возвращением{name}!</b> Продолжайте записывать — "
+               "например <i>«Такси 25 тысяч»</i>.\n"
+               "{status}"
+               "Все возможности: /yordam"),
     },
+    "start_trial": {"uz": "🎁 PRO sinov: {days} kun qoldi.",
+                    "ru": "🎁 Пробный PRO: осталось {days} дн."},
+    "start_pro": {"uz": "✅ PRO faol: {days} kun qoldi.",
+                  "ru": "✅ PRO активен: осталось {days} дн."},
+    "start_free": {"uz": "🆓 Bepul versiya · PRO: /obuna",
+                   "ru": "🆓 Бесплатная версия · PRO: /obuna"},
+    "first_entry": {
+        "uz": ("🎉 <b>Ajoyib!</b> Birinchi yozuv saqlandi.\n"
+               "Endi oylik kirimingizni yozing (<i>«oylik 8 mln tushdi»</i>) "
+               "yoki maqsad qo'ying: 🎯 Maqsadlar."),
+        "ru": ("🎉 <b>Отлично!</b> Первая запись сохранена.\n"
+               "Теперь запишите доход (<i>«зарплата 8 млн»</i>) "
+               "или поставьте цель: 🎯 Цели."),
+    },
+    "guide_menu": {
+        "uz": ("📖 <b>Qo'llanma</b>\n\nKerakli bo'limni tanlang.\n"
+               "<i>Tez boshlash: shunchaki yozing — «taksiga 25 ming».</i>"),
+        "ru": ("📖 <b>Инструкция</b>\n\nВыберите раздел (тексты разделов пока "
+               "на узбекском).\n<i>Быстрый старт: просто напишите — "
+               "«такси 25 тысяч».</i>"),
+    },
+    "guide_back": {"uz": "⬅️ Bo'limlar", "ru": "⬅️ Разделы"},
+    "more_menu": {"uz": "⚙️ <b>Yana</b>", "ru": "⚙️ <b>Ещё</b>"},
     "blocked": {
         "uz": "🚫 Hisobingiz bloklangan.",
         "ru": "🚫 Ваш аккаунт заблокирован.",

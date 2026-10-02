@@ -60,43 +60,6 @@ PDF_TYPE = "application/pdf"
 # Albom (bir vaqtda yuborilgan bir nechta rasm) to'planishini kutish vaqti.
 ALBUM_WAIT_SECONDS = 3.0
 
-HELP_TEXT = """👋 <b>Tanga — shaxsiy hisobingiz</b>
-
-<b>1. Oddiy tilda yozing</b>
-• <code>obedga 45 ming</code>
-• <code>taksi 20k, kofe 25 ming</code>
-• <code>oylik tushdi 8 mln</code>
-• <code>Aliga 500 ming qarz berdim</code>
-• <code>kecha dorixonaga 90 ming</code>
-• <code>Diyorga 100 dollar oylik berdim</code> — dollar ham qo'llab-quvvatlanadi
-
-<b>2. Chek rasmini yuboring</b> 📷
-Chekdagi har bir mahsulot o'qilib, kategoriyalarga ajratilib bazaga
-yoziladi, jami summa hisoblanib chekdagi «JAMI» bilan tekshiriladi.
-
-<i>Uzun chek kadrga sig'masa</i> — qismlarga bo'lib suratga oling va
-hammasini <b>birdan</b> (albom qilib) yuboring. Yoki «🧾 Uzun chek»
-tugmasini bosib, bitta-bitta yuborib «✅ Tayyor» deng.
-
-<i>Maslahat:</i> eng aniq natija uchun rasmni <b>Fayl</b> sifatida
-yuboring — Telegram uni siqmaydi.
-
-<b>3. Savol bering</b>
-<code>bu oy eng ko'p nimaga pul ketdi?</code>
-
-<b>Buyruqlar:</b>
-/bugun /kecha /hafta /oy /otganoy /yil — hisobotlar
-/oxirgi — oxirgi yozuvlar
-/qarz — ochiq qarzlar
-/chek — uzun chekni qismlab yuborish
-/ochir 12 — 12-yozuvni o'chirish
-/yopdim 12 — qarzni yopilgan deb belgilash
-/csv — barcha yozuvlarni fayl qilib olish
-/qollanma — to'liq foydalanish yo'riqnomasi
-/obuna — obuna tariflari
-/holat — obuna holati va bugungi limitlar"""
-
-
 GUIDE_TEXT = """\U0001F4D6 <b>FOYDALANISH YO'RIQNOMASI</b>
 
 Tanga \u2014 moliyaviy yozuvlaringizni yuritadigan bot. Xarajat va
@@ -209,8 +172,15 @@ chekdagi \u00abJAMI\u00bb bilan solishtiradi:
 \U0001F527 <b>4. XATONI TUZATISH</b>
 
 Har bir yozuv ostida tugmalar bor:
-\u2022 <b>\u270f\ufe0f Kategoriya</b> \u2014 kategoriyani almashtirish
+\u2022 <b>\u270f\ufe0f Kategoriya</b> \u2014 kategoriyani almashtirish.
+  Bot buni <b>eslab qoladi</b>: bir marta "suv" ni
+  oziq-ovqatga o'zgartirsangiz, keyingi "suv" o'zi shu yerga tushadi
+\u2022 <b>\U0001F504 Turini almashtirish</b> \u2014 masalan chiqimni
+  "qarzimni qaytardim" ga
 \u2022 <b>\U0001F5D1 O'chirish</b> \u2014 yozuvni o'chirish
+
+Bitta xabarda bir nechta yozuv bo'lsa \u2014 har biri uchun
+alohida <b>\u270f\ufe0f</b> tugmasi chiqadi.
 
 Chek uchun:
 \u2022 <b>\U0001F4CB To'liq ro'yxat</b> \u2014 barcha mahsulotlar raqami bilan
@@ -271,6 +241,12 @@ va ochmagan bo'lsangiz eslatib turadi.
 
 /qarz \u2014 ochiq qarzlar ro'yxati, kim kimga qarzdorligi
 <code>/yopdim 12</code> \u2014 qarzni yopilgan deb belgilash
+
+Qaytarishni ham oddiy yozing \u2014 bot o'zi tushunadi:
+<i>"Akmal 200 mingni qaytardi"</i>, <i>"qarzimni qaytardim 1 mln"</i>,
+<i>"kreditga 2,5 mln to'ladim"</i>. Ism aytilsa, shu odamning qarzi
+kamayadi. Qarz harakati <b>xarajat ham, daromad ham emas</b> \u2014
+kunlik chiqim va kategoriya foizlariga kirmaydi.
 
 /reja \u2014 <b>qarzdan chiqish rejasi</b>. Daromadingizni uchga
 bo'ladi: 70% yashashga, 20% qarzni uzishga, 10% baribir
@@ -634,24 +610,51 @@ async def show_paywall(update: Update, context: ContextTypes.DEFAULT_TYPE,
 def main_menu(lang: str = "uz") -> ReplyKeyboardMarkup:
     """Har chaqiruvda quriladi — WEBAPP_URL ishga tushirilgandan keyin
     qo'shilsa, botni qayta ishga tushirmasdan ham tugma paydo bo'ladi."""
-    rows = [
-        ["today", "week", "month"],
-        ["recent", "debts", "year"],
-        ["longbill", "csv", "guide"],
-        ["budget", "referral", "subs"],
-    ]
+    # Asosiy oltita tugma; qolganlari «⚙️ Yana» ichida (MORE_MENU).
+    rows = [["today", "month"], ["goals", "debts"]]
     keyboard = [[KeyboardButton(i18n.btn(lang, key)) for key in row] for row in rows]
     if config.WEBAPP_URL:
         keyboard.append([
-            KeyboardButton(
-                i18n.btn(lang, "panel"), web_app=WebAppInfo(url=config.WEBAPP_URL)
-            )
+            KeyboardButton(i18n.btn(lang, "panel"),
+                           web_app=WebAppInfo(url=config.WEBAPP_URL)),
+            KeyboardButton(i18n.btn(lang, "pro")),
         ])
+        keyboard.append([KeyboardButton(i18n.btn(lang, "more"))])
+    else:
+        keyboard.append([KeyboardButton(i18n.btn(lang, "pro")),
+                         KeyboardButton(i18n.btn(lang, "more"))])
     return ReplyKeyboardMarkup(
         keyboard,
         resize_keyboard=True,
         input_field_placeholder="Xarajat yozing yoki chek rasmini yuboring…",
     )
+
+# «⚙️ Yana» — kamroq ishlatiladigan bo'limlar, xabar ichidagi tugmalar.
+MORE_MENU = ["week", "year", "recent", "longbill", "csv", "budget", "referral", "guide"]
+
+
+def more_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
+    buttons = [InlineKeyboardButton(i18n.btn(lang, key), callback_data=f"m:{key}")
+               for key in MORE_MENU]
+    return InlineKeyboardMarkup([buttons[i:i + 2] for i in range(0, len(buttons), 2)])
+
+
+async def cmd_more(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = lang_of(update.effective_user.id, context)
+    await update.effective_message.reply_text(
+        i18n.t(lang, "more_menu"), parse_mode=ParseMode.HTML,
+        reply_markup=more_keyboard(lang))
+
+
+async def on_more_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """«⚙️ Yana» ichidagi tugma — oddiy menyu tugmasi bilan bir xil handler."""
+    query = update.callback_query
+    key = (query.data or "m:").split(":", 1)[1]
+    handler = MENU_HANDLERS.get(key)
+    await query.answer()
+    if handler and key in MORE_MENU:
+        await handler(update, context)
+
 
 def collect_menu(lang: str = "uz") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
@@ -744,15 +747,6 @@ def category_keyboard(tx_id: int, kind: str) -> InlineKeyboardMarkup:
 # Buyruqlar
 # --------------------------------------------------------------------------- #
 
-def _help_text() -> str:
-    if config.WEBAPP_URL:
-        return HELP_TEXT + (
-            "\n\n<b>4. Grafik boshqaruv paneli</b> 📊\n"
-            "«📊 Boshqaruv paneli» tugmasi (yoki pastdagi menyu tugmasi) — "
-            "diagramma, filtrlar va qidiruv bilan to'liq interaktiv panel."
-        )
-    return HELP_TEXT
-
 
 FIRST_STEPS = [
     ("obedga 45 ming", "Birinchi yozuv"),
@@ -794,36 +788,27 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = f", {reports.esc(user.first_name)}" if user.first_name else ""
 
     if is_new:
-        # Yangi odamga uzun matn emas — bitta misol va bitta tugma.
+        # 3–4 qator: salom, uchta misol, (PRO sinov) va bitta chaqiruv.
+        # Teskari sinov: odam PRO ichida boshlaydi va buni aniq bilsin.
         db.log_event(user.id, "start")
-        welcome = i18n.t(lang, "welcome", name=name)
-        if access["status"] == "trial":
-            # Teskari sinov: odam PRO ichida boshlaydi va buni aniq bilsin.
-            welcome += "\n\n" + i18n.t(lang, "trial_active", days=config.trial_days())
+        trial = (i18n.t(lang, "trial_active", days=config.trial_days()) + "\n"
+                 if access["status"] == "trial" else "")
         await update.effective_message.reply_text(
-            welcome,
+            i18n.t(lang, "welcome", name=name, trial=trial),
             parse_mode=ParseMode.HTML,
             reply_markup=main_menu(lang),
         )
-        await update.effective_message.reply_text(
-            i18n.t(lang, "try_prompt"),
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton(f"«{example}»", callback_data=f"try:{i}")]
-                 for i, (example, _) in enumerate(FIRST_STEPS)]
-            ),
-        )
         return
 
-    text = _help_text()
-    if access["status"] == "trial":
-        text += (f"\n\n🎁 <b>Bepul sinov: {access['days_left']} kun qoldi.</b>\n"
-                 "Tariflar: /obuna")
-    elif access["status"] == "subscribed":
-        text += f"\n\n✅ <b>Obuna faol</b> — {access['days_left']} kun qoldi."
-
+    status = {
+        "trial": i18n.t(lang, "start_trial", days=access["days_left"]),
+        "subscribed": i18n.t(lang, "start_pro", days=access["days_left"]),
+        "free": i18n.t(lang, "start_free"),
+    }.get(access["status"], "")
     await update.effective_message.reply_text(
-        text, parse_mode=ParseMode.HTML, reply_markup=main_menu(lang_of(update.effective_user.id, context))
-    )
+        i18n.t(lang, "welcome_back", name=name,
+               status=(status + "\n") if status else ""),
+        parse_mode=ParseMode.HTML, reply_markup=main_menu(lang))
 
 
 async def on_consent_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -884,13 +869,64 @@ async def on_try_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _process_text(update, context, example)
 
 
+# Qo'llanma bo'limlari: GUIDE_TEXT ajratuvchi chiziq bo'yicha bo'linadi.
+# Bitta uzun xabar o'rniga — bo'limlar ro'yxati va har biri tugma bilan.
+GUIDE_SEPARATOR = "━" * 15
+GUIDE_BUTTONS = [
+    "Yozish", "Chek rasmi", "Aniqlik", "Xatoni tuzatish", "Hisobotlar",
+    "Jamg'arma", "Qarzlar", "Byudjet", "Mini App", "Savol berish",
+    "Bepul va PRO", "Bot xabarlari", "Maxfiylik",
+]
+
+
+def _guide_sections() -> list[tuple[str, str]]:
+    """[(tugma matni, bo'lim matni)] — kirish qismi (birinchi bo'lak) tashlanadi."""
+    parts = [p.strip() for p in GUIDE_TEXT.split(GUIDE_SEPARATOR)[1:]]
+    if len(parts) != len(GUIDE_BUTTONS):
+        raise RuntimeError("GUIDE_TEXT bo'limlari va GUIDE_BUTTONS soni mos emas")
+    return [(f"{body.split()[0]} {label}", body)
+            for label, body in zip(GUIDE_BUTTONS, parts)]
+
+
+GUIDE_SECTIONS = _guide_sections()
+
+
+def guide_menu_keyboard() -> InlineKeyboardMarkup:
+    rows, row = [], []
+    for i, (label, _) in enumerate(GUIDE_SECTIONS):
+        row.append(InlineKeyboardButton(label, callback_data=f"g:{i}"))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return InlineKeyboardMarkup(rows)
+
+
 @private_only
 async def cmd_guide(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/yordam — bo'limlar ro'yxati; bo'lim tugma bilan ochiladi."""
     lang = lang_of(update.effective_user.id, context)
-    for chunk in _split_message(i18n.cyr(lang, GUIDE_TEXT)):
-        await update.effective_message.reply_text(
-            chunk, parse_mode=ParseMode.HTML, reply_markup=main_menu(lang_of(update.effective_user.id, context))
-        )
+    await update.effective_message.reply_text(
+        i18n.t(lang, "guide_menu"), parse_mode=ParseMode.HTML,
+        reply_markup=guide_menu_keyboard())
+
+
+async def on_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    lang = lang_of(update.effective_user.id, context)
+    key = (query.data or "g:menu").split(":", 1)[1]
+    await query.answer()
+    if key == "menu" or not key.isdigit() or int(key) >= len(GUIDE_SECTIONS):
+        await query.edit_message_text(i18n.t(lang, "guide_menu"),
+                                      parse_mode=ParseMode.HTML,
+                                      reply_markup=guide_menu_keyboard())
+        return
+    _, body = GUIDE_SECTIONS[int(key)]
+    await query.edit_message_text(
+        i18n.cyr(lang, body), parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+            i18n.t(lang, "guide_back"), callback_data="g:menu")]]))
 
 
 async def cmd_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1403,6 +1439,8 @@ async def cmd_collect_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # yo'naltiriladi. Lug'at fayl OXIRIDA to'ldiriladi (build_menu_actions),
 # chunki bu yerda hali hamma handler e'lon qilinmagan.
 MENU_ACTIONS: dict = {}
+# Tugma kaliti -> handler («⚙️ Yana» ichidagi tugmalar ham shundan oladi).
+MENU_HANDLERS: dict = {}
 
 
 @private_only
@@ -1584,6 +1622,8 @@ async def _celebrate(update: Update, context: ContextTypes.DEFAULT_TYPE,
         total = db.tx_count(user_id)
         if total == added:
             db.log_event(user_id, "birinchi_yozuv")
+            # Birinchi yozuvdan keyin — maqtov va keyingi bitta qadam.
+            lines.append(i18n.t(lang, "first_entry"))
         # Bitta xabarda bir nechta yozuv bo'lishi mumkin — bosqichdan
         # «sakrab o'tib ketmasligi» uchun oraliqni tekshiramiz.
         for mark in ENTRY_MILESTONES:
@@ -1627,6 +1667,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Obuna va hisobni o'chirish tugmalari kirish chegarasidan OLDIN keladi —
     # muddati tugagan foydalanuvchi ham to'lov qila olishi va ma'lumotini
     # o'chira olishi kerak.
+    if data.startswith("g:"):
+        await on_guide_callback(update, context)
+        return
     if data.startswith("bc:"):
         await broadcast.on_broadcast_callback(update, context)
         return
@@ -1660,6 +1703,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                            show_alert=True)
         return
 
+    if data.startswith("m:"):
+        await on_more_callback(update, context)
+        return
     if data.startswith("rem:"):
         await on_reminder_callback(update, context)
         return
@@ -3490,7 +3536,8 @@ async def _post_init(app: Application) -> None:
 def build_menu_actions() -> None:
     """Menyu tugmalarini handlerlarga bog'laydi. Barcha handlerlar e'lon
     qilingandan keyin chaqiriladi."""
-    handlers = {
+    handlers = MENU_HANDLERS
+    handlers.update({
         "today": _period_command("bugun"),
         "week": _period_command("hafta"),
         "month": _period_command("oy"),
@@ -3505,7 +3552,10 @@ def build_menu_actions() -> None:
         "longbill": cmd_collect_start,
         "ready": cmd_collect_done,
         "cancel": cmd_collect_cancel,
-    }
+        "goals": cmd_goal,          # 3-bosqichda maqsadlar ekrani bilan almashadi
+        "pro": cmd_plans,
+        "more": cmd_more,
+    })
     # Ikkala tildagi tugma matni ham qabul qilinadi: foydalanuvchi tilni
     # almashtirsa, eski klaviatura hali ekranda turgan bo'lishi mumkin.
     for text, key in i18n.menu_lookup().items():
@@ -3567,8 +3617,8 @@ def register_handlers(app) -> None:
     faqat SHU bosqichda ValueError beradi. Bir marta shunday xato
     jonli serverga chiqib, bot umuman ishga tushmay qolgan.
     """
-    app.add_handler(CommandHandler(["start", "yordam", "help"], cmd_start))
-    app.add_handler(CommandHandler(["qollanma", "guide"], cmd_guide))
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler(["yordam", "help", "qollanma", "guide"], cmd_guide))
     app.add_handler(CommandHandler(["buyruqlar", "commands"], cmd_commands))
     app.add_handler(CommandHandler(["obuna", "tarif"], cmd_plans))
     app.add_handler(CommandHandler("holat", cmd_status))
