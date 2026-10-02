@@ -354,6 +354,8 @@ def debts_text(user_id: int) -> str:
             paid = ""
             if r["remaining"] < float(r["amount"]):
                 paid = f" <i>(qoldiq; asli {fmt_money(r['amount'], cur)})</i>"
+            if r.get("due_on"):
+                paid += f" ⏰ {fmt_date(r['due_on'])}"
             lines.append(
                 f"   • {who}: {fmt_money(r['remaining'], cur)}{paid}"
                 f" ({fmt_date(r['occurred_on'])}) <code>#{r['id']}</code>"

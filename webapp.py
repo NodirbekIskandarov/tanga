@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 
 import config
 import db
+import goals
 import learning
 import reports
 import tiers
@@ -378,6 +379,7 @@ def api_debts(user: dict = Depends(current_user)):
                 "id": r["id"], "person": r["person"] or "noma'lum",
                 "amount": r["remaining"], "original": r["amount"],
                 "date": r["occurred_on"], "note": r["note"],
+                "due": r.get("due_on"),
             })
             # «Hammasi» ko'rinishi uchun asosiy valyutaga o'girilgan nusxa —
             # /api/summary dagi «hammasi» blok bilan bir xil mantiq.
@@ -411,21 +413,26 @@ def api_savings(user: dict = Depends(current_user)):
     uid = user["user_id"]
     prof = db.savings_profile(uid)
     balance = db.savings_balance(uid)
-    goal = float(prof.get("goal") or 0)
+    # Panel asosiy maqsadni ko'rsatadi (goals.py). Maydon nomlari avvalgidek —
+    # Mini App o'zgarmasdan ishlaydi.
+    primary = goals.primary(uid)
+    goal = float(primary["amount"]) if primary else 0.0
 
     out = {
         "balance": balance,
         "rate": db.savings_rate(uid),
         "goal": goal,
-        "goal_note": prof.get("goal_note") or "",
+        "goal_note": primary["name"] if primary else "",
         "streak": db.savings_streak(uid),
         "card": prof.get("card_state") or db.CARD_SORALMAGAN,
         "percent": None,
         "left": None,
     }
-    if goal > 0:
-        out["percent"] = round(min(100.0, balance / goal * 100), 1)
-        out["left"] = round(max(0.0, goal - balance), 2)
+    if primary:
+        out["percent"] = round(min(100.0, primary["saved"] / goal * 100), 1)
+        out["left"] = primary["left"]
+        out["goal_saved"] = primary["saved"]
+        out["goals_count"] = len(goals.list_goals(uid))
     return out
 
 

@@ -909,7 +909,7 @@
       <div class="tx-icon">${item.kind === "qarz_berdim" ? "📤" : "📥"}</div>
       <div class="tx-main">
         <div class="tx-note">${escapeHtml(item.person)}</div>
-        <div class="tx-meta">${fmtDate(item.date)}${item.note ? " · " + escapeHtml(item.note) : ""}</div>
+        <div class="tx-meta">${fmtDate(item.date)}${item.note ? " · " + escapeHtml(item.note) : ""}${item.due ? " · ⏰ " + fmtDate(item.due) : ""}</div>
       </div>
       <div class="tx-amount ${item.kind}">${fmtMoney(item.amount, currency)}</div>
     `;

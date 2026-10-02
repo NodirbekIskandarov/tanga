@@ -31,7 +31,8 @@ FREE = "free"
 PRO = "pro"
 
 # Faqat PRO da ochiq imkoniyatlar.
-PRO_ONLY = {"history", "budget", "csv"}
+PRO_ONLY = {"history", "budget", "csv",
+            "goals_many", "goals_forecast", "savings_auto", "debt_reminders"}
 
 
 def is_pro(access: dict | None) -> bool:

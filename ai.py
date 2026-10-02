@@ -144,6 +144,24 @@ RECORD_TOOL = {
                                 "bugungi sanani qo'y."
                             ),
                         },
+                        "maqsad": {
+                            "type": "string",
+                            "description": (
+                                "Faqat jamgarma uchun: pul qaysi maqsadga qo'yilgani "
+                                "aytilgan bo'lsa, o'sha maqsad nomi 1-3 so'z bilan "
+                                "(\"uy uchun 3 mln qo'ydim\" => \"uy\"). Aytilmagan "
+                                "bo'lsa bo'sh qoldir."
+                            ),
+                        },
+                        "muddat": {
+                            "type": "string",
+                            "description": (
+                                "Faqat qarz_berdim/qarz_oldim uchun: qarz qachon "
+                                "qaytarilishi kerakligi aytilgan bo'lsa, YYYY-MM-DD "
+                                "(\"15-oktabrgacha qaytaradi\", \"bir haftada "
+                                "beraman\"). Aytilmagan bo'lsa bo'sh qoldir."
+                            ),
+                        },
                     },
                     "required": ["turi", "summa", "valyuta", "kategoriya", "izoh", "sana"],
                 },
@@ -363,6 +381,16 @@ async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
         if kind not in config.DEBT_KINDS:
             person = None
 
+        sana = _coerce_date(item.get("sana"), today)
+        # Maqsad nomi — faqat jamg'armada; qaytarish muddati — faqat ochiq
+        # qarzda va yozuv sanasidan keyin bo'lsa (o'tgan sana eslatma emas).
+        goal = (item.get("maqsad") or "").strip()[:60] if kind == config.KIND_JAMGARMA else ""
+        due = None
+        if kind in config.DEBT_OPEN_KINDS and item.get("muddat"):
+            raw_due = _coerce_date(item.get("muddat"), date.min)
+            if raw_due != date.min.isoformat() and raw_due > sana:
+                due = raw_due
+
         cleaned.append(
             {
                 "turi": kind,
@@ -371,7 +399,9 @@ async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
                 "kategoriya": config.normalize_category(kind, item.get("kategoriya")),
                 "izoh": (item.get("izoh") or "").strip()[:120],
                 "shaxs": person,
-                "sana": _coerce_date(item.get("sana"), today),
+                "sana": sana,
+                "maqsad": goal or None,
+                "muddat": due,
             }
         )
 

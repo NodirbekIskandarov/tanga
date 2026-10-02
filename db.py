@@ -37,7 +37,11 @@ CREATE TABLE IF NOT EXISTS shaxsiy.transactions (
     currency     TEXT    NOT NULL DEFAULT 'som',
     created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
     rate         REAL    NOT NULL DEFAULT 1,
-    amount_base  REAL
+    amount_base  REAL,
+    -- Jamg'arma qaysi maqsadga (goals.id). Bo'sh — asosiy maqsadga.
+    goal_id      INTEGER,
+    -- Qarzni qaytarish muddati (YYYY-MM-DD) — eslatma uchun.
+    due_on       TEXT
 );
 
 CREATE INDEX IF NOT EXISTS shaxsiy.idx_tx_user_date
@@ -46,6 +50,19 @@ CREATE INDEX IF NOT EXISTS shaxsiy.idx_tx_user_kind
     ON transactions(user_id, kind);
 CREATE INDEX IF NOT EXISTS shaxsiy.idx_tx_receipt
     ON transactions(user_id, receipt_id);
+
+-- Jamg'arma maqsadlari (goals.py). Bir odamda bir nechta bo'lishi
+-- mumkin; yig'ilgan summa saqlanmaydi, jamg'arma yozuvlaridan hisoblanadi.
+CREATE TABLE IF NOT EXISTS shaxsiy.goals (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    INTEGER NOT NULL,
+    name       TEXT    NOT NULL,
+    amount     REAL    NOT NULL,
+    deadline   TEXT,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    reached_at TEXT,
+    archived   INTEGER NOT NULL DEFAULT 0
+);
 
 -- Chek sarlavhasi. Mahsulotlar hamon `transactions` da alohida qator
 -- bo'lib turadi (kategoriya tahlili, byudjet va AI savollari mahsulot
@@ -141,6 +158,16 @@ PRIVATE_TABLE_MIGRATIONS = [
      "ALTER TABLE shaxsiy.savings_profile ADD COLUMN goal_note TEXT NOT NULL DEFAULT ''"),
     ("savings_profile", "goal_reached_at",
      "ALTER TABLE shaxsiy.savings_profile ADD COLUMN goal_reached_at TEXT"),
+    # 3-bosqich: bir nechta maqsad, qarz muddati.
+    ("savings_profile", "primary_goal_id",
+     "ALTER TABLE shaxsiy.savings_profile ADD COLUMN primary_goal_id INTEGER"),
+    # Eski yagona maqsad goals jadvaliga nusxalanganmi (goals._import_legacy).
+    ("savings_profile", "goals_imported",
+     "ALTER TABLE shaxsiy.savings_profile ADD COLUMN goals_imported INTEGER NOT NULL DEFAULT 0"),
+    ("transactions", "goal_id",
+     "ALTER TABLE shaxsiy.transactions ADD COLUMN goal_id INTEGER"),
+    ("transactions", "due_on",
+     "ALTER TABLE shaxsiy.transactions ADD COLUMN due_on TEXT"),
 ]
 
 SCHEMA = """
@@ -580,6 +607,8 @@ def add_transaction(
     raw_text: str = "",
     receipt_id: str | None = None,
     currency: str = "som",
+    goal_id: int | None = None,
+    due_on: str | None = None,
 ) -> int:
     occurred_on = occurred_on or date.today().isoformat()
     rate, amount_base = _base_of(amount, currency, occurred_on)
@@ -587,10 +616,11 @@ def add_transaction(
         cur = conn.execute(
             """INSERT INTO transactions
                (user_id, kind, amount, category, note, person, occurred_on,
-                raw_text, receipt_id, currency, rate, amount_base)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                raw_text, receipt_id, currency, rate, amount_base, goal_id, due_on)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, kind, float(amount), category, note, person,
-             occurred_on, raw_text, receipt_id, currency, rate, amount_base),
+             occurred_on, raw_text, receipt_id, currency, rate, amount_base,
+             goal_id, due_on),
         )
         _bump_entries(conn, user_id, occurred_on, +1)
         return int(cur.lastrowid)
@@ -704,6 +734,37 @@ def update_kind(user_id: int, tx_id: int, kind: str, category: str) -> bool:
             (kind, category, tx_id, user_id),
         )
         return cur.rowcount > 0
+
+
+def set_due(user_id: int, tx_id: int, due: date | None) -> bool:
+    """Qarzni qaytarish muddati (eslatma uchun). None — muddatsiz."""
+    with get_conn() as conn:
+        cur = conn.execute(
+            "UPDATE transactions SET due_on = ? WHERE id = ? AND user_id = ? "
+            "AND kind IN (?, ?)",
+            (due.isoformat() if due else None, tx_id, user_id,
+             config.KIND_QARZ_BERDIM, config.KIND_QARZ_OLDIM))
+        return cur.rowcount > 0
+
+
+def debts_due(days: tuple[date, ...]) -> list[dict]:
+    """Muddati shu kunlarga to'g'ri kelgan OCHIQ qarzlar (eslatma uchun).
+
+    Qoldiq open_debts bilan bir xil hisoblanadi: qisman qaytarilgan qarz
+    uchun eslatmada qolgan summa aytiladi, to'liq qaytarilgani umuman
+    chiqmaydi.
+    """
+    wanted = {d.isoformat() for d in days}
+    with get_conn() as conn:
+        users = [r["user_id"] for r in conn.execute(
+            "SELECT DISTINCT user_id FROM transactions WHERE due_on IN (%s)"
+            % ",".join("?" * len(wanted)), tuple(wanted)).fetchall()]
+    out = []
+    for uid in users:
+        for d in open_debts(uid):
+            if d.get("due_on") in wanted:
+                out.append(d)
+    return out
 
 
 def settle_debt(user_id: int, tx_id: int) -> bool:
@@ -1778,12 +1839,12 @@ def users_for_savings_reminder() -> list[dict]:
         income = income_in_period(uid, first, today_)
         saved = savings_in_period(uid, first, today_)
         # Qoidani bajargan odamga «jamg'ar» deb yozish eslatmani
-        # shovqinga aylantiradi — u chetda qoladi. Bajarilganini u
-        # oylik hisobotdagi «Bobil bahosi» dan ko'radi.
+        # shovqinga aylantiradi — unga eslatma emas, faqat maqsadi bo'lsa
+        # oy xulosasi boradi («met»: True).
         rate = savings_rate(uid)
-        if income > 0 and saved >= income * rate:
-            continue
+        met = income > 0 and saved >= income * rate
         out.append({
+            "met": met,
             "user_id": uid,
             "lang": r["lang"] or "uz",
             "card_state": prof.get("card_state") or CARD_SORALMAGAN,
@@ -2017,6 +2078,7 @@ def erase_user(user_id: int) -> dict:
         conn.execute("DELETE FROM savings_profile WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM receipts WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM category_rules WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM goals WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM subscription_requests WHERE user_id = ?", (user_id,))
         # Taklif qilganlar zanjiri uzilmasin — havola bo'sh qoladi.
         conn.execute("UPDATE users SET referred_by = NULL WHERE referred_by = ?",
@@ -2046,6 +2108,7 @@ def drain_erase_queue() -> int:
             conn.execute("DELETE FROM savings_profile WHERE user_id = ?", (uid,))
             conn.execute("DELETE FROM receipts WHERE user_id = ?", (uid,))
             conn.execute("DELETE FROM category_rules WHERE user_id = ?", (uid,))
+            conn.execute("DELETE FROM goals WHERE user_id = ?", (uid,))
             conn.execute("DELETE FROM entry_counts WHERE user_id = ?", (uid,))
         # Navbat qatorining o'zi ham qoldirilmaydi: unda foydalanuvchi
         # id si turadi, ya'ni u ham iz.
@@ -2151,6 +2214,13 @@ def event_today(user_id: int, name: str, detail: str = "") -> bool:
             "SELECT 1 FROM events WHERE user_id = ? AND name = ? AND detail = ? "
             "AND day = ? LIMIT 1",
             (user_id, name, detail, _today_str())).fetchone() is not None
+
+
+def event_count_detail(user_id: int, name: str, detail: str) -> int:
+    with get_conn() as conn:
+        return int(conn.execute(
+            "SELECT COUNT(*) FROM events WHERE user_id = ? AND name = ? AND detail = ?",
+            (user_id, name, detail)).fetchone()[0])
 
 
 def event_count(user_id: int, name: str) -> int:

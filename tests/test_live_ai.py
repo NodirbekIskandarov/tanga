@@ -16,7 +16,7 @@ keyingi yo'lni. Ikkalasi ham kerak.
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
+from datetime import date, timedelta
 
 import pytest
 from dotenv import dotenv_values
@@ -120,3 +120,31 @@ def test_live_parse(text, expected):
     group = "jadval" if (text, expected) in TABLE else "qo'shimcha"
     live_results.RESULTS.append((group, text, _expected_str(expected), shown, ok))
     assert ok, f"{text!r}: kutilgan {_expected_str(expected)}, olindi {shown}"
+
+
+# 3-bosqich: jamg'arma maqsadi va qarz muddati maydonlari.
+FIELDS = [
+    ("mashina uchun 3 mln jamg'armaga qo'ydim",
+     "jamgarma", 3_000_000, "maqsad", "mashina"),
+    ("Akmalga 200 ming qarz berdim, 2 haftada qaytaradi",
+     "qarz_berdim", 200_000, "muddat", (TODAY + timedelta(days=14)).isoformat()),
+]
+
+
+@pytest.mark.parametrize("text,kind,amount,field,want", FIELDS, ids=[f[0] for f in FIELDS])
+def test_live_fields(text, kind, amount, field, want):
+    parsed = asyncio.run(ai.parse_message(text, today=TODAY))
+    rows = parsed["yozuvlar"]
+    got = rows[0] if rows else {}
+    value = got.get(field)
+    if field == "maqsad":
+        ok = bool(value) and want in value.casefold()
+    else:
+        # «2 haftada» — 13–15 kun oralig'i qabul qilinadi.
+        ok = bool(value) and abs((date.fromisoformat(value) -
+                                  date.fromisoformat(want)).days) <= 1
+    ok = ok and got.get("turi") == kind and abs(got.get("summa", 0) - amount) < 0.01
+    shown = f"{got.get('turi')} {got.get('summa', 0):g} {field}={value}"
+    live_results.RESULTS.append(("qo'shimcha", text, f"{kind} {amount:g} {field}={want}",
+                                 shown, ok))
+    assert ok, shown

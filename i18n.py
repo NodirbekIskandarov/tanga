@@ -882,46 +882,6 @@ T = {
     # Foiz har kimda o'zi bo'ladi: kimdir 5 % dan boshlaydi, kimdir
     # 20 % ajrata oladi. Qat'iy 10 % ni majburlash foydasiz — bajara
     # olmagan odam butun eslatmani o'chirib qo'yadi.
-    "rate_help": {
-        "uz": ("\u2696\ufe0f <b>Jamg'arma foizi</b>\n\n"
-               "Hozirgi foizingiz: <b>{pct}%</b>\n\n"
-               "Har oy daromadingizning shuncha qismini jamg'armaga "
-               "ajratishni maqsad qilasiz. Bot shu foizga qarab "
-               "hisoblaydi va eslatadi.\n\n"
-               "<b>O'zgartirish:</b>\n"
-               "<code>/foiz 15</code> \u2014 daromadning 15% i\n"
-               "<code>/foiz 5</code> \u2014 kamroq, lekin muntazam\n\n"
-               "<i>Boshlash uchun 10% qulay: turmushni sezilarli "
-               "o'zgartirmaydi, lekin bir yilda bir oylik daromadga "
-               "aylanadi. Og'ir bo'lsa 5% dan boshlang \u2014 muhimi "
-               "muntazamlik, miqdor emas.</i>"),
-        "ru": ("\u2696\ufe0f <b>\u041f\u0440\u043e\u0446\u0435\u043d\u0442 "
-               "\u043d\u0430\u043a\u043e\u043f\u043b\u0435\u043d\u0438\u0439</b>\n\n"
-               "\u0421\u0435\u0439\u0447\u0430\u0441 \u0443 \u0432\u0430\u0441: "
-               "<b>{pct}%</b>\n\n"
-               "\u0421\u0442\u043e\u043b\u044c\u043a\u043e \u043e\u0442 "
-               "\u0434\u043e\u0445\u043e\u0434\u0430 \u0432\u044b "
-               "\u043f\u043b\u0430\u043d\u0438\u0440\u0443\u0435\u0442\u0435 "
-               "\u043e\u0442\u043a\u043b\u0430\u0434\u044b\u0432\u0430\u0442\u044c "
-               "\u043a\u0430\u0436\u0434\u044b\u0439 \u043c\u0435\u0441\u044f\u0446. "
-               "\u0411\u043e\u0442 \u0441\u0447\u0438\u0442\u0430\u0435\u0442 \u0438 "
-               "\u043d\u0430\u043f\u043e\u043c\u0438\u043d\u0430\u0435\u0442 \u043f\u043e "
-               "\u044d\u0442\u043e\u043c\u0443 \u043f\u0440\u043e\u0446\u0435\u043d\u0442\u0443.\n\n"
-               "<b>\u0418\u0437\u043c\u0435\u043d\u0438\u0442\u044c:</b>\n"
-               "<code>/foiz 15</code> \u2014 15% \u0434\u043e\u0445\u043e\u0434\u0430\n"
-               "<code>/foiz 5</code> \u2014 \u043c\u0435\u043d\u044c\u0448\u0435, "
-               "\u043d\u043e \u0440\u0435\u0433\u0443\u043b\u044f\u0440\u043d\u043e\n\n"
-               "<i>\u0414\u043b\u044f \u043d\u0430\u0447\u0430\u043b\u0430 "
-               "\u0443\u0434\u043e\u0431\u043d\u043e 10%: \u043f\u043e\u0447\u0442\u0438 "
-               "\u043d\u0435 \u043c\u0435\u043d\u044f\u0435\u0442 \u043e\u0431\u0440\u0430\u0437 "
-               "\u0436\u0438\u0437\u043d\u0438, \u043d\u043e \u0437\u0430 \u0433\u043e\u0434 "
-               "\u043f\u0440\u0435\u0432\u0440\u0430\u0449\u0430\u0435\u0442\u0441\u044f \u0432 "
-               "\u043c\u0435\u0441\u044f\u0447\u043d\u044b\u0439 \u0434\u043e\u0445\u043e\u0434. "
-               "\u0422\u044f\u0436\u0435\u043b\u043e \u2014 \u043d\u0430\u0447\u043d\u0438\u0442\u0435 "
-               "\u0441 5%: \u0432\u0430\u0436\u043d\u0430 "
-               "\u0440\u0435\u0433\u0443\u043b\u044f\u0440\u043d\u043e\u0441\u0442\u044c, "
-               "\u0430 \u043d\u0435 \u0440\u0430\u0437\u043c\u0435\u0440.</i>"),
-    },
     "rate_set": {
         "uz": ("\u2705 Jamg'arma foizi: <b>{pct}%</b>\n\n"
                "Endi barcha hisob-kitob va eslatmalar shu foizga "
@@ -951,24 +911,6 @@ T = {
     },
 
     # ---- Jamg'arma maqsadi ----
-    "goal_set": {
-        "uz": ("🎯 Maqsad qo'yildi: <b>{amount}</b>{note}\n\n"
-               "Hozirgi jamg'armangiz: <b>{balance}</b> ({percent}%)\n"
-               "{bar}\n\n"
-               "Yetishga <b>{left}</b> qoldi."),
-        "ru": ("🎯 Цель установлена: <b>{amount}</b>{note}\n\n"
-               "Сейчас накоплено: <b>{balance}</b> ({percent}%)\n"
-               "{bar}\n\n"
-               "До цели осталось <b>{left}</b>."),
-    },
-    "goal_progress": {
-        "uz": ("🎯 Maqsad: <b>{amount}</b>{note}\n"
-               "{bar} {percent}%\n"
-               "Qoldi: <b>{left}</b>"),
-        "ru": ("🎯 Цель: <b>{amount}</b>{note}\n"
-               "{bar} {percent}%\n"
-               "Осталось: <b>{left}</b>"),
-    },
     "goal_reached": {
         "uz": ("🎉 <b>Maqsadga yetdingiz!</b>\n\n"
                "Maqsad: <b>{amount}</b>{note}\n"
@@ -983,25 +925,6 @@ T = {
                "новую цель?\n"
                "<code>/maqsad 20 млн</code>"),
     },
-    "goal_help": {
-        "uz": ("🎯 <b>Jamg'arma maqsadi</b>\n\n"
-               "Maqsad qo'ysangiz, har o'tkazmada qancha qolganini "
-               "ko'rsatib boraman.\n\n"
-               "<b>Qo'yish:</b>\n"
-               "<code>/maqsad 10 mln</code>\n"
-               "<code>/maqsad 5 mln zaxira fond</code>\n\n"
-               "<b>O'chirish:</b>\n"
-               "<code>/maqsad o'chir</code>"),
-        "ru": ("🎯 <b>Цель накоплений</b>\n\n"
-               "Поставьте цель — и я буду показывать, сколько осталось "
-               "при каждом пополнении.\n\n"
-               "<b>Установить:</b>\n"
-               "<code>/maqsad 10 млн</code>\n"
-               "<code>/maqsad 5 млн резервный фонд</code>\n\n"
-               "<b>Удалить:</b>\n"
-               "<code>/maqsad удалить</code>"),
-    },
-    "goal_cleared": {"uz": "🗑 Maqsad o'chirildi.", "ru": "🗑 Цель удалена."},
 
     # ---- Sof qiymat ----
     "net_worth": {
@@ -1339,6 +1262,137 @@ T.update({
         "uz": "👑 Oddiy rejim o'chirildi — yana bot egasisiz.",
         "ru": "👑 Обычный режим выключен — вы снова владелец.",
     },
+    # ---- Maqsadlar (3.1) ----
+    "goals_title": {"uz": "🎯 <b>Maqsadlar</b>", "ru": "🎯 <b>Цели</b>"},
+    "goals_empty": {
+        "uz": ("Hali maqsad yo'q. Maqsad qo'ysangiz, har o'tkazmada qancha "
+               "qolganini va qachon yetishingizni ko'rsatib boraman.\n\n"
+               "Masalan:\n<code>/maqsad Uy uchun boshlang'ich to'lov 300 mln 2028-mart</code>"),
+        "ru": ("Целей пока нет. Поставьте цель — покажу, сколько осталось и "
+               "когда вы её достигнете.\n\n"
+               "Например:\n<code>/maqsad Квартира 300 млн 2028-март</code>"),
+    },
+    "goal_line": {
+        "uz": "{star}<b>{name}</b> — {percent}%\n{bar}\n{saved} / {amount}",
+        "ru": "{star}<b>{name}</b> — {percent}%\n{bar}\n{saved} / {amount}",
+    },
+    "goal_eta": {
+        "uz": "📈 Shu sur'atda maqsadga <b>{when}</b>da erishasiz (oyiga ~{pace}).",
+        "ru": "📈 В таком темпе цель будет достигнута <b>{when}</b> (~{pace} в месяц).",
+    },
+    "goal_no_pace": {
+        "uz": "📈 Bashorat uchun kamida 2 haftalik jamg'arma tarixi kerak.",
+        "ru": "📈 Для прогноза нужна история накоплений хотя бы за 2 недели.",
+    },
+    "goal_slow": {
+        "uz": "📈 Oxirgi 3 oyda jamg'arma o'smagan — hozirgi sur'atda bashorat yo'q.",
+        "ru": "📈 За 3 месяца накопления не росли — прогноза при текущем темпе нет.",
+    },
+    "goal_need": {
+        "uz": "📅 Muddat — {deadline}: oyiga <b>{need}</b> yig'ish kerak.",
+        "ru": "📅 Срок — {deadline}: нужно откладывать <b>{need}</b> в месяц.",
+    },
+    "goal_done_line": {"uz": "🎉 Maqsadga yetildi!", "ru": "🎉 Цель достигнута!"},
+    "goal_forecast_locked": {
+        "uz": "🔒 «Qachon erishaman» bashorati — PRO.",
+        "ru": "🔒 Прогноз «когда достигну» — в PRO.",
+    },
+    "goal_new_btn": {"uz": "➕ Yangi maqsad", "ru": "➕ Новая цель"},
+    "goal_back_btn": {"uz": "⬅️ Maqsadlar", "ru": "⬅️ Цели"},
+    "goal_primary_btn": {"uz": "⭐ Asosiy qilish", "ru": "⭐ Сделать основной"},
+    "goal_archive_btn": {"uz": "🗑 Yopish", "ru": "🗑 Закрыть"},
+    "goal_ask": {
+        "uz": ("Maqsad nomi, summasi va (ixtiyoriy) muddatini bitta xabarda yozing:\n"
+               "<code>Uy uchun boshlang'ich to'lov 300 mln 2028-mart</code>"),
+        "ru": ("Напишите название, сумму и (необязательно) срок одним сообщением:\n"
+               "<code>Квартира 300 млн 2028-март</code>"),
+    },
+    "goal_created": {
+        "uz": "🎯 Maqsad qo'yildi: <b>{name}</b> — {amount}{deadline}",
+        "ru": "🎯 Цель создана: <b>{name}</b> — {amount}{deadline}",
+    },
+    "goal_parse_fail": {
+        "uz": "Summani topa olmadim. Masalan: <code>/maqsad Mashina 120 mln 2027-dekabr</code>",
+        "ru": "Не нашёл сумму. Например: <code>/maqsad Машина 120 млн 2027-декабрь</code>",
+    },
+    "goal_primary_set": {
+        "uz": ("⭐ Asosiy maqsad: <b>{name}</b>. Maqsad ko'rsatilmagan jamg'arma va "
+               "«avval o'zingizga to'lang» o'tkazmalari shunga tushadi."),
+        "ru": ("⭐ Основная цель: <b>{name}</b>. Накопления без указанной цели и "
+               "переводы «сначала заплати себе» идут сюда."),
+    },
+    "goal_archived": {
+        "uz": "🗑 «{name}» yopildi. Unga yig'ilgan pul jamg'armangizda qoladi.",
+        "ru": "🗑 «{name}» закрыта. Накопленные деньги остаются в накоплениях.",
+    },
+    "goal_month": {
+        "uz": "\n\n🎯 «{name}» maqsadiga <b>{left_pct}%</b> qoldi.",
+        "ru": "\n\n🎯 До цели «{name}» осталось <b>{left_pct}%</b>.",
+    },
+    "goal_month_summary": {
+        "uz": "🏦 <b>Oy xulosasi</b>\n\nBu oy <b>{saved}</b> jamg'ardingiz.{goal}",
+        "ru": "🏦 <b>Итог месяца</b>\n\nВ этом месяце вы отложили <b>{saved}</b>.{goal}",
+    },
+    "paywall_goals": {
+        "uz": ("🎯 <b>Bepul versiyada 1 ta maqsad.</b>\n\n"
+               "PRO'da cheksiz maqsad va har biri uchun «qachon erishaman» bashorati."),
+        "ru": ("🎯 <b>В бесплатной версии — 1 цель.</b>\n\n"
+               "В PRO — сколько угодно целей и прогноз «когда достигну» для каждой."),
+    },
+    "feature_goals": {"uz": "Bir nechta maqsad", "ru": "Несколько целей"},
+
+    # ---- «Avval o'zingizga to'lang» (3.2) ----
+    "rate_pick": {
+        "uz": ("⚖️ <b>«Avval o'zingizga to'lang»</b>\n\n"
+               "Kirim yozilganda shu ulushni jamg'armaga o'tkazishni taklif "
+               "qilaman{goal}.\n\nHozir: <b>{pct}%</b>"),
+        "ru": ("⚖️ <b>«Сначала заплати себе»</b>\n\n"
+               "Когда записывается доход, предложу отложить эту долю{goal}.\n\n"
+               "Сейчас: <b>{pct}%</b>"),
+    },
+    "rate_goal_part": {"uz": " va uni «{name}» maqsadiga bog'layman",
+                       "ru": " и привяжу к цели «{name}»"},
+    "paywall_savings_auto": {
+        "uz": ("⚖️ <b>Foizni sozlash va maqsadga bog'lash — PRO.</b>\n\n"
+               "Bepul versiyada kirim yozilganda 10% taklifi chiqaveradi."),
+        "ru": ("⚖️ <b>Настройка доли и привязка к цели — PRO.</b>\n\n"
+               "В бесплатной версии остаётся предложение отложить 10%."),
+    },
+    "feature_savings_auto": {"uz": "Jamg'arma foizini sozlash",
+                             "ru": "Настройка доли накоплений"},
+    "savings_goal_tail": {"uz": " → «{name}»", "ru": " → «{name}»"},
+
+    # ---- Qarz eslatmalari (3.3) ----
+    "due_btn": {"uz": "📅 Qaytarish muddati", "ru": "📅 Срок возврата"},
+    "due_pick": {"uz": "Qarz qachon qaytarilishi kerak?", "ru": "Когда нужно вернуть долг?"},
+    "due_1": {"uz": "Ertaga", "ru": "Завтра"},
+    "due_7": {"uz": "1 hafta", "ru": "1 неделя"},
+    "due_14": {"uz": "2 hafta", "ru": "2 недели"},
+    "due_30": {"uz": "1 oy", "ru": "1 месяц"},
+    "due_0": {"uz": "Muddatsiz", "ru": "Без срока"},
+    "due_set": {
+        "uz": "📅 Muddat: <b>{date}</b>. Bir kun oldin va o'sha kuni eslataman.",
+        "ru": "📅 Срок: <b>{date}</b>. Напомню за день и в этот день.",
+    },
+    "due_cleared": {"uz": "Muddat olib tashlandi.", "ru": "Срок убран."},
+    "debt_due_them": {
+        "uz": "⏰ <b>{person}</b> {amount} qarzini <b>{when}</b> qaytarishi kerak.",
+        "ru": "⏰ <b>{person}</b> должен вернуть {amount} <b>{when}</b>.",
+    },
+    "debt_due_me": {
+        "uz": "⏰ <b>{person}</b> — {amount} qarzingizni <b>{when}</b> qaytarishingiz kerak.",
+        "ru": "⏰ <b>{person}</b> — вам нужно вернуть {amount} <b>{when}</b>.",
+    },
+    "when_today": {"uz": "bugun", "ru": "сегодня"},
+    "when_tomorrow": {"uz": "ertaga", "ru": "завтра"},
+    "paywall_debt_reminders": {
+        "uz": ("⏰ <b>Qarz eslatmalari — PRO.</b>\n\n"
+               "Muddat qo'yasiz — bir kun oldin va o'sha kuni eslataman."),
+        "ru": ("⏰ <b>Напоминания о долгах — PRO.</b>\n\n"
+               "Укажите срок — напомню за день и в этот день."),
+    },
+    "feature_debt_reminders": {"uz": "Qarz eslatmalari", "ru": "Напоминания о долгах"},
+
     # ---- /xabar_yubor: mavjud foydalanuvchilarga bir martalik xabar ----
     "broadcast_default": {
         "uz": ("🪙 <b>Tanga'da yangiliklar</b>\n\n"
