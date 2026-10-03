@@ -3915,9 +3915,18 @@ async def _post_init(app: Application) -> None:
     # Yechim: bir xil ro'yxatni ikkala ko'lamga ham yozamiz va tilga
     # bog'langan eski nusxalarni o'chiramiz, toki umumiy ro'yxat
     # hammaga yetib borsin.
+    #
+    # Bu yerdagi hamma so'rov IXTIYORIY sozlama: Telegram vaqtincha javob
+    # bermasa (TimedOut) bot yiqilmasligi kerak — menyu keyingi ishga
+    # tushishda o'rnatiladi. Bir marta shunday timeout jonli botni
+    # ishga tushishda yiqitgan (systemd qayta ko'targan).
     commands = [BotCommand(c, d) for c, d in BOT_COMMANDS]
     for scope in (BotCommandScopeDefault(), BotCommandScopeAllPrivateChats()):
-        await app.bot.set_my_commands(commands, scope=scope)
+        try:
+            await app.bot.set_my_commands(commands, scope=scope)
+        except Exception as exc:
+            log.warning("«/» menyusini o'rnatib bo'lmadi (%s): %s", scope.type, exc)
+            continue
         for code in ("en", "ru", "uz"):
             try:
                 await app.bot.delete_my_commands(scope=scope, language_code=code)
@@ -3953,16 +3962,19 @@ async def _post_init(app: Application) -> None:
             log.warning("Ega buyruqlarini o'rnatib bo'lmadi (%s): %s", owner, exc)
 
     # Pastki chap burchakdagi doimiy menyu tugmasi — Mini App'ni bir bosishda ochadi.
-    if config.WEBAPP_URL:
-        await app.bot.set_chat_menu_button(
-            menu_button=MenuButtonWebApp(
-                text="Panel",
-                web_app=WebAppInfo(url=config.WEBAPP_URL),
+    try:
+        if config.WEBAPP_URL:
+            await app.bot.set_chat_menu_button(
+                menu_button=MenuButtonWebApp(
+                    text="Panel",
+                    web_app=WebAppInfo(url=config.WEBAPP_URL),
+                )
             )
-        )
-        log.info("Mini App menyu tugmasi yoqildi: %s", config.WEBAPP_URL)
-    else:
-        await app.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
+            log.info("Mini App menyu tugmasi yoqildi: %s", config.WEBAPP_URL)
+        else:
+            await app.bot.set_chat_menu_button(menu_button=MenuButtonDefault())
+    except Exception as exc:
+        log.warning("Menyu tugmasini o'rnatib bo'lmadi: %s", exc)
 
 
 def build_menu_actions() -> None:
