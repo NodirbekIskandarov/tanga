@@ -361,6 +361,11 @@ So'ramasangiz ham keladigan xabarlar \u2014 bilib turing:
 \u2022 <b>Ketma-ket kunlar</b> \u2014 7, 30 va 100 kunlik
   to'xtovsiz yozuvda tabrik
 
+<b>Bepul versiyada:</b> kunlik eslatma soat 21:00 da (faqat o'sha
+kuni hali yozmagan bo'lsangiz), qisqa haftalik xulosa va oy
+oxirida maqsad progressi. 14 kun yozmasangiz — faqat haftalik
+xulosa, 30 kundan keyin hech narsa kelmaydi.
+
 Ortiqcha tuyulsa /eslatma dan kunlik xabarni o'chiring.
 
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
