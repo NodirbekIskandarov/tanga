@@ -63,3 +63,20 @@ def test_guide_is_sectioned():
     for label, body in bot.GUIDE_SECTIONS:
         assert len(body) < 4000
         assert body.split()[0] == label.split()[0]   # emoji mos
+
+
+def test_russian_guide_mirrors_uzbek():
+    """Ruscha qo'llanma o'zbekcha bilan bir xil tuzilishda: bo'limlar soni,
+    tartibi (emoji) va har bir bo'limdagi buyruqlar."""
+    import re
+    import bot
+    assert len(bot.GUIDE_SECTIONS_RU) == len(bot.GUIDE_SECTIONS)
+    for (_, uz), (label, ru) in zip(bot.GUIDE_SECTIONS, bot.GUIDE_SECTIONS_RU):
+        assert uz.split()[0] == ru.split()[0] == label.split()[0]
+        assert len(ru) < 4000
+        # Haqiqiy buyruq: oldida harf yoki «<» yo'q («kirim/chiqim», «</b>» emas).
+        cmds = lambda t: set(re.findall(r"(?<![\w<])/[a-z_]+", t))
+        assert cmds(uz) <= cmds(ru), cmds(uz) - cmds(ru)
+    assert "Запись" in bot.guide_menu_keyboard("ru").inline_keyboard[0][0].text
+    # Kirill o'zbekcha tugmalari ham o'giriladi.
+    assert bot.guide_menu_keyboard("uzc").inline_keyboard[0][0].text.endswith("Ёзиш")

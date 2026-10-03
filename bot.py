@@ -41,6 +41,7 @@ import broadcast
 import config
 import db
 import goals
+import guide_ru
 import i18n
 import learning
 import tiers
@@ -288,9 +289,9 @@ yozishni eslatadi. Kerak bo'lmasa o'chirib qo'yasiz.
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
 \U0001F4F1 <b>9. MINI APP (grafikli panel)</b>
 
-Klaviaturadagi <b>«📊 Boshqaruv paneli»</b> tugmasini
-bosing. Xabar yozish maydoni yonidagi menyu tugmasidan ham
-ochiladi. Bu botning ichidagi to'liq ilova:
+Klaviaturadagi <b>«📱 Panel»</b> tugmasini bosing. Xabar
+yozish maydoni yonidagi menyu tugmasidan ham ochiladi. Bu
+botning ichidagi to'liq ilova:
 
 \u2022 <b>Doira diagramma</b> \u2014 kirim/chiqim nisbati va farqi
 \u2022 <b>Davrlar</b> \u2014 kun, hafta, oy, yil; oldinga va
@@ -302,8 +303,12 @@ ochiladi. Bu botning ichidagi to'liq ilova:
   o'sha kategoriyaning yozuvlari chiqadi
 \u2022 <b>Qidiruv</b> \u2014 izoh, kategoriya yoki ism bo'yicha
 \u2022 <b>Yozuv qo'shish</b> \u2014 pastdagi \u00ab+\u00bb tugmasi
-\u2022 <b>Jamg'arma bo'limi</b> \u2014 qoldiq, maqsad va unga
-  qancha qolgani
+\u2022 <b>Jamg'arma bo'limi</b> \u2014 qoldiq, har bir maqsad
+  progressi va (PRO'da) \u00abqachon erishaman\u00bb bashorati
+\u2022 <b>Qarz</b> \u2014 kim kimga qarzdor, qoldiq va qaytarish muddati
+\u2022 <b>Chek</b> \u2014 bitta qator; bosilsa mahsulotlari ochiladi
+
+Bepul versiyada panel joriy oy bilan cheklangan.
 
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
 \U0001F4AC <b>10. SAVOL BERISH</b>
@@ -349,6 +354,8 @@ So'ramasangiz ham keladigan xabarlar \u2014 bilib turing:
 \u2022 <b>Haftalik xulosa</b> \u2014 dushanba ertalab, o'tgan hafta
 \u2022 <b>Jamg'arma eslatmasi</b> \u2014 oyning oxirgi kuni 18:00 da
 \u2022 <b>Byudjet ogohlantirishi</b> \u2014 80% va 100% ga yetganda
+\u2022 <b>Qarz muddati</b> \u2014 bir kun oldin va o'sha kuni (PRO)
+\u2022 <b>PRO sinov</b> \u2014 tugashiga 2 kun qolganda va tugagan kuni
 \u2022 <b>Obuna tugashi</b> \u2014 tugashiga bir necha kun qolganda
 \u2022 <b>Ketma-ket kunlar</b> \u2014 7, 30 va 100 kunlik
   to'xtovsiz yozuvda tabrik
@@ -359,8 +366,9 @@ Ortiqcha tuyulsa /eslatma dan kunlik xabarni o'chiring.
 \U0001F512 <b>13. MA'LUMOT, MAXFIYLIK VA SOZLAMALAR</b>
 
 /csv \u2014 barcha yozuvlar Excel'da ochiladigan fayl
-ko'rinishida. Chek yozuvlari \u00abchek\u00bb ustuni bo'yicha
-guruhlangan bo'ladi.
+ko'rinishida (PRO). Har bir chek mahsulotida \u00abchek_id\u00bb va
+do'kon nomi bor \u2014 chekni Excel'da qayta yig'ish mumkin.
+Hisobni o'chirishdan oldin CSV hamma uchun bepul.
 
 <b>Yozuvlaringizni sizdan boshqa hech kim ko'rmaydi.</b>
 Summalar, kategoriyalar va izohlar alohida shifrlangan
@@ -891,21 +899,30 @@ GUIDE_BUTTONS = [
 ]
 
 
-def _guide_sections() -> list[tuple[str, str]]:
+def _guide_sections(text: str, buttons: list[str]) -> list[tuple[str, str]]:
     """[(tugma matni, bo'lim matni)] — kirish qismi (birinchi bo'lak) tashlanadi."""
-    parts = [p.strip() for p in GUIDE_TEXT.split(GUIDE_SEPARATOR)[1:]]
-    if len(parts) != len(GUIDE_BUTTONS):
-        raise RuntimeError("GUIDE_TEXT bo'limlari va GUIDE_BUTTONS soni mos emas")
+    parts = [p.strip() for p in text.split(GUIDE_SEPARATOR)[1:]]
+    if len(parts) != len(buttons):
+        raise RuntimeError("Qo'llanma bo'limlari va tugmalar soni mos emas")
     return [(f"{body.split()[0]} {label}", body)
-            for label, body in zip(GUIDE_BUTTONS, parts)]
+            for label, body in zip(buttons, parts)]
 
 
-GUIDE_SECTIONS = _guide_sections()
+GUIDE_SECTIONS = _guide_sections(GUIDE_TEXT, GUIDE_BUTTONS)
+# Ruscha — alohida matn (guide_ru.py); kirill o'zbekcha esa lotinchadan
+# avtomatik o'giriladi (i18n.cyr).
+GUIDE_SECTIONS_RU = _guide_sections(guide_ru.GUIDE_TEXT_RU, guide_ru.GUIDE_BUTTONS_RU)
 
 
-def guide_menu_keyboard() -> InlineKeyboardMarkup:
+def _sections_for(lang: str) -> list[tuple[str, str]]:
+    return GUIDE_SECTIONS_RU if lang == "ru" else GUIDE_SECTIONS
+
+
+def guide_menu_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
     rows, row = [], []
-    for i, (label, _) in enumerate(GUIDE_SECTIONS):
+    for i, (label, _) in enumerate(_sections_for(lang)):
+        if lang == "uzc":
+            label = i18n.cyr(lang, label)
         row.append(InlineKeyboardButton(label, callback_data=f"g:{i}"))
         if len(row) == 2:
             rows.append(row)
@@ -921,7 +938,7 @@ async def cmd_guide(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = lang_of(update.effective_user.id, context)
     await update.effective_message.reply_text(
         i18n.t(lang, "guide_menu"), parse_mode=ParseMode.HTML,
-        reply_markup=guide_menu_keyboard())
+        reply_markup=guide_menu_keyboard(lang))
 
 
 async def on_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -929,12 +946,13 @@ async def on_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang = lang_of(update.effective_user.id, context)
     key = (query.data or "g:menu").split(":", 1)[1]
     await query.answer()
-    if key == "menu" or not key.isdigit() or int(key) >= len(GUIDE_SECTIONS):
+    sections = _sections_for(lang)
+    if key == "menu" or not key.isdigit() or int(key) >= len(sections):
         await query.edit_message_text(i18n.t(lang, "guide_menu"),
                                       parse_mode=ParseMode.HTML,
-                                      reply_markup=guide_menu_keyboard())
+                                      reply_markup=guide_menu_keyboard(lang))
         return
-    _, body = GUIDE_SECTIONS[int(key)]
+    _, body = sections[int(key)]
     await query.edit_message_text(
         i18n.cyr(lang, body), parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
