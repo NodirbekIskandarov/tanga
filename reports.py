@@ -123,6 +123,73 @@ def _currency_block(user_id: int, start: date, end: date, currency: str, days: i
     return lines
 
 
+def compare_ranges(today: date) -> tuple[tuple[date, date], tuple[date, date]]:
+    """Joriy oy boshidan bugungacha va o'tgan oyning XUDDI SHU kunlari.
+
+    Oyning 3-kunini o'tgan oyning to'liq 30 kuni bilan solishtirish
+    «90% kam sarfladingiz» degan yolg'on xulosa beradi. O'tgan oy
+    qisqaroq bo'lsa (31-mart -> 28-fevral) uning oxirigacha olinadi.
+    """
+    cur_start = today.replace(day=1)
+    prev_end_of_month = cur_start - timedelta(days=1)
+    prev_start = prev_end_of_month.replace(day=1)
+    prev_end = prev_start.replace(day=min(today.day, prev_end_of_month.day))
+    return (cur_start, today), (prev_start, prev_end)
+
+
+def _delta(now: float, was: float, currency: str = "som") -> str:
+    diff = now - was
+    if abs(diff) < 0.5:
+        return "<i>o'zgarmadi</i>"
+    arrow = "▲" if diff > 0 else "▼"
+    sign = "+" if diff > 0 else "−"
+    pct = f" {abs(diff) / was * 100:.0f}%" if was > 0 else ""
+    return f"{arrow}{pct} ({sign}{fmt_money(abs(diff), currency)})"
+
+
+def compare_text(user_id: int, day: date | None = None) -> str:
+    """Oylarni solishtirish (PRO): jamlar va kategoriyalar bo'yicha o'zgarish.
+
+    Barcha valyuta asosiy valyutada (yozuv kunidagi kurs bilan) —
+    «hammasi» ko'rinishi bilan bir xil.
+    """
+    (cs, ce), (ps, pe) = compare_ranges(day or today())
+    now = db.totals_unified(user_id, cs, ce)["totals"]
+    was = db.totals_unified(user_id, ps, pe)["totals"]
+    cur_m, prev_m = UZ_MONTHS[cs.month - 1], UZ_MONTHS[ps.month - 1]
+
+    lines = [
+        f"📊 <b>{cur_m.capitalize()} va {prev_m}</b>",
+        f"<i>Bir xil kunlar: {cs.day}–{ce.day} {cur_m} va "
+        f"{ps.day}–{pe.day} {prev_m}</i>",
+        "",
+    ]
+    for kind, icon, label in ((config.KIND_CHIQIM, "🔻", "Chiqim"),
+                              (config.KIND_KIRIM, "🔺", "Kirim")):
+        lines.append(f"{icon} {label}: <b>{fmt_money(now[kind])}</b>  "
+                     f"{_delta(now[kind], was[kind])}")
+    if now[config.KIND_KIRIM] or was[config.KIND_KIRIM]:
+        farq_now = now[config.KIND_KIRIM] - now[config.KIND_CHIQIM]
+        farq_was = was[config.KIND_KIRIM] - was[config.KIND_CHIQIM]
+        lines.append(f"⚖️ Farq: <b>{fmt_money(farq_now)}</b>  {_delta(farq_now, farq_was)}")
+
+    cats_now = {c: s for c, s, _ in db.by_category_unified(user_id, cs, ce, config.KIND_CHIQIM)}
+    cats_was = {c: s for c, s, _ in db.by_category_unified(user_id, ps, pe, config.KIND_CHIQIM)}
+    changes = sorted(set(cats_now) | set(cats_was),
+                     key=lambda c: abs(cats_now.get(c, 0) - cats_was.get(c, 0)),
+                     reverse=True)
+    if changes:
+        lines += ["", "<b>Chiqim kategoriyalari — eng katta o'zgarish:</b>"]
+        for name in changes[:6]:
+            icon = config.CATEGORY_ICONS.get(name, "•")
+            amount = cats_now.get(name, 0)
+            lines.append(f"{icon} {esc(config.category_label(name))} — {fmt_money(amount)}  "
+                         f"{_delta(amount, cats_was.get(name, 0))}")
+    if not any(now.values()) and not any(was.values()):
+        lines += ["", "<i>Bu davrlarda yozuv yo'q.</i>"]
+    return "\n".join(lines)
+
+
 def summary_text(user_id: int, period: str) -> str:
     """Davr hisoboti — barcha valyutalar bitta jamlanmada.
 

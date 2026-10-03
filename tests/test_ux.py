@@ -80,3 +80,14 @@ def test_russian_guide_mirrors_uzbek():
     assert "Запись" in bot.guide_menu_keyboard("ru").inline_keyboard[0][0].text
     # Kirill o'zbekcha tugmalari ham o'giriladi.
     assert bot.guide_menu_keyboard("uzc").inline_keyboard[0][0].text.endswith("Ёзиш")
+
+
+def test_profile_texts_fit_telegram_limits_and_say_pro():
+    """Tavsiflar Telegram chegarasiga sig'adi va «bepul + 7 kun PRO» deydi
+    (bot doim bepul — «7 kun bepul» endi noto'g'ri)."""
+    import profile_texts as p
+    for code in p.LANGS:
+        assert len(p.SHORT[code]) <= p.LIMITS["short_description"]
+        assert len(p.DESCRIPTION[code]) <= p.LIMITS["description"]
+        assert "PRO" in p.SHORT[code] and "PRO" in p.DESCRIPTION[code]
+        assert "7 kun bepul" not in p.SHORT[code]

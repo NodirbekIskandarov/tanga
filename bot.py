@@ -42,6 +42,7 @@ import config
 import db
 import goals
 import notify
+import profile_texts
 import guide_ru
 import i18n
 import learning
@@ -178,7 +179,10 @@ chekdagi \u00abJAMI\u00bb bilan solishtiradi:
 Har bir yozuv ostida tugmalar bor:
 \u2022 <b>\u270f\ufe0f Kategoriya</b> \u2014 kategoriyani almashtirish.
   Bot buni <b>eslab qoladi</b>: bir marta "suv" ni
-  oziq-ovqatga o'zgartirsangiz, keyingi "suv" o'zi shu yerga tushadi
+  oziq-ovqatga o'zgartirsangiz, keyingi "suv" o'zi shu yerga tushadi.
+  Chek mahsulotini tuzatsangiz, <b>do'kon</b> ham eslab qolinadi:
+  o'sha do'konning keyingi chekida aniqlanmagan mahsulotlar shu
+  kategoriyaga tushadi
 \u2022 <b>\U0001F504 Turini almashtirish</b> \u2014 masalan chiqimni
   "qarzimni qaytardim" ga
 \u2022 <b>\U0001F5D1 O'chirish</b> \u2014 yozuvni o'chirish
@@ -207,6 +211,10 @@ sarfladingizmi, qarz ko'paymadimi.
 
 Yillik hisobotda esa yil davomida qancha jamg'arganingiz va
 necha oyda foizni bajarganingiz ko'rsatiladi.
+
+/solishtir (PRO) — shu oyni o'tgan oyning <b>xuddi shu
+kunlari</b> bilan solishtiradi: chiqim, kirim va qaysi kategoriya
+ko'proq o'sgani. Oylik hisobot ostida tugmasi ham bor.
 
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
 \U0001F3E6 <b>6. JAMG'ARMA</b>
@@ -334,7 +342,7 @@ davom etadi, Bepul versiyada:
 \u2022 qarzlar ro'yxati
 
 PRO'da: cheksiz chek va savol, barcha oylar tahlili,
-yillik hisobot, byudjet, CSV eksport.
+yillik hisobot, oylarni solishtirish, byudjet, CSV eksport.
 
 /obuna \u2014 tariflar va to'lov. To'lovdan keyin chek
 suratini yuborasiz, admin tasdiqlaydi.
@@ -1002,6 +1010,28 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 PRO_PERIODS = ("otgan_oy", "yil")
 
 
+@private_only
+async def cmd_compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/solishtir — shu oy va o'tgan oyning bir xil kunlari (PRO)."""
+    if not tiers.allows(context.user_data.get("access"), "history"):
+        await show_paywall(update, context, "history")
+        return
+    await update.effective_message.reply_text(
+        reports.compare_text(update.effective_user.id), parse_mode=ParseMode.HTML)
+
+
+async def on_compare_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Oylik hisobot ostidagi «📊 O'tgan oy bilan solishtirish»."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    if not tiers.allows(db.access_status(user_id), "history"):
+        await show_paywall(update, context, "history")
+        return
+    await query.answer()
+    await query.message.reply_text(reports.compare_text(user_id),
+                                   parse_mode=ParseMode.HTML)
+
+
 def _period_command(period: str):
     @private_only
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1014,12 +1044,16 @@ def _period_command(period: str):
         # Oy va yil hisobotini rasm qilib ulashsa bo'ladi — do'stlarga
         # ko'rsatiladigan natija botni o'zi reklama qiladi.
         markup = None
+        rows = []
         if period in ("oy", "otgan_oy", "yil") and sharecard.available():
-            markup = InlineKeyboardMarkup([[
-                InlineKeyboardButton(
-                    i18n.t(lang_of(update.effective_user.id, context), "share_btn"),
-                    callback_data=f"share:{period}")
-            ]])
+            rows.append([InlineKeyboardButton(
+                i18n.t(lang_of(update.effective_user.id, context), "share_btn"),
+                callback_data=f"share:{period}")])
+        if period == "oy":
+            rows.append([InlineKeyboardButton(
+                "📊 O'tgan oy bilan solishtirish", callback_data="cmp:oy")])
+        if rows:
+            markup = InlineKeyboardMarkup(rows)
         await update.effective_message.reply_text(
             text, parse_mode=ParseMode.HTML, reply_markup=markup)
 
@@ -1093,6 +1127,14 @@ async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🗑 Chek o'chirildi ({removed} ta mahsulot).")
     else:
         await update.message.reply_text(f"🗑 #{tx_id} o'chirildi.")
+
+
+def remember_receipt_shop(user_id: int, row, category: str) -> None:
+    """Chek mahsuloti tuzatilsa — do'konni ham eslab qoladi (learning.py)."""
+    if row["receipt_id"] and row["kind"] == config.KIND_CHIQIM:
+        receipt = db.get_receipt(user_id, row["receipt_id"])
+        if receipt and receipt.get("shop"):
+            learning.remember_shop(user_id, receipt["shop"], category)
 
 
 def delete_entry(user_id: int, tx_id: int) -> int | None:
@@ -1321,8 +1363,8 @@ async def _process_receipt(update: Update, context, images: list, caption: str):
     db.log_event(user_id, "chek_yuborildi")
     rules = learning.rules_for(user_id)
     for item in data["mahsulotlar"]:
-        item["kategoriya"] = learning.apply(rules, config.KIND_CHIQIM,
-                                            item["nomi"], item["kategoriya"])
+        item["kategoriya"] = learning.apply_receipt_item(
+            rules, data["dokon"], item["nomi"], item["kategoriya"])
 
     receipt_id = uuid.uuid4().hex[:10]
     shop = data["dokon"]
@@ -1756,6 +1798,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("rem:"):
         await on_reminder_callback(update, context)
         return
+    if data.startswith("cmp:"):
+        await on_compare_callback(update, context)
+        return
     if data.startswith("share:"):
         await on_share_callback(update, context)
         return
@@ -1881,6 +1926,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         db.update_category(user_id, tx_id, category)
         learned = learning.remember(user_id, row["kind"], row["note"], category)
+        remember_receipt_shop(user_id, row, category)
         await query.answer(f"Eslab qoldim: «{learned}» → {config.category_label(category)}"
                            if learned else "Yangilandi")
         row = db.get_transaction(user_id, tx_id)
@@ -3785,6 +3831,7 @@ COMMAND_SECTIONS = [
         ("oy", "Shu oylik hisobot"),
         ("otganoy", "O'tgan oylik hisobot"),
         ("yil", "Yillik hisobot"),
+        ("solishtir", "Shu oyni o'tgan oy bilan solishtirish"),
         ("csv", "Barcha yozuvlarni fayl qilib olish"),
     ]),
     ("\U0001F3E6", "Jamg'arma", [
@@ -3807,7 +3854,7 @@ COMMAND_SECTIONS = [
     ("\U0001F48E", "Obuna", [
         ("obuna", "Tariflar va to'lov"),
         ("holat", "Obuna holati va bugungi limitlar"),
-        ("taklif", "Do'st taklif qilib bepul kun olish"),
+        ("taklif", "Do'st taklif qiling — ikkalangizga +7 kun PRO"),
     ]),
     ("\u2699\ufe0f", "Sozlamalar", [
         ("buyruqlar", "Barcha buyruqlar bo'limlar bilan"),
@@ -3827,25 +3874,8 @@ BOT_COMMANDS = [("start", "Boshlash va yordam")] + [
     for name, desc in items
 ]
 
-# Botni birinchi ochganda «Start» tugmasi ustida ko'rinadi. Odam bu yerda
-# qoladimi yoki chiqib ketadimi — shu matn hal qiladi.
-BOT_DESCRIPTION = (
-    "Xarajatlaringizni oddiy tilda yozing — qolganini men qilaman.\n\n"
-    "«obedga 45 ming» deb yozsangiz kifoya: summani ajrataman, "
-    "kategoriyaga qo'yaman va istalgan payt hisobot beraman.\n\n"
-    "• Chek suratini yuborsangiz — har bir mahsulotni o'qib chiqaman\n"
-    "• Kunlik, haftalik, oylik va yillik hisobot\n"
-    "• Byudjet qo'ying — chegaraga yaqinlashganda ogohlantiraman\n"
-    "• Qarz berdim/oldim — kimga qancha, esdan chiqmaydi\n"
-    "• So'm va dollar bitta hisobda birlashadi\n\n"
-    "Birinchi 7 kun bepul. Boshlash uchun «Start» bosing."
-)
-
-# Chat ro'yxatida va qidiruvda ko'rinadigan qisqa matn (120 belgigacha).
-BOT_SHORT_DESCRIPTION = (
-    "Xarajatlaringizni oddiy tilda yozing — men hisoblab, "
-    "hisobot qilib beraman. 7 kun bepul."
-)
+# Profil matnlari (tavsif, qisqa tavsif) — profile_texts.py da, har bir
+# til uchun; _post_init ularni o'rnatadi.
 
 # Faqat bot egasining «/» menyusida ko'rinadigan buyruqlar.
 # Admin boshqaruvi web panelga ko'chirildi — bu yerda faqat /panel qoldi.
@@ -3895,17 +3925,23 @@ async def _post_init(app: Application) -> None:
                 log.warning("Eski «%s» ro'yxatini o'chirib bo'lmadi: %s", code, exc)
     log.info("«/» menyusi hammaga o'rnatildi: %d ta buyruq", len(commands))
 
-    # Profil matnlari — Telegram ularni keshlaydi, faqat o'zgargani yuboriladi.
-    try:
-        if (await app.bot.get_my_description()).description != BOT_DESCRIPTION:
-            await app.bot.set_my_description(BOT_DESCRIPTION)
-            log.info("Bot tavsifi yangilandi")
-        short = (await app.bot.get_my_short_description()).short_description
-        if short != BOT_SHORT_DESCRIPTION:
-            await app.bot.set_my_short_description(BOT_SHORT_DESCRIPTION)
-            log.info("Bot qisqa tavsifi yangilandi")
-    except Exception as exc:
-        log.warning("Bot tavsifini o'rnatib bo'lmadi: %s", exc)
+    # Profil matnlari — har bir til uchun (standart, «uz», «ru»). Telegram
+    # foydalanuvchiga avval o'z tilidagisini ko'rsatadi, shuning uchun
+    # faqat standartni yangilash yetmaydi. Faqat o'zgargani yuboriladi.
+    for code in profile_texts.LANGS:
+        try:
+            short = profile_texts.SHORT[code]
+            desc = profile_texts.DESCRIPTION[code]
+            if (await app.bot.get_my_description(language_code=code)).description != desc:
+                await app.bot.set_my_description(desc, language_code=code)
+                log.info("Bot tavsifi yangilandi [%s]", code or "standart")
+            current = (await app.bot.get_my_short_description(
+                language_code=code)).short_description
+            if current != short:
+                await app.bot.set_my_short_description(short, language_code=code)
+                log.info("Bot qisqa tavsifi yangilandi [%s]", code or "standart")
+        except Exception as exc:
+            log.warning("Bot tavsifini o'rnatib bo'lmadi [%s]: %s", code, exc)
 
     # Egaga qo'shimcha buyruqlar ko'rinadi (/id va admin buyruqlari).
     owner_cmds = [BotCommand(c, d) for c, d in OWNER_COMMANDS]
@@ -3920,7 +3956,7 @@ async def _post_init(app: Application) -> None:
     if config.WEBAPP_URL:
         await app.bot.set_chat_menu_button(
             menu_button=MenuButtonWebApp(
-                text="Boshqaruv paneli",
+                text="Panel",
                 web_app=WebAppInfo(url=config.WEBAPP_URL),
             )
         )
@@ -4046,6 +4082,7 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("oy", _period_command("oy")))
     app.add_handler(CommandHandler("otganoy", _period_command("otgan_oy")))
     app.add_handler(CommandHandler("yil", _period_command("yil")))
+    app.add_handler(CommandHandler(["solishtir", "compare"], cmd_compare))
     app.add_handler(CommandHandler("oxirgi", cmd_recent))
     app.add_handler(CommandHandler("qarz", cmd_debts))
     app.add_handler(CommandHandler("ochir", cmd_delete))

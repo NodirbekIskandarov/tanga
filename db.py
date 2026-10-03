@@ -1235,6 +1235,13 @@ def access_status(user_id: int, first_name: str = "", username: str | None = Non
         # uchun muzlab qoladi va statistikani buzadi.
         row = get_or_create_user(user_id, first_name, username)
         if row["sim_free"]:
+            # Oddiy rejim: sinov tugagan oddiy foydalanuvchi. Haqiqiy obuna
+            # esa hisobga olinadi — ega to'lov oqimini oxirigacha sinab
+            # (admin tasdiqlagach) PRO ga o'tganini ko'ra olsin.
+            sub = _parse_dt(row["subscribed_until"])
+            now = _now()
+            if sub and sub > now:
+                return result(True, "subscribed", sub, max(0, (sub - now).days))
             return result(True, "free", None, 0)
         return result(True, "owner")
 
@@ -1277,12 +1284,18 @@ def set_sim_free(user_id: int, on: bool) -> None:
 
 def founders_taken() -> int:
     """Asoschilar taklifi egallagan joylar: tasdiqlangan va chek yuborib
-    tekshiruvda turgan so'rovlar. Sxema admin panel bilan umumiy."""
+    tekshiruvda turgan so'rovlar. Sxema admin panel bilan umumiy.
+
+    Egalarning so'rovlari sanalmaydi — oqimni sinash (/oddiy_rejim) 100
+    ta joydan birini egallab qo'ymasin.
+    """
+    owners = sorted(config.OWNER_IDS)
+    not_owner = (" AND user_id NOT IN (%s)" % ",".join("?" * len(owners))) if owners else ""
     with get_conn() as conn:
         return int(conn.execute(
             "SELECT COUNT(*) FROM subscription_requests "
             "WHERE plan_code = 'f12' AND status IN ('tasdiqlandi', 'tekshiruvda')"
-        ).fetchone()[0])
+            + not_owner, owners).fetchone()[0])
 
 
 def grant_subscription(user_id: int, days: int) -> datetime:
