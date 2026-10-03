@@ -51,6 +51,64 @@ systemctl restart tanga
 Yoki shunchaki `setup.sh` ni qayta ishga tushiring — u mavjud `.env` va
 bazaga tegmaydi.
 
+## Ma'lumot migratsiyalari
+
+Baza sxemasi (yangi jadval va ustunlar) bot ishga tushganda
+**avtomatik** qo'shiladi — bu faqat qo'shadi, mavjud ma'lumotga
+tegmaydi. Mavjud yozuvlarni o'zgartiradigan ishlar esa alohida
+skriptlarda va hech qachon o'zidan ishlamaydi:
+
+```bash
+cd /opt/tanga
+sudo -u tanga .venv/bin/python scripts/migrate_receipts.py           # dry-run
+sudo -u tanga .venv/bin/python scripts/migrate_receipts.py --apply
+sudo -u tanga .venv/bin/python scripts/migrate_debts.py              # dry-run
+sudo -u tanga .venv/bin/python scripts/migrate_debts.py --apply --ids 12,40
+sudo -u tanga .venv/bin/python scripts/analyze_other.py              # faqat o'qiydi
+```
+
+- Standart rejim — **dry-run**: faqat nima o'zgarishini ko'rsatadi.
+- `--apply` o'zgartirishdan oldin asl holatni `migration_backups/` ga
+  yozadi; `--rollback FAYL` shu fayldan qaytaradi.
+- `migrate_debts.py` turini aniqlay olmagan yozuvlarni «?» bilan
+  ko'rsatadi va ularga hech qachon tegmaydi.
+
+| Skript | Nima qiladi |
+|---|---|
+| `migrate_receipts.py` | eski cheklarga sarlavha (`receipts`); mahsulotlar o'zgarmaydi |
+| `migrate_debts.py` | kirim/chiqim bo'lib tushgan qarz to'lovlarini qarz turlariga |
+| `analyze_other.py` | «boshqa chiqim» dagi so'zlar, kamida 3 odamda uchraganlari |
+
+## PRO versiyasini chiqarish (tariflar, 2026-10)
+
+Tartib muhim:
+
+1. **Avval `tanga-admin`** (`feature/pro-tariflar`): unda asoschilar
+   taklifi (`f12`) bor. Bot undan oldin chiqsa, `f12` so'rovini admin
+   «Tarif topilmadi» deb tasdiqlay olmaydi.
+2. **Admin panel → Sozlamalar:** oylik **19 000**, yillik **149 000**.
+   Narx `app_settings` dan o'qiladi — u yerda eski narx tursa, bot ham
+   eskisini ko'rsataveradi. `f12` narxi (99 000) kodda.
+3. **Bot** — `git pull`, `systemctl restart tanga`. Sxema o'zi yangilanadi.
+4. Yuqoridagi migratsiyalar: dry-run -> ko'rib chiqish -> `--apply`.
+5. Tekshirish: `/oddiy_rejim on` -> 4-chek paywall -> tariflar -> `f12`
+   -> chek -> adminda tasdiq. Keyin `/oddiy_rejim off`.
+
+Sinov muddati tugagan eski foydalanuvchilar jimgina Bepul darajaga
+o'tadi — ularga avtomatik xabar ketmaydi. Xabar faqat `/xabar_yubor`
+orqali, ko'rish va ikki bosqichli tasdiq bilan.
+
+## Sinovlar
+
+```bash
+.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/pytest                 # oflayn, tarmoqsiz, vaqtinchalik bazada
+.venv/bin/pytest -m live         # haqiqiy AI bilan (pul turadi, faqat qo'lda)
+```
+
+`pytest -m live` standart ishga tushirishda va CI'da o'tkazib
+yuboriladi; oxirida iboralar va model javoblari jadvali chiqadi.
+
 ## Foydali buyruqlar
 
 | Buyruq | Vazifasi |
