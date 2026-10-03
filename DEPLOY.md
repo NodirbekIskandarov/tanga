@@ -73,6 +73,19 @@ sudo -u tanga .venv/bin/python scripts/analyze_other.py              # faqat o'q
 - `migrate_debts.py` turini aniqlay olmagan yozuvlarni «?» bilan
   ko'rsatadi va ularga hech qachon tegmaydi.
 
+**Avval production NUSXASIDA tekshiring** — jonli bazaga tegmaydi:
+
+```bash
+sudo bash /opt/tanga/deploy/tanga-dryrun
+```
+
+U `tanga-backup --local` bilan izchil nusxa oladi, uni
+`/var/tmp/tanga-dryrun/` ga ochadi va uchala skriptni shu nusxaga qarab
+dry-run qiladi. Yozuv raqamlari production bilan bir xil, shuning uchun
+`migrate_debts` ro'yxatidan tanlangan raqamlarni jonli bazada
+`--apply --ids ...` bilan ishlatish mumkin. Ish tugagach:
+`sudo rm -rf /var/tmp/tanga-dryrun`.
+
 | Skript | Nima qiladi |
 |---|---|
 | `migrate_receipts.py` | eski cheklarga sarlavha (`receipts`); mahsulotlar o'zgarmaydi |
