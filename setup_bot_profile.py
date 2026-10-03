@@ -4,7 +4,7 @@ Nima o'rnatiladi (har biri o'zbek va rus tillari uchun alohida):
   setMyName              — bot nomi (64 belgigacha)
   setMyShortDescription  — chat ro'yxatida va qidiruvda (120 belgigacha)
   setMyDescription       — «Start» tugmasi ustidagi matn (512 belgigacha)
-  setMyCommands          — «/» menyusidagi buyruqlar ro'yxati
+  («/» menyusi — bot o'zi o'rnatadi, bu skript tegmaydi)
 
 Ishlatish:
     python setup_bot_profile.py --dry-run    # faqat ko'rsatadi, yubormaydi
@@ -25,108 +25,13 @@ import config
 
 API = "https://api.telegram.org/bot{token}/{method}"
 
-# Telegram til kodlari. Bo'sh satr — standart (til aniqlanmaganda ko'rinadi).
-# Telegram o'zbek lotin/kirill ni ajratmaydi, ikkalasi ham "uz".
-LANGS = ["", "uz", "ru"]
+# Matnlar profile_texts.py da — bot ham ishga tushganda shulardan o'rnatadi.
+from profile_texts import DESCRIPTION, LANGS, LIMITS, NAME, SHORT  # noqa: E402
 
-NAME = {
-    "": "Tanga",
-    "uz": "Tanga",
-    "ru": "Tanga",
-}
-
-SHORT = {
-    "": "Xarajatlaringizni oddiy tilda yozing — men hisoblab, hisobot "
-        "qilib beraman. 7 kun bepul.",
-    "uz": "Xarajatlaringizni oddiy tilda yozing — men hisoblab, hisobot "
-          "qilib beraman. 7 kun bepul.",
-    "ru": "Пишите расходы обычным текстом — я посчитаю и составлю отчёт. "
-          "7 дней бесплатно.",
-}
-
-DESCRIPTION = {
-    "": (
-        "Xarajatlaringizni oddiy tilda yozing — qolganini men qilaman.\n\n"
-        "«obedga 45 ming» deb yozsangiz kifoya: summani ajrataman, "
-        "kategoriyaga qo'yaman va istalgan payt hisobot beraman.\n\n"
-        "• Chek suratini yuborsangiz — har bir mahsulotni o'qib chiqaman\n"
-        "• Kunlik, haftalik, oylik va yillik hisobot\n"
-        "• Byudjet qo'ying — chegaraga yaqinlashganda ogohlantiraman\n"
-        "• Qarz berdim/oldim — kimga qancha, esdan chiqmaydi\n"
-        "• So'm va dollar bitta hisobda birlashadi\n\n"
-        "Birinchi 7 kun bepul. Boshlash uchun «Start» bosing."
-    ),
-    "ru": (
-        "Пишите расходы обычным текстом — остальное сделаю я.\n\n"
-        "Достаточно написать «обед 45 тысяч»: выделю сумму, определю "
-        "категорию и в любой момент покажу отчёт.\n\n"
-        "• Пришлите фото чека — распознаю каждую позицию\n"
-        "• Отчёты за день, неделю, месяц и год\n"
-        "• Поставьте бюджет — предупрежу при приближении к лимиту\n"
-        "• Долги: кому и сколько — ничего не забудется\n"
-        "• Сумы и доллары объединяются в одном учёте\n\n"
-        "Первые 7 дней бесплатно. Нажмите «Start», чтобы начать."
-    ),
-}
-DESCRIPTION["uz"] = DESCRIPTION[""]
-
-COMMANDS = {
-    "": [
-        ("start", "Boshlash va yordam"),
-        ("qollanma", "To'liq foydalanish yo'riqnomasi"),
-        ("chek", "Uzun chekni qismlab yuborish"),
-        ("bugun", "Bugungi hisobot"),
-        ("kecha", "Kechagi hisobot"),
-        ("hafta", "Shu haftalik hisobot"),
-        ("oy", "Shu oylik hisobot"),
-        ("otganoy", "O'tgan oylik hisobot"),
-        ("yil", "Yillik hisobot"),
-        ("oxirgi", "Oxirgi yozuvlar"),
-        ("qarz", "Ochiq qarzlar"),
-        ("ochir", "Yozuvni o'chirish: /ochir 12"),
-        ("yopdim", "Qarzni yopish: /yopdim 12"),
-        ("csv", "Barcha yozuvlarni fayl qilib olish"),
-        ("obuna", "Obuna tariflari"),
-        ("holat", "Obuna holati va bugungi limitlar"),
-        ("byudjet", "Oylik byudjet qo'yish"),
-        ("eslatma", "Kunlik eslatmani sozlash"),
-        ("kurs", "Dollar kursi"),
-        ("taklif", "Do'st taklif qilib bepul kun olish"),
-        ("til", "Til / Язык"),
-        ("maxfiylik", "Maxfiylik siyosati"),
-        ("shartlar", "Xizmat shartlari"),
-        ("ochirish", "Hisobni butunlay o'chirish"),
-    ],
-    "ru": [
-        ("start", "Начать и помощь"),
-        ("qollanma", "Полная инструкция"),
-        ("chek", "Отправить длинный чек по частям"),
-        ("bugun", "Отчёт за сегодня"),
-        ("kecha", "Отчёт за вчера"),
-        ("hafta", "Отчёт за неделю"),
-        ("oy", "Отчёт за месяц"),
-        ("otganoy", "Отчёт за прошлый месяц"),
-        ("yil", "Отчёт за год"),
-        ("oxirgi", "Последние записи"),
-        ("qarz", "Открытые долги"),
-        ("ochir", "Удалить запись: /ochir 12"),
-        ("yopdim", "Закрыть долг: /yopdim 12"),
-        ("csv", "Выгрузить все записи файлом"),
-        ("obuna", "Тарифы подписки"),
-        ("holat", "Статус подписки и лимиты"),
-        ("byudjet", "Установить месячный бюджет"),
-        ("eslatma", "Настроить ежедневное напоминание"),
-        ("kurs", "Курс доллара"),
-        ("taklif", "Пригласить друга и получить бесплатные дни"),
-        ("til", "Til / Язык"),
-        ("maxfiylik", "Политика конфиденциальности"),
-        ("shartlar", "Условия сервиса"),
-        ("ochirish", "Полностью удалить аккаунт"),
-    ],
-}
-COMMANDS["uz"] = COMMANDS[""]
-
-LIMITS = {"name": 64, "short_description": 120, "description": 512}
+# «/» menyusini bu skript O'RNATMAYDI: uni bot o'zi boshqaradi
+# (bot._post_init — bot.BOT_COMMANDS, har ishga tushishda; tilga xos eski
+# ro'yxatlarni o'chiradi). Ilgari bu yerda alohida, eskirib qolgan ro'yxat
+# bor edi.
 
 
 def _mask(text: str, token: str) -> str:
@@ -189,13 +94,11 @@ def apply(client: httpx.Client, token: str, dry: bool) -> None:
         name = NAME.get(lang, NAME[""])
         short = SHORT.get(lang, SHORT[""])
         desc = DESCRIPTION.get(lang, DESCRIPTION[""])
-        cmds = COMMANDS.get(lang, COMMANDS[""])
 
         print(f"[{label}]")
         print(f"  setMyName             {len(name):>3} belgi  {name}")
         print(f"  setMyShortDescription {len(short):>3} belgi")
         print(f"  setMyDescription      {len(desc):>3} belgi")
-        print(f"  setMyCommands         {len(cmds):>3} ta buyruq")
 
         if dry:
             print()
@@ -205,10 +108,6 @@ def apply(client: httpx.Client, token: str, dry: bool) -> None:
         call(client, token, "setMyShortDescription",
              {**base, "short_description": short})
         call(client, token, "setMyDescription", {**base, "description": desc})
-        call(client, token, "setMyCommands", {
-            **base,
-            "commands": [{"command": c, "description": d} for c, d in cmds],
-        })
         print("  -> o'rnatildi\n")
 
     if dry:

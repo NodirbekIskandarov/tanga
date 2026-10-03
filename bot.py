@@ -42,6 +42,7 @@ import config
 import db
 import goals
 import notify
+import profile_texts
 import guide_ru
 import i18n
 import learning
@@ -3807,7 +3808,7 @@ COMMAND_SECTIONS = [
     ("\U0001F48E", "Obuna", [
         ("obuna", "Tariflar va to'lov"),
         ("holat", "Obuna holati va bugungi limitlar"),
-        ("taklif", "Do'st taklif qilib bepul kun olish"),
+        ("taklif", "Do'st taklif qiling — ikkalangizga +7 kun PRO"),
     ]),
     ("\u2699\ufe0f", "Sozlamalar", [
         ("buyruqlar", "Barcha buyruqlar bo'limlar bilan"),
@@ -3827,25 +3828,8 @@ BOT_COMMANDS = [("start", "Boshlash va yordam")] + [
     for name, desc in items
 ]
 
-# Botni birinchi ochganda «Start» tugmasi ustida ko'rinadi. Odam bu yerda
-# qoladimi yoki chiqib ketadimi — shu matn hal qiladi.
-BOT_DESCRIPTION = (
-    "Xarajatlaringizni oddiy tilda yozing — qolganini men qilaman.\n\n"
-    "«obedga 45 ming» deb yozsangiz kifoya: summani ajrataman, "
-    "kategoriyaga qo'yaman va istalgan payt hisobot beraman.\n\n"
-    "• Chek suratini yuborsangiz — har bir mahsulotni o'qib chiqaman\n"
-    "• Kunlik, haftalik, oylik va yillik hisobot\n"
-    "• Byudjet qo'ying — chegaraga yaqinlashganda ogohlantiraman\n"
-    "• Qarz berdim/oldim — kimga qancha, esdan chiqmaydi\n"
-    "• So'm va dollar bitta hisobda birlashadi\n\n"
-    "Birinchi 7 kun bepul. Boshlash uchun «Start» bosing."
-)
-
-# Chat ro'yxatida va qidiruvda ko'rinadigan qisqa matn (120 belgigacha).
-BOT_SHORT_DESCRIPTION = (
-    "Xarajatlaringizni oddiy tilda yozing — men hisoblab, "
-    "hisobot qilib beraman. 7 kun bepul."
-)
+# Profil matnlari (tavsif, qisqa tavsif) — profile_texts.py da, har bir
+# til uchun; _post_init ularni o'rnatadi.
 
 # Faqat bot egasining «/» menyusida ko'rinadigan buyruqlar.
 # Admin boshqaruvi web panelga ko'chirildi — bu yerda faqat /panel qoldi.
@@ -3895,17 +3879,23 @@ async def _post_init(app: Application) -> None:
                 log.warning("Eski «%s» ro'yxatini o'chirib bo'lmadi: %s", code, exc)
     log.info("«/» menyusi hammaga o'rnatildi: %d ta buyruq", len(commands))
 
-    # Profil matnlari — Telegram ularni keshlaydi, faqat o'zgargani yuboriladi.
-    try:
-        if (await app.bot.get_my_description()).description != BOT_DESCRIPTION:
-            await app.bot.set_my_description(BOT_DESCRIPTION)
-            log.info("Bot tavsifi yangilandi")
-        short = (await app.bot.get_my_short_description()).short_description
-        if short != BOT_SHORT_DESCRIPTION:
-            await app.bot.set_my_short_description(BOT_SHORT_DESCRIPTION)
-            log.info("Bot qisqa tavsifi yangilandi")
-    except Exception as exc:
-        log.warning("Bot tavsifini o'rnatib bo'lmadi: %s", exc)
+    # Profil matnlari — har bir til uchun (standart, «uz», «ru»). Telegram
+    # foydalanuvchiga avval o'z tilidagisini ko'rsatadi, shuning uchun
+    # faqat standartni yangilash yetmaydi. Faqat o'zgargani yuboriladi.
+    for code in profile_texts.LANGS:
+        try:
+            short = profile_texts.SHORT[code]
+            desc = profile_texts.DESCRIPTION[code]
+            if (await app.bot.get_my_description(language_code=code)).description != desc:
+                await app.bot.set_my_description(desc, language_code=code)
+                log.info("Bot tavsifi yangilandi [%s]", code or "standart")
+            current = (await app.bot.get_my_short_description(
+                language_code=code)).short_description
+            if current != short:
+                await app.bot.set_my_short_description(short, language_code=code)
+                log.info("Bot qisqa tavsifi yangilandi [%s]", code or "standart")
+        except Exception as exc:
+            log.warning("Bot tavsifini o'rnatib bo'lmadi [%s]: %s", code, exc)
 
     # Egaga qo'shimcha buyruqlar ko'rinadi (/id va admin buyruqlari).
     owner_cmds = [BotCommand(c, d) for c, d in OWNER_COMMANDS]
@@ -3920,7 +3910,7 @@ async def _post_init(app: Application) -> None:
     if config.WEBAPP_URL:
         await app.bot.set_chat_menu_button(
             menu_button=MenuButtonWebApp(
-                text="Boshqaruv paneli",
+                text="Panel",
                 web_app=WebAppInfo(url=config.WEBAPP_URL),
             )
         )
