@@ -342,7 +342,7 @@ davom etadi, Bepul versiyada:
 \u2022 qarzlar ro'yxati
 
 PRO'da: cheksiz chek va savol, barcha oylar tahlili,
-yillik hisobot, byudjet, CSV eksport.
+yillik hisobot, oylarni solishtirish, byudjet, CSV eksport.
 
 /obuna \u2014 tariflar va to'lov. To'lovdan keyin chek
 suratini yuborasiz, admin tasdiqlaydi.
