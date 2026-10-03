@@ -71,14 +71,32 @@ def _bar(share: float, width: int = 10) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
+def debt_lines(t: dict, currency: str = "som") -> list[str]:
+    """Davr ichidagi qarz harakati — kirim/chiqim va «Farq» dan ALOHIDA.
+
+    Qarz berish va qaytarish pul harakati, lekin xarajat ham, daromad
+    ham emas: shuning uchun yuqoridagi jamlarga qo'shilmaydi, faqat shu
+    yerda ko'rinadi.
+    """
+    rows = [
+        (config.KIND_QARZ_BERDIM, "Qarz berdim"),
+        (config.KIND_QARZ_OLDIM, "Qarz oldim"),
+        (config.KIND_QARZ_QAYTARDIM, "Qarzimni qaytardim"),
+        (config.KIND_QARZ_QAYTDI, "Menga qaytarildi"),
+    ]
+    out = [f"{config.KIND_ICONS[k]} {label}: {fmt_money(t[k], currency)}"
+           for k, label in rows if t.get(k)]
+    if not out:
+        return []
+    return ["", "<b>Qarzlar</b> <i>(chiqimga kirmaydi)</i>"] + out
+
+
 def _currency_block(user_id: int, start: date, end: date, currency: str, days: int) -> list[str]:
     """Bitta valyuta uchun kirim/chiqim/farq va kategoriyalar bloki."""
     t = db.totals(user_id, start, end, currency)
     kirim = t[config.KIND_KIRIM]
     chiqim = t[config.KIND_CHIQIM]
     balans = kirim - chiqim
-    qarz_berdim = t[config.KIND_QARZ_BERDIM]
-    qarz_oldim = t[config.KIND_QARZ_OLDIM]
 
     lines: list[str] = []
     lines.append(f"🔺 Kirim:  {fmt_money(kirim, currency)}")
@@ -92,15 +110,11 @@ def _currency_block(user_id: int, start: date, end: date, currency: str, days: i
         for name, total, cnt in cats[:8]:
             share = total / chiqim if chiqim else 0
             icon = config.CATEGORY_ICONS.get(name, "•")
-            lines.append(f"{icon} {esc(name)} — {fmt_money(total, currency)} ({share * 100:.0f}%)")
+            lines.append(f"{icon} {esc(config.category_label(name))} — "
+                         f"{fmt_money(total, currency)} ({share * 100:.0f}%)")
             lines.append(f"   <code>{_bar(share)}</code> {cnt} ta")
 
-    if qarz_berdim or qarz_oldim:
-        lines.append("")
-        if qarz_berdim:
-            lines.append(f"📤 Qarz berdim: {fmt_money(qarz_berdim, currency)}")
-        if qarz_oldim:
-            lines.append(f"📥 Qarz oldim: {fmt_money(qarz_oldim, currency)}")
+    lines += debt_lines(t, currency)
 
     if chiqim and days >= 2:
         lines.append("")
@@ -150,17 +164,11 @@ def summary_text(user_id: int, period: str) -> str:
         for name, total, cnt in cats[:8]:
             share = total / chiqim if chiqim else 0
             icon = config.CATEGORY_ICONS.get(name, "•")
-            lines.append(f"{icon} {esc(name)} — {fmt_money(total)} ({share * 100:.0f}%)")
+            lines.append(f"{icon} {esc(config.category_label(name))} — "
+                         f"{fmt_money(total)} ({share * 100:.0f}%)")
             lines.append(f"   <code>{_bar(share)}</code> {cnt} ta")
 
-    qarz_berdim = t[config.KIND_QARZ_BERDIM]
-    qarz_oldim = t[config.KIND_QARZ_OLDIM]
-    if qarz_berdim or qarz_oldim:
-        lines.append("")
-        if qarz_berdim:
-            lines.append(f"📤 Qarz berdim: {fmt_money(qarz_berdim)}")
-        if qarz_oldim:
-            lines.append(f"📥 Qarz oldim: {fmt_money(qarz_oldim)}")
+    lines += debt_lines(t)
 
     # Jamg'arma ATAYLAB "Farq" dan tashqarida turadi: u sarflangan pul
     # emas, shuning uchun chiqimga qo'shilmaydi. Lekin daromadga nisbatan
@@ -246,25 +254,73 @@ def _yearly_savings(user_id: int, start: date, end: date) -> str:
 def transaction_line(row, with_id: bool = True) -> str:
     icon = config.KIND_ICONS.get(row["kind"], "•")
     cat_icon = config.CATEGORY_ICONS.get(row["category"], "")
-    note = row["note"] or row["category"]
+    label = config.category_label(row["category"])
     person = f" — {esc(row['person'])}" if row["person"] else ""
     tail = f" <code>#{row['id']}</code>" if with_id else ""
     currency = row["currency"] if "currency" in row.keys() else "som"
+    # Izoh bo'lsa kategoriya ham yonida ko'rinadi: «nonga · 🥦 oziq-ovqat».
+    # Qarz turlarida kategoriya doim «qarz» — uning o'rnida shaxs turadi.
+    if row["kind"] in config.DEBT_KINDS:
+        body = esc(row["note"] or config.KIND_LABELS.get(row["kind"], label))
+    elif row["note"]:
+        body = f"{esc(row['note'])} · {cat_icon} {esc(label)}"
+    else:
+        body = f"{cat_icon} {esc(label)}"
     return (
-        f"{icon} {fmt_money(row['amount'], currency)} · {cat_icon} {esc(note)}{person}"
+        f"{icon} {fmt_money(row['amount'], currency)} · {body}{person}"
         f" · <i>{fmt_date(row['occurred_on'])}</i>{tail}"
     )
 
 
-def recent_text(user_id: int, limit: int = 10) -> str:
-    rows = db.recent(user_id, limit)
-    if not rows:
+def receipt_line(entry: dict, with_id: bool = True) -> str:
+    """Chek bitta qatorda: 🧾 Korzinka cheki — 260 800 so'm (15 mahsulot) · 1-oktabr"""
+    shop = (entry.get("shop") or "").strip()
+    name = f"{esc(shop)} cheki" if shop else "Chek"
+    tail = f" <code>#{entry['id']}</code>" if with_id else ""
+    return (
+        f"🧾 {name} — {fmt_money(entry['amount'], entry.get('currency') or 'som')} "
+        f"({entry['n']} mahsulot) · <i>{fmt_date(entry['occurred_on'])}</i>{tail}"
+    )
+
+
+def recent_text(user_id: int, limit: int = 12) -> str:
+    entries = db.recent_entries(user_id, limit)
+    if not entries:
         return "Hozircha yozuv yo'q."
-    lines = [f"🧾 <b>Oxirgi {len(rows)} ta yozuv</b>", ""]
-    lines += [transaction_line(r) for r in rows]
+    lines = [f"🧾 <b>Oxirgi {len(entries)} ta yozuv</b>", ""]
+    for e in entries:
+        lines.append(receipt_line(e) if e["receipt_id"] else transaction_line(e))
     lines.append("")
-    lines.append("<i>O'chirish uchun:</i> <code>/ochir 12</code>")
+    lines.append("<i>O'chirish uchun:</i> <code>/ochir 12</code> "
+                 "<i>(chek raqami butun chekni o'chiradi)</i>")
     return "\n".join(lines)
+
+
+CSV_HEADER = ["id", "sana", "turi", "summa", "valyuta", "kategoriya", "izoh",
+              "shaxs", "yopilgan", "chek_id", "dokon"]
+
+
+def csv_bytes(user_id: int) -> tuple[bytes, int]:
+    """Barcha yozuvlar CSV ko'rinishida (Excel uchun BOM bilan).
+
+    Chek mahsulotlari alohida qator bo'lib qoladi va har birida o'z
+    cheki identifikatori (`chek_id`) va do'koni turadi — chekni Excel'da
+    qayta yig'ish mumkin bo'lsin.
+    """
+    import csv
+    import io
+
+    rows = db.export_rows(user_id)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(CSV_HEADER)
+    for r in rows:
+        writer.writerow([
+            r["id"], r["occurred_on"], r["kind"], r["amount"], r["currency"],
+            r["category"], r["note"], r["person"] or "", r["settled"],
+            r["receipt_id"] or "", r["shop"] or "",
+        ])
+    return buf.getvalue().encode("utf-8-sig"), len(rows)
 
 
 def debts_text(user_id: int) -> str:
@@ -286,7 +342,7 @@ def debts_text(user_id: int) -> str:
         by_currency: dict[str, float] = {}
         for r in group:
             cur = r["currency"] if "currency" in r.keys() else "som"
-            by_currency[cur] = by_currency.get(cur, 0.0) + r["amount"]
+            by_currency[cur] = by_currency.get(cur, 0.0) + r["remaining"]
         totals_str = " + ".join(
             fmt_money(v, c) for c, v in sorted(by_currency.items(), key=lambda kv: kv[0] != "som")
         )
@@ -294,8 +350,14 @@ def debts_text(user_id: int) -> str:
         for r in group:
             who = esc(r["person"] or "noma'lum")
             cur = r["currency"] if "currency" in r.keys() else "som"
+            # Qisman qaytarilgan bo'lsa — qoldiq va asl summa ikkalasi.
+            paid = ""
+            if r["remaining"] < float(r["amount"]):
+                paid = f" <i>(qoldiq; asli {fmt_money(r['amount'], cur)})</i>"
+            if r.get("due_on"):
+                paid += f" ⏰ {fmt_date(r['due_on'])}"
             lines.append(
-                f"   • {who}: {fmt_money(r['amount'], cur)}"
+                f"   • {who}: {fmt_money(r['remaining'], cur)}{paid}"
                 f" ({fmt_date(r['occurred_on'])}) <code>#{r['id']}</code>"
             )
         lines.append("")
@@ -305,10 +367,15 @@ def debts_text(user_id: int) -> str:
 
 
 def receipt_text(data: dict, day_total: float | None = None) -> str:
-    """Chek tahlili: kategoriyalar kesimi, tekshiruv natijasi, to'liq ro'yxat."""
+    """Chek tahlili: kategoriyalar kesimi, tekshiruv natijasi, to'liq ro'yxat.
+
+    Mahsulot summalari bu yerga kelganda chekdagi yakuniy jamiga
+    moslangan (`ai.apply_receipt_total`): chegirma kategoriyalar o'rtasida
+    taqsimlangan, ya'ni ulushlar va saqlangan summa bir xil hisobda.
+    """
     items = data["mahsulotlar"]
     check = data["tekshiruv"]
-    total = check["hisoblangan"]
+    stored = round(sum(i["summa"] for i in items), 2)
     # Chek dollarda bo'lishi ham mumkin — summalar shu valyutada ko'rsatiladi.
     cur = data.get("valyuta") or "som"
 
@@ -325,38 +392,43 @@ def receipt_text(data: dict, day_total: float | None = None) -> str:
     lines.append("<b>Kategoriyalar bo'yicha:</b>")
     for name, amounts in sorted(by_cat.items(), key=lambda kv: sum(kv[1]), reverse=True):
         subtotal = sum(amounts)
-        share = subtotal / total if total else 0
+        share = subtotal / stored if stored else 0
         icon = config.CATEGORY_ICONS.get(name, "•")
         lines.append(
-            f"{icon} {esc(name)} — {fmt_money(subtotal, cur)} ({share * 100:.0f}%)"
+            f"{icon} {esc(config.category_label(name))} — "
+            f"{fmt_money(subtotal, cur)} ({share * 100:.0f}%)"
         )
         lines.append(f"   <code>{_bar(share)}</code> {len(amounts)} ta")
 
     lines.append("")
-    lines.append(f"💵 <b>Mahsulotlar jami: {fmt_money(total, cur)}</b>")
+    lines.append(f"💵 Mahsulotlar jami: {fmt_money(check['hisoblangan'], cur)}")
 
     if data.get("chegirma"):
-        lines.append(f"🏷 Chegirma: −{fmt_money(data['chegirma'], cur)}")
+        tail = (" <i>(narxlarda hisobga olingan)</i>"
+                if check.get("narxlar") == "chegirmadan_keyin" else "")
+        lines.append(f"🏷 Chegirma: −{fmt_money(data['chegirma'], cur)}{tail}")
 
     # Tekshiruv — chekdagi JAMI bilan solishtirish.
     if check["holat"] == "mos":
-        lines.append(f"✅ Chekdagi jami bilan mos: {fmt_money(check['chekdagi'], cur)}")
+        lines.append(f"✅ <b>Chekdagi jami: {fmt_money(check['chekdagi'], cur)}</b> — mos")
     elif check["holat"] == "farqli":
-        lines.append(f"⚠️ Chekdagi jami: {fmt_money(check['chekdagi'], cur)}")
+        lines.append(f"⚠️ <b>Chekdagi jami: {fmt_money(check['chekdagi'], cur)}</b>")
         farq = check["farq"]
         yon = "ortiq" if farq > 0 else "kam"
         lines.append(
-            f"   <i>Farq: {fmt_money(abs(farq), cur)} {yon} chiqdi — "
-            f"ba'zi qatorlar noto'g'ri o'qilgan bo'lishi mumkin.</i>"
+            f"   <i>Mahsulotlar {fmt_money(abs(farq), cur)} {yon} chiqdi — "
+            f"ba'zi qatorlar noto'g'ri o'qilgan bo'lishi mumkin. "
+            f"Saqlangan summa chekdagi jamiga tenglandi.</i>"
         )
     else:
         lines.append("<i>ℹ️ Chekda yakuniy summa ko'rinmadi — tekshirib bo'lmadi.</i>")
 
-    # Eng qimmat mahsulot — tahlil uchun foydali.
+    # Eng qimmat mahsulot — tahlil uchun foydali (chekdagi narxi bilan).
     if len(items) > 1:
-        top = max(items, key=lambda i: i["summa"])
+        top = max(items, key=lambda i: i.get("summa_asl", i["summa"]))
         lines.append(
-            f"🔝 Eng qimmati: {esc(top['nomi'])} — {fmt_money(top['summa'], cur)}"
+            f"🔝 Eng qimmati: {esc(top['nomi'])} — "
+            f"{fmt_money(top.get('summa_asl', top['summa']), cur)}"
         )
 
     if day_total:
@@ -393,7 +465,7 @@ def saved_text(rows: list[dict]) -> str:
         body = [
             f"{icon} <b>{esc(config.KIND_LABELS[r['turi']])}</b> saqlandi",
             f"💵 {fmt_money(r['summa'], cur)}",
-            f"{cat_icon} {esc(r['kategoriya'])}",
+            f"{cat_icon} {esc(config.category_label(r['kategoriya']))}",
         ]
         if r.get("izoh"):
             body.append(f"📝 {esc(r['izoh'])}")
@@ -403,8 +475,26 @@ def saved_text(rows: list[dict]) -> str:
         return "\n".join(body)
 
     lines = [f"✅ <b>{len(rows)} ta yozuv saqlandi</b>", ""]
-    for r in rows:
-        icon = config.KIND_ICONS[r["turi"]]
-        note = r.get("izoh") or r["kategoriya"]
-        lines.append(f"{icon} {fmt_money(r['summa'], r.get('valyuta', 'som'))} · {esc(note)}")
+    lines += [saved_line(r) for r in rows]
+    lines.append("")
+    lines.append("<i>Tuzatish uchun pastdagi «✏️» tugmasini bosing.</i>")
     return "\n".join(lines)
+
+
+def saved_line(r: dict) -> str:
+    """Ko'p yozuvli xabardagi bitta qator — kategoriyasi bilan:
+    🔻 8 000 so'm · nonga · 🥦 oziq-ovqat
+
+    Qarz turlarida kategoriya o'rniga shaxs (yoki tur nomi) — ularning
+    kategoriyasi doim «qarz» va hech narsa aytmaydi.
+    """
+    icon = config.KIND_ICONS[r["turi"]]
+    money = fmt_money(r["summa"], r.get("valyuta", "som"))
+    note = r.get("izoh") or ""
+    if r["turi"] in config.DEBT_KINDS:
+        tail = esc(r.get("shaxs") or config.KIND_LABELS[r["turi"]])
+    else:
+        cat = r["kategoriya"]
+        tail = f"{config.CATEGORY_ICONS.get(cat, '')} {esc(config.category_label(cat))}".strip()
+    parts = [money] + ([esc(note)] if note else []) + [tail]
+    return f"{icon} " + " · ".join(parts)

@@ -20,7 +20,6 @@ import time
 from datetime import date, timedelta
 from urllib.parse import parse_qsl
 
-import csv
 import io
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -30,7 +29,10 @@ from pydantic import BaseModel, Field
 
 import config
 import db
+import goals
+import learning
 import reports
+import tiers
 
 app = FastAPI(title="Tanga — boshqaruv paneli")
 
@@ -85,15 +87,22 @@ def _validate_init_data(init_data: str) -> dict:
     if not isinstance(user_id, int):
         raise HTTPException(401, "foydalanuvchi ID topilmadi")
 
-    # Kirish huquqi bot bilan BIR XIL qoidada tekshiriladi: ega — cheksiz,
-    # boshqalar — bepul sinov yoki amaldagi obuna.
+    # Kirish huquqi bot bilan BIR XIL qoidada tekshiriladi: ega va PRO —
+    # to'liq, Bepul daraja — joriy oy (tiers.py). Faqat bloklangan va
+    # yopiq rejimdagi begona kira olmaydi.
     access = db.access_status(user_id, user.get("first_name", ""), user.get("username"))
     if not access["ok"]:
         detail = {
             "blocked": "Hisobingiz bloklangan.",
             "not_allowed": "Bot hozircha yopiq sinovda.",
-        }.get(access["status"], "Bepul muddat tugadi — obuna kerak.")
+        }.get(access["status"], "Ruxsat yo'q.")
         raise HTTPException(403, detail)
+
+    # Botda har bir amal rozilikdan keyin. Mini App ham shunday: endi
+    # Bepul daraja hammaga ochiq, rozilik bermagan odam panel orqali
+    # ma'lumot qo'sha olmasin.
+    if not db.has_consent(user_id, config.CONSENT_VERSION):
+        raise HTTPException(403, "Avval botda shartlarga rozilik bering: /start")
 
     return {
         "user_id": user_id,
@@ -107,6 +116,40 @@ def current_user(x_telegram_init_data: str = Header(default="")) -> dict:
     user = _validate_init_data(x_telegram_init_data)
     _check_rate(user["user_id"])
     return user
+
+
+# --------------------------------------------------------------------------- #
+# Bepul daraja chegarasi (paywall)
+# --------------------------------------------------------------------------- #
+
+def _paywall(user: dict, feature: str) -> None:
+    """402 + botdagi bilan bir xil paywall matni. Mini App uni «PRO ga
+    o'tish» tugmasi bilan ko'rsatadi; hodisa botdagidek yoziladi."""
+    import re
+    import i18n
+    db.log_event(user["user_id"], "paywall_korsatildi", f"app_{feature}")
+    lang = i18n.normalize(db.get_lang(user["user_id"]))
+    text = i18n.t(lang, f"paywall_{feature}")
+    raise HTTPException(402, {"paywall": feature,
+                              "message": re.sub(r"<[^>]+>", "", text)})
+
+
+_BOT_USERNAME: str | None = None
+
+
+def _bot_username() -> str:
+    """Mini App'dagi «PRO ga o'tish» tugmasi botga t.me/<bot>?start=pro
+    havolasi bilan qaytaradi. Nom bir marta getMe orqali olinadi."""
+    global _BOT_USERNAME
+    if _BOT_USERNAME is None:
+        import urllib.request
+        try:
+            url = f"https://api.telegram.org/bot{config.TELEGRAM_TOKEN}/getMe"
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                _BOT_USERNAME = json.loads(resp.read())["result"]["username"]
+        except Exception:
+            _BOT_USERNAME = ""
+    return _BOT_USERNAME
 
 
 # --------------------------------------------------------------------------- #
@@ -214,6 +257,11 @@ def api_me(user: dict = Depends(current_user)):
     return {
         "user_id": user["user_id"],
         "first_name": user["first_name"],
+        # Bepul darajada panel joriy oy bilan cheklangan (tiers.py).
+        "tier": access.get("tier", "pro"),
+        "history_from": (None if tiers.is_pro(access)
+                         else tiers.month_start().isoformat()),
+        "bot_username": _bot_username(),
         "subscription": {
             "status": access.get("status", "trial"),
             "days_left": access.get("days_left"),
@@ -225,6 +273,8 @@ def api_me(user: dict = Depends(current_user)):
         "currency_symbols": config.CURRENCY_SYMBOLS,
         "kind_icons": config.KIND_ICONS,
         "kind_labels": config.KIND_LABELS,
+        "kind_switches": config.KIND_SWITCHES,
+        "category_labels": config.CATEGORY_LABELS,
         "categories_by_kind": {
             config.KIND_CHIQIM: config.EXPENSE_CATEGORIES,
             config.KIND_KIRIM: config.INCOME_CATEGORIES,
@@ -232,6 +282,8 @@ def api_me(user: dict = Depends(current_user)):
             config.KIND_QARZ_OLDIM: config.DEBT_CATEGORIES,
             config.KIND_JAMGARMA: config.SAVINGS_CATEGORIES,
             config.KIND_JAMGARMA_YECHDIM: config.SAVINGS_CATEGORIES,
+            config.KIND_QARZ_QAYTARDIM: config.DEBT_CATEGORIES,
+            config.KIND_QARZ_QAYTDI: config.DEBT_CATEGORIES,
         },
     }
 
@@ -244,6 +296,9 @@ def api_summary(
 ):
     ref_date = _parse_date(ref, reports.today())
     start, end, label = _compute_range(period, ref_date)
+    if period == "yil" or not tiers.history_allowed(user["access"], start):
+        if not tiers.is_pro(user["access"]):
+            _paywall(user, "history")
 
     uid = user["user_id"]
 
@@ -254,6 +309,9 @@ def api_summary(
             "farq": totals[config.KIND_KIRIM] - totals[config.KIND_CHIQIM],
             "qarz_berdim": totals[config.KIND_QARZ_BERDIM],
             "qarz_oldim": totals[config.KIND_QARZ_OLDIM],
+            # Qarz qaytarish — «farq» ga ham, kategoriyalarga ham KIRMAYDI.
+            "qarz_qaytardim": totals[config.KIND_QARZ_QAYTARDIM],
+            "qarz_qaytdi": totals[config.KIND_QARZ_QAYTDI],
             # Jamg'arma «farq» ga KIRMAYDI: u sarflangan pul emas.
             # Sof qiymati (qo'ygan minus yechgan) va ikkala tomoni ham
             # beriladi — «Jamg'arma» yorlig'i ularni alohida chizadi.
@@ -306,23 +364,6 @@ def api_summary(
     }
 
 
-def _base_amount(row) -> float:
-    """Yozuvning asosiy valyutadagi summasi.
-
-    `amount_base` yozuv kiritilganda o'sha kungi kurs bilan hisoblanadi. Eski,
-    kurs joriy etilishidan oldingi yozuvlarda u bo'sh bo'lishi mumkin — u holda
-    hozirgi kurs bilan o'giramiz, aks holda dollar summasi so'mga qo'shilib
-    ketardi.
-    """
-    base = row["amount_base"]
-    if base is not None:
-        return float(base)
-    if row["currency"] == config.CURRENCY_SOM:
-        return float(row["amount"])
-    import rates
-    return rates.to_base(row["amount"], row["currency"])[0]
-
-
 @app.get("/api/debts")
 def api_debts(user: dict = Depends(current_user)):
     rows = db.open_debts(user["user_id"])
@@ -333,16 +374,18 @@ def api_debts(user: dict = Depends(current_user)):
         unified: list[dict] = []
         for r in items:
             cur = r["currency"]
+            # `amount` — qaytarishlar ayirilgan QOLDIQ; asl summa alohida.
             by_cur.setdefault(cur, []).append({
                 "id": r["id"], "person": r["person"] or "noma'lum",
-                "amount": r["amount"], "date": r["occurred_on"],
-                "note": r["note"],
+                "amount": r["remaining"], "original": r["amount"],
+                "date": r["occurred_on"], "note": r["note"],
+                "due": r.get("due_on"),
             })
             # «Hammasi» ko'rinishi uchun asosiy valyutaga o'girilgan nusxa —
             # /api/summary dagi «hammasi» blok bilan bir xil mantiq.
             unified.append({
                 "id": r["id"], "person": r["person"] or "noma'lum",
-                "amount": _base_amount(r), "date": r["occurred_on"],
+                "amount": r["remaining_base"], "date": r["occurred_on"],
                 "note": r["note"], "original_currency": cur,
             })
         totals = {cur: round(sum(i["amount"] for i in lst), 2) for cur, lst in by_cur.items()}
@@ -370,21 +413,42 @@ def api_savings(user: dict = Depends(current_user)):
     uid = user["user_id"]
     prof = db.savings_profile(uid)
     balance = db.savings_balance(uid)
-    goal = float(prof.get("goal") or 0)
+    # Panel asosiy maqsadni ko'rsatadi (goals.py). Maydon nomlari avvalgidek —
+    # Mini App o'zgarmasdan ishlaydi.
+    primary = goals.primary(uid)
+    goal = float(primary["amount"]) if primary else 0.0
 
     out = {
         "balance": balance,
         "rate": db.savings_rate(uid),
         "goal": goal,
-        "goal_note": prof.get("goal_note") or "",
+        "goal_note": primary["name"] if primary else "",
         "streak": db.savings_streak(uid),
         "card": prof.get("card_state") or db.CARD_SORALMAGAN,
         "percent": None,
         "left": None,
     }
-    if goal > 0:
-        out["percent"] = round(min(100.0, balance / goal * 100), 1)
-        out["left"] = round(max(0.0, goal - balance), 2)
+    if primary:
+        out["percent"] = round(min(100.0, primary["saved"] / goal * 100), 1)
+        out["left"] = primary["left"]
+        out["goal_saved"] = primary["saved"]
+
+    # Barcha maqsadlar — progress va (PRO'da) «qachon erishaman» bashorati.
+    forecast_ok = tiers.allows(user["access"], "goals_forecast")
+    out["goals"] = []
+    for g in goals.list_goals(uid):
+        item = {"id": g["id"], "name": g["name"], "amount": g["amount"],
+                "saved": g["saved"], "left": g["left"], "percent": g["percent"],
+                "deadline": g["deadline"], "primary": g["primary"],
+                "forecast_locked": not forecast_ok,
+                "eta": None, "pace": None, "need_monthly": None}
+        if forecast_ok and g["left"] > 0:
+            fc = goals.forecast(uid, g)
+            item["eta"] = fc["eta"].isoformat() if fc["eta"] else None
+            item["pace"] = round(fc["pace"], 2) if fc["pace"] is not None else None
+            item["need_monthly"] = (round(fc["need_monthly"], 2)
+                                    if fc["need_monthly"] else None)
+        out["goals"].append(item)
     return out
 
 
@@ -396,12 +460,17 @@ def api_transactions(
     kind: str | None = None,
     search: str | None = None,
     receipt_id: str | None = None,
+    group_receipts: bool = False,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: dict = Depends(current_user),
 ):
     start_d = _parse_date(start, date(2000, 1, 1))
     end_d = _parse_date(end, reports.today())
+    # Bepul daraja: ro'yxat joriy oydan boshlanadi (xato emas, jim cheklov —
+    # qidiruv va «yana yuklash» ham shu chegarada ishlaydi).
+    if not tiers.is_pro(user["access"]):
+        start_d = max(start_d, tiers.month_start())
     # Vergul bilan bir nechta tur berilishi mumkin — «Jamg'arma»
     # yorlig'i qo'yilgan va yechilgan pulni birga ko'rsatadi.
     if kind and "," in kind:
@@ -422,7 +491,8 @@ def api_transactions(
     # bir necha yillik yozuv to'planganda ham tez ishlashi kerak.
     result = db.search_transactions(
         user["user_id"], start_d, end_d, kind=kind, currency=currency,
-        search=search, receipt_id=receipt_id, limit=limit, offset=offset)
+        search=search, receipt_id=receipt_id, limit=limit, offset=offset,
+        group_receipts=group_receipts)
 
     return {
         "total_count": result["total_count"],
@@ -440,13 +510,28 @@ def api_delete_transaction(tx_id: int, user: dict = Depends(current_user)):
 
 
 def _serialize_tx(row) -> dict:
-    return {
+    out = {
         "id": row["id"], "date": row["occurred_on"], "kind": row["kind"],
         "amount": row["amount"], "currency": row["currency"],
         "category": row["category"], "note": row["note"],
         "person": row["person"], "receipt_id": row["receipt_id"],
         "settled": bool(row["settled"]),
+        "due": row["due_on"] if "due_on" in row.keys() else None,
     }
+    # group_receipts=1 da chek qatori: mahsulotlar soni va do'kon.
+    if "n" in row.keys():
+        out["items_count"] = row["n"]
+        out["shop"] = row["shop"] or ""
+    return out
+
+
+@app.delete("/api/receipts/{receipt_id}")
+def api_delete_receipt(receipt_id: str, user: dict = Depends(current_user)):
+    """Butun chek: mahsulotlar va sarlavha bitta tranzaksiyada."""
+    removed = db.delete_receipt(user["user_id"], receipt_id)
+    if not removed:
+        raise HTTPException(404, "Chek topilmadi")
+    return {"deleted": removed}
 
 
 class TxUpdate(BaseModel):
@@ -464,11 +549,11 @@ def api_update_transaction(tx_id: int, body: TxUpdate, user: dict = Depends(curr
         raise HTTPException(404, "Yozuv topilmadi")
 
     if body.kind and body.kind != row["kind"]:
-        # Jamg'armani kirim/chiqimga (va teskarisiga) almashtirish
-        # ATAYLAB taqiqlanadi: bu qoldiqni jimgina buzardi. Kerak
-        # bo'lsa yozuvni o'chirib, qaytadan yozish to'g'ri yo'l.
-        swappable = (config.KIND_CHIQIM, config.KIND_KIRIM)
-        if row["kind"] not in swappable or body.kind not in swappable:
+        # Ruxsat etilgan almashtirishlar config.KIND_SWITCHES da: kirim <->
+        # chiqim va ular <-> qarz qaytarish. Jamg'arma va qarz berdim/oldim
+        # ATAYLAB yo'q — qoldiqni jimgina buzardi. Kerak bo'lsa yozuvni
+        # o'chirib, qaytadan yozish to'g'ri yo'l.
+        if body.kind not in config.KIND_SWITCHES.get(row["kind"], []):
             raise HTTPException(400, "Bu yozuv turini almashtirib bo'lmaydi")
         new_category = body.category or config.fallback_category(body.kind)
         if new_category not in config.categories_for(body.kind):
@@ -478,8 +563,27 @@ def api_update_transaction(tx_id: int, body: TxUpdate, user: dict = Depends(curr
         if body.category not in config.categories_for(row["kind"]):
             raise HTTPException(400, "Noto'g'ri kategoriya")
         db.update_category(user["user_id"], tx_id, body.category)
+        # Botdagi tuzatish bilan bir xil: keyingi shunday yozuv o'zi
+        # to'g'ri kategoriyaga tushadi.
+        learning.remember(user["user_id"], row["kind"], row["note"], body.category)
 
     return _serialize_tx(db.get_transaction(user["user_id"], tx_id))
+
+
+class DueBody(BaseModel):
+    # 0 — muddatsiz; aks holda bugundan necha kun keyin.
+    days: int = Field(ge=0, le=3650)
+
+
+@app.post("/api/debts/{tx_id}/due")
+def api_debt_due(tx_id: int, body: DueBody, user: dict = Depends(current_user)):
+    """Qarzni qaytarish muddati — botdagi «📅» tugmasi bilan bir xil (PRO)."""
+    if not tiers.allows(user["access"], "debt_reminders"):
+        _paywall(user, "debt_reminders")
+    due = tiers.today() + timedelta(days=body.days) if body.days else None
+    if not db.set_due(user["user_id"], tx_id, due):
+        raise HTTPException(404, "Ochiq qarz topilmadi")
+    return {"due": due.isoformat() if due else None}
 
 
 @app.post("/api/debts/{tx_id}/settle")
@@ -507,7 +611,9 @@ def api_create_transaction(body: TxCreate, user: dict = Depends(current_user)):
     currency = config.normalize_currency(body.currency)
     category = config.normalize_category(body.kind, body.category)
     person = (body.person or "").strip() or None
-    if body.kind in config.DEBT_KINDS and not person:
+    # Qarz berish/olishda shaxs shart; qaytarishda ixtiyoriy (bank
+    # krediti to'lovida shaxs yo'q).
+    if body.kind in config.DEBT_OPEN_KINDS and not person:
         raise HTTPException(400, "Qarz uchun shaxs ismi kerak")
     if body.kind not in config.DEBT_KINDS:
         person = None
@@ -525,26 +631,15 @@ def api_create_transaction(body: TxCreate, user: dict = Depends(current_user)):
 @app.post("/api/export/token")
 def api_export_token(user: dict = Depends(current_user)):
     """Bir martalik, 60 soniya yashaydigan yuklab olish tokeni."""
+    if not tiers.allows(user["access"], "csv"):
+        _paywall(user, "csv")
     return {"token": _issue_export_token(user["user_id"]), "ttl": EXPORT_TOKEN_TTL}
 
 
 @app.get("/api/export.csv")
 def api_export_csv(token: str = Query(...)):
     user_id = _consume_export_token(token)
-    rows = db.all_rows(user_id)
-    buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(
-        ["id", "sana", "turi", "summa", "valyuta", "kategoriya", "izoh",
-         "shaxs", "yopilgan", "chek"]
-    )
-    for r in rows:
-        writer.writerow([
-            r["id"], r["occurred_on"], r["kind"], r["amount"], r["currency"],
-            r["category"], r["note"], r["person"] or "", r["settled"],
-            r["receipt_id"] or "",
-        ])
-    content = buf.getvalue().encode("utf-8-sig")
+    content, _ = reports.csv_bytes(user_id)
     return StreamingResponse(
         io.BytesIO(content),
         media_type="text/csv",

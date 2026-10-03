@@ -33,21 +33,24 @@ Bot:  🧾 MAXSULOT SAVDO MARKAZI
 
 - **Erkin matnni tushunadi** — `obedga 45 ming`, `1.5 mln kompyuterga`, `kecha dorixonaga 90 ming`
 - **Ikki valyutani qo'llab-quvvatlaydi** — so'm (standart) va AQSH dollari (`$100`, `50 dollar`); hisobotlarda alohida-alohida ko'rsatiladi, kurs orqali qo'shilmaydi
-- **Chek rasmini o'qiydi** — har bir mahsulot alohida yozuv sifatida, kategoriyaga ajratilgan holda saqlanadi
+- **Chek rasmini o'qiydi** — chek bitta yozuv (do'kon, jami), mahsulotlar uning ichida kategoriyaga ajratilgan; chegirma kategoriyalar o'rtasida taqsimlanadi, saqlangan summa doim chekdagi jamiga teng
 - **Uzun chekni qismlab qabul qiladi** — chek kadrga sig'masa, bir nechta rasm qilib yuborasiz; ustma-ust tushgan qatorlar bir marta hisoblanadi
 - **Chekni tekshiradi** — mahsulotlar yig'indisini Python hisoblab, chekdagi "JAMI" bilan solishtiradi; farq chiqsa chekni avtomatik qayta o'qiydi
 - **Bitta xabardan bir nechta yozuv** — `taksi 20k, kofe 25 ming, non 8 ming`
-- **Avtomatik kategoriyalash** — 14 ta chiqim, 7 ta kirim kategoriyasi
+- **Avtomatik kategoriyalash** — 15 ta chiqim, 7 ta kirim kategoriyasi; «✏️ Kategoriya» tuzatishi eslab qolinadi va keyingi safar AI'dan ustun
 - **Kirim va chiqim** — `oylik tushdi 8 mln` → kirim
-- **Qarz hisobi** — `Aliga 500 ming qarz berdim` → kim kimga qarzdorligini kuzatadi
+- **Qarz hisobi** — berdim/oldim/qaytardim/qaytdi (`Akmal 200 mingni qaytardi`, `kreditga to'ladim`); qarz harakati xarajat ham, daromad ham emas; qaytarish muddati va eslatma
 - **Sanani tushunadi** — "kecha", "1-avgustda" kabi so'zlarni sanaga aylantiradi
 - **Hisobotlar** — kun, hafta, oy, o'tgan oy, yil kesimida foizli diagramma bilan
 - **AI'dan savol so'rash** — `bu oy eng ko'p nimaga pul ketdi?` (jamlanmalar Python'da hisoblanadi, AI faqat tushuntiradi)
 - **Xatoni tuzatish** — har bir yozuv ostida "Kategoriya" va "O'chirish" tugmalari
 - **Tugmalar menyusi** — buyruqlarni eslash shart emas
-- **Ichki qo'llanma** — `/qollanma`
+- **Maqsadlar** — bir nechta maqsad, «shu sur'atda qachon erishaman» bashorati
+- **«Avval o'zingizga to'lang»** — kirim yozilganda ulushni jamg'armaga taklif qiladi
+- **Ichki qo'llanma** — `/yordam` (bo'limlar tugmalar bilan)
 - **CSV eksport** — `/csv`
-- **Faqat siz uchun** — begona odam yozsa bot javob bermaydi
+- **Bepul va PRO** — 7 kun to'liq PRO, keyin Bepul daraja (chegaralar `tiers.py` da);
+  `ALLOWED_USER_IDS` to'ldirilsa — yopiq sinov rejimi
 
 ## Chek qanday o'qiladi
 
@@ -130,8 +133,8 @@ Tayyor. Endi botga xarajatlaringizni yozavering.
 
 | Buyruq | Vazifasi |
 |---|---|
-| `/start` | Yordam va tugmalar menyusi |
-| `/qollanma` | To'liq foydalanish yo'riqnomasi |
+| `/start` | Qisqa salomlashish va tugmalar menyusi |
+| `/yordam` (`/qollanma`) | Bo'limlarga ajratilgan qo'llanma |
 | `/chek` | Uzun chekni qismlab yuborish rejimi |
 | `/tayyor` | Yig'ilgan chek qismlarini tahlil qilish |
 | `/bekor` | Chek yig'ishni bekor qilish |
@@ -141,8 +144,11 @@ Tayyor. Endi botga xarajatlaringizni yozavering.
 | `/ochir 12` | 12-raqamli yozuvni o'chirish |
 | `/yopdim 12` | Qarzni yopilgan deb belgilash |
 | `/csv` | Barcha yozuvlarni CSV fayl qilib olish |
-| `/obuna` | Obuna tariflari va to'lov |
-| `/holat` | Obuna holati va bugungi limitlar |
+| `/obuna` | Tanga PRO tariflari va to'lov |
+| `/holat` | Daraja (Bepul/PRO), muddat va qolgan limitlar |
+| `/maqsadlar` | Maqsadlar, progress va bashorat |
+| `/maqsad Uy 300 mln 2028-mart` | Yangi maqsad |
+| `/foiz` | «Avval o'zingizga to'lang» ulushi (PRO) |
 | `/byudjet` | Kategoriyaga oylik chegara qo'yish |
 | `/eslatma 21` | Kunlik eslatmani soat 21:00 ga sozlash |
 | `/kurs` | Dollar kursi (`/kurs 12800` — qo'lda o'rnatish) |
@@ -151,6 +157,20 @@ Tayyor. Endi botga xarajatlaringizni yozavering.
 | `/maxfiylik` | Maxfiylik siyosati |
 | `/shartlar` | Xizmat shartlari (ommaviy oferta) |
 | `/ochirish` | Hisobni va butun tarixni o'chirish |
+
+Faqat ega uchun: `/panel`, `/statistika` (faollik, saqlanish, voronka,
+paywall), `/xabar_yubor` (ko'rish va ikki bosqichli tasdiq bilan),
+`/oddiy_rejim on|off` (o'zini obunasiz foydalanuvchidek sinash).
+
+## Sinovlar
+
+```bash
+pip install -r requirements-dev.txt
+pytest              # oflayn: AI soxtalashtiriladi, vaqtinchalik bazada
+pytest -m live      # haqiqiy AI bilan (faqat qo'lda, pul turadi)
+```
+
+Migratsiya skriptlari va chiqarish tartibi — `DEPLOY.md` da.
 
 ## Sozlamalar (`.env`)
 

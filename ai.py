@@ -97,6 +97,11 @@ RECORD_TOOL = {
                                 "chiqim — pul sarflandi; kirim — pul kelib tushdi; "
                                 "qarz_berdim — men birovga qarz berdim; "
                                 "qarz_oldim — men birovdan qarz oldim; "
+                                "qarz_qaytardim — men O'Z qarzimni qaytardim yoki "
+                                "kredit/nasiya to'ladim (pul chiqdi, lekin xarajat "
+                                "EMAS); "
+                                "qarz_qaytdi — birov menga qarzini qaytardi (pul "
+                                "kirdi, lekin daromad EMAS); "
                                 "jamgarma — pul shaxsiy jamg'armaga qo'yildi "
                                 "(sarflanmadi, o'zida qoldi); "
                                 "jamgarma_yechdim — jamg'armadan pul olindi."
@@ -137,6 +142,24 @@ RECORD_TOOL = {
                             "description": (
                                 "YYYY-MM-DD formatida. Xabarda sana aytilmagan bo'lsa "
                                 "bugungi sanani qo'y."
+                            ),
+                        },
+                        "maqsad": {
+                            "type": "string",
+                            "description": (
+                                "Faqat jamgarma uchun: pul qaysi maqsadga qo'yilgani "
+                                "aytilgan bo'lsa, o'sha maqsad nomi 1-3 so'z bilan "
+                                "(\"uy uchun 3 mln qo'ydim\" => \"uy\"). Aytilmagan "
+                                "bo'lsa bo'sh qoldir."
+                            ),
+                        },
+                        "muddat": {
+                            "type": "string",
+                            "description": (
+                                "Faqat qarz_berdim/qarz_oldim uchun: qarz qachon "
+                                "qaytarilishi kerakligi aytilgan bo'lsa, YYYY-MM-DD "
+                                "(\"15-oktabrgacha qaytaradi\", \"bir haftada "
+                                "beraman\"). Aytilmagan bo'lsa bo'sh qoldir."
                             ),
                         },
                     },
@@ -203,7 +226,9 @@ def _parse_system_prompt(today: date) -> str:
         "butun jumla mazmunini o'qi. Savolni shunday qo'y: pul SIZDAN chiqyaptimi "
         "yoki SIZGA kelyaptimi?\n"
         "  * Pul sizdan chiqsa (xarid, to'lov, xizmat haqi, sarf) => chiqim.\n"
-        "  * Pul sizga kelsa (maosh, sotuv, qaytim, sovg'a, qarz qaytishi) => kirim.\n"
+        "  * Pul sizga kelsa (maosh, sotuv, do'kon qaytimi, sovg'a) => kirim.\n"
+        "  * QARZ harakati (berish, olish, qaytarish, kredit to'lovi) — kirim "
+        "ham, chiqim ham EMAS, alohida qarz turlari (pastga qarang).\n"
         "- OGOHLANTIRISH — bir xil fe'l ikki xil ma'noda kelishi mumkin, faqat "
         "fe'lning o'ziga qarab xulosa chiqarma:\n"
         "  * \"oldim\": \"noutbuk sotib oldim\" => chiqim (xarid), lekin "
@@ -226,6 +251,34 @@ def _parse_system_prompt(today: date) -> str:
         "\"Akamdan 1 mln qarz oldim\" => qarz_oldim, shaxs=\"akam\". Qarz turi "
         "faqat \"qarz\" so'zi yoki uning aniq ma'nosi (masalan \"nasiya\") "
         "jumlada bo'lsa qo'llanadi — aks holda oddiy kirim/chiqim.\n"
+        "- QARZNI QAYTARISH — to'rtta qarz turi bor, YO'NALISHGA qara:\n"
+        "  * qarz_berdim — MEN birovga qarz berdim: \"Akmalga 200 ming qarz "
+        "berdim\" (shaxs=\"Akmal\").\n"
+        "  * qarz_oldim — MEN birovdan qarz oldim: \"Sardordan 500 ming qarz "
+        "oldim\" (shaxs=\"Sardor\").\n"
+        "  * qarz_qaytardim — MEN o'z qarzimni qaytardim yoki kredit/nasiya/"
+        "bo'lib to'lash to'lovini qildim: \"qarzimni qaytardim\", \"qarzimni "
+        "berdim\", \"1 mln qarzim uchun to'landi\", \"qarzimga to'ladim\", "
+        "\"kreditga 2,5 mln to'ladim\", \"kredit to'lovi\", \"nasiyaga to'ladim\", "
+        "\"Sardorga qarzimni qaytardim\" (shaxs=\"Sardor\").\n"
+        "  * qarz_qaytdi — BIROV menga qarzini qaytardi: \"Akmal qarzini "
+        "qaytardi\", \"Akmal 200 mingni qaytardi\", \"Akmal qarzini berdi\" "
+        "(shaxs=\"Akmal\").\n"
+        "  Farqi \"-im\" qo'shimchasida: \"qarzIMni berdim\" — o'z qarzimni "
+        "qaytardim (qarz_qaytardim), \"qarz berdim\" — birovga qarz berdim "
+        "(qarz_berdim). Ism + \"qaytardi\" (uchinchi shaxs) — menga qaytarildi "
+        "(qarz_qaytdi), hatto \"qarz\" so'zi bo'lmasa ham.\n"
+        "  Kirill va rus variantlari ham xuddi shunday: \"қарзимни қайтардим\", "
+        "\"кредитга тўладим\", \"Акмал қарзини қайтарди\", \"вернул долг\", "
+        "\"отдал долг Сардору\", \"заплатил за кредит\", \"Акмал вернул долг\", "
+        "\"Акмал вернул 200 тысяч\", \"взял в долг у Сардора\".\n"
+        "  Bu to'rtta tur HECH QACHON kirim yoki chiqim emas: kategoriya har "
+        "doim \"qarz\". Ism aytilgan bo'lsa shaxs maydoniga faqat ismning "
+        "o'zini yoz, qo'shimchasiz (\"Akmalga\" emas, \"Akmal\"; \"Sardordan\" "
+        "emas, \"Sardor\"; \"Сардору\" emas, \"Sardor\") va HAR DOIM o'zbek "
+        "lotin yozuvida (\"Акмал\" => \"Akmal\") — bir odamning qarzi va "
+        "qaytarishi bir xil yozilsin. Bank yoki kredit bo'lsa shaxs bo'sh "
+        "qoladi.\n"
         "- JAMG'ARMA. \"jamg'arma\", \"jamgarma\", \"omonat\", \"zaxira\", "
         "\"copilka\", \"nakopleniye\" so'zlari pul YO'NALISHINI ko'rsatadi:\n"
         "  * \"jamg'armaga 100 ming o'tkazdim\", \"shaxsiy jamg'armaga 500 ming "
@@ -244,9 +297,27 @@ def _parse_system_prompt(today: date) -> str:
         "MAZMUNIGA qarab tanla, sirtqi so'zga emas: \"dorixona\", \"shifokor\" "
         "=> salomatlik (oziq-ovqat emas). \"internet\", \"mobil aloqa\" => "
         "aloqa va internet (xizmatlar emas). \"kira haqi\", \"ijaraga\" => "
-        "uy-joy. \"svet\", \"gaz\", \"suv\" (kommunal to'lov ma'nosida) => "
-        "kommunal. Ishonching komil bo'lmasa \"boshqa chiqim\" yoki "
-        "\"boshqa kirim\" qo'y — noto'g'ri kategoriyadan ko'ra shu yaxshi.\n"
+        "uy-joy.\n"
+        "- SUV — ikki xil ma'no, FE'LGA qara:\n"
+        "  * suv SOTIB OLINDI (ichimlik): \"suv oldim\", \"12 mingga suv "
+        "oldim\", \"suv sotib oldim\", \"Hydrolife\", \"Nestle\", \"19 litrlik "
+        "suv\" => oziq-ovqat.\n"
+        "  * suv uchun TO'LOV (kommunal xizmat): \"suv puli\", \"suv puliga "
+        "to'ladim\", \"suvga to'ladim\", \"suv uchun to'lov\", \"vodokanal\" "
+        "=> kommunal.\n"
+        "  Xuddi shunday: \"svet\", \"gaz\", \"musor\", \"kvartira puli\" "
+        "(kommunal to'lov ma'nosida) => kommunal.\n"
+        "- UY-RO'ZG'OR VA GIGIYENA: sovun, shampun, tish pastasi, kir yuvish "
+        "vositasi (poroshok), idish yuvish vositasi, salfetka, tualet qog'ozi, "
+        "paket, gubka, dezodorant => \"uy-ro'zg'or va gigiyena\" "
+        "(boshqa chiqim EMAS).\n"
+        "- OZIQ-OVQAT: non, nonga, sut, go'sht, meva, sabzavot, guruch, yog', "
+        "tuxum, shakar, choy, ichimlik — do'kon yoki bozordan oziq-ovqat "
+        "xaridi => oziq-ovqat. Kategoriyani so'zning MA'NOSIGA qarab tanla, "
+        "o'xshash harflarga emas: \"nonga\" — non (oziq-ovqat).\n"
+        "- \"boshqa chiqim\" — FAQAT mazmunini umuman aniqlab bo'lmaydigan "
+        "narsa uchun. Mahsulot yoki xizmat nomi ma'lum bo'lsa, ro'yxatdagi eng "
+        "yaqin kategoriyani tanla. \"boshqa kirim\" ham xuddi shunday.\n"
         "- Agar xabar savol bo'lsa (masalan \"bu oy qancha sarfladim?\", "
         "\"eng ko'p nimaga ketdi?\") — niyat=\"savol\", yozuvlar bo'sh massiv.\n"
         "- Agar summa umuman yo'q yoki matn moliyaga aloqador bo'lmasa — "
@@ -310,6 +381,16 @@ async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
         if kind not in config.DEBT_KINDS:
             person = None
 
+        sana = _coerce_date(item.get("sana"), today)
+        # Maqsad nomi — faqat jamg'armada; qaytarish muddati — faqat ochiq
+        # qarzda va yozuv sanasidan keyin bo'lsa (o'tgan sana eslatma emas).
+        goal = (item.get("maqsad") or "").strip()[:60] if kind == config.KIND_JAMGARMA else ""
+        due = None
+        if kind in config.DEBT_OPEN_KINDS and item.get("muddat"):
+            raw_due = _coerce_date(item.get("muddat"), date.min)
+            if raw_due != date.min.isoformat() and raw_due > sana:
+                due = raw_due
+
         cleaned.append(
             {
                 "turi": kind,
@@ -318,7 +399,9 @@ async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
                 "kategoriya": config.normalize_category(kind, item.get("kategoriya")),
                 "izoh": (item.get("izoh") or "").strip()[:120],
                 "shaxs": person,
-                "sana": _coerce_date(item.get("sana"), today),
+                "sana": sana,
+                "maqsad": goal or None,
+                "muddat": due,
             }
         )
 
@@ -471,9 +554,13 @@ def _receipt_system_prompt(today: date, parts: int) -> str:
         "'Qaytim' kabi qatorlar mahsulot EMAS — ularni mahsulotlar ro'yxatiga "
         "qo'shma. Yakuniy summani chekdagi_jami ga yoz.\n"
         "- Har bir mahsulotga ro'yxatdagi kategoriyalardan eng mosini tanla. "
-        "Oziq-ovqat do'konidagi non, sut, go'sht => 'oziq-ovqat'. Kimyo, "
-        "yuvish vositalari => 'xizmatlar' emas, 'boshqa chiqim'. Dori => "
-        "'salomatlik'. Ishonching komil bo'lmasa 'boshqa chiqim' qo'y.\n"
+        "Oziq-ovqat do'konidagi non, sut, go'sht, ichimlik suvi, sharbat => "
+        "'oziq-ovqat'. Sovun, shampun, tish pastasi, kir va idish yuvish "
+        "vositasi, ko'pik, salfetka, tualet qog'ozi, paket, gubka => "
+        "'uy-ro'zg'or va gigiyena'. Dori, vitamin => 'salomatlik'. "
+        "Sigaret => 'boshqa chiqim'. 'boshqa chiqim' — FAQAT nomidan nima "
+        "ekanini umuman aniqlab bo'lmagan qator uchun; nomi o'qilgan "
+        "mahsulotga eng yaqin kategoriyani tanla.\n"
         "- Chekda o'qilmaydigan qatorlar bo'lsa, o'qilganlarini qaytar — "
         "butun chekni tashlab yuborma.\n"
         "- Fayl chek bo'lmasa (masalan oddiy surat yoki boshqa hujjat) => "
@@ -618,24 +705,93 @@ def _normalize_receipt(payload: dict[str, Any], today: date) -> dict[str, Any]:
     }
 
 
+def receipt_tolerance(total: float, currency: str = "som") -> float:
+    """Chek jamini solishtirishdagi ruxsat etilgan farq.
+
+    So'm uchun max(1 000 so'm, jamining 1 %). Yaxlitlash, tiyinlar va
+    bitta-ikkita xira raqam shu oraliqqa sig'adi; undan kattasi haqiqiy
+    o'qish xatosi.
+    """
+    floor = 1.0 if currency == "usd" else 1000.0
+    return max(floor, abs(total) * 0.01)
+
+
 def receipt_check(data: dict[str, Any]) -> dict[str, Any]:
     """Chekni tekshiradi: mahsulotlar yig'indisini Python hisoblab, chekdagi
-    JAMI bilan solishtiradi. Arifmetika AI'ga ishonib topshirilmaydi."""
+    JAMI bilan solishtiradi. Arifmetika AI'ga ishonib topshirilmaydi.
+
+    Chegirma bor chekda qator narxlari ikki xil yozilgan bo'lishi mumkin:
+      * chegirmaGACHA — qatorlar yig'indisi minus chegirma = JAMI;
+      * chegirmaDAN KEYIN — qatorlarda allaqachon arzonlashgan narx,
+        chegirma qatori faqat ma'lumot uchun: yig'indi = JAMI.
+    Ilgari faqat birinchisi tekshirilardi va ikkinchi turdagi chekda
+    chegirma IKKI MARTA ayirilib, yolg'on «farq» ogohlantirishi chiqardi
+    (va chek behuda qayta o'qilardi). Endi ikkalasi ham sinab ko'riladi;
+    ogohlantirish faqat hech biri mos kelmaganda chiqadi.
+
+    Qaytaradi: holat (mos | farqli | jami_yoq), hisoblangan (qatorlar
+    yig'indisi), chekdagi, farq (eng yaqin talqindagi farq, ishorasi bilan)
+    va narxlar (chegirmagacha | chegirmadan_keyin | None).
+    """
     computed = round(sum(item["summa"] for item in data["mahsulotlar"]), 2)
     discount = data.get("chegirma") or 0.0
     printed = data.get("chekdagi_jami")
 
-    expected = round(computed - discount, 2)
     if printed is None:
         return {"holat": "jami_yoq", "hisoblangan": computed,
-                "chekdagi": None, "farq": None}
+                "chekdagi": None, "farq": None, "narxlar": None}
 
-    diff = round(expected - printed, 2)
-    # Yaxlitlash xatosi uchun kichik bag'rikenglik.
-    tolerance = max(1.0, abs(printed) * 0.001)
+    tolerance = receipt_tolerance(printed, data.get("valyuta") or "som")
+    # (farq, talqin) — qaysi biri JAMI ga yaqinroq bo'lsa o'sha olinadi.
+    candidates = [(round(computed - printed, 2), "chegirmadan_keyin")]
+    if discount:
+        candidates.append((round(computed - discount - printed, 2), "chegirmagacha"))
+    diff, mode = min(candidates, key=lambda c: abs(c[0]))
+
     holat = "mos" if abs(diff) <= tolerance else "farqli"
-    return {"holat": holat, "hisoblangan": computed,
-            "chekdagi": printed, "farq": diff}
+    return {"holat": holat, "hisoblangan": computed, "chekdagi": printed,
+            "farq": diff, "narxlar": mode if holat == "mos" else None}
+
+
+def fit_to_total(amounts: list[float], target: float,
+                 currency: str = "som") -> list[float]:
+    """Summalarni mutanosib o'zgartirib, yig'indisini AYNAN `target` ga
+    tenglaydi.
+
+    Chekdan saqlanadigan pul doim chekdagi yakuniy jamiga teng bo'lishi
+    kerak — chegirma ham, yaxlitlash ham kategoriyalar o'rtasida ulushiga
+    qarab taqsimlanadi. Yaxlitlashdan qolgan qoldiq eng katta qatorga
+    qo'shiladi, shunda yig'indi bir so'mgacha aniq chiqadi.
+    """
+    total = sum(amounts)
+    if not amounts or total <= 0 or target <= 0:
+        return list(amounts)
+    digits = 2 if currency == "usd" else 0
+    scaled = [round(a * target / total, digits) for a in amounts]
+    remainder = round(target - sum(scaled), digits)
+    if remainder:
+        biggest = max(range(len(scaled)), key=lambda i: scaled[i])
+        scaled[biggest] = round(scaled[biggest] + remainder, digits)
+    return scaled
+
+
+def apply_receipt_total(data: dict[str, Any]) -> dict[str, Any]:
+    """Mahsulot summalarini chekdagi yakuniy jamiga moslaydi.
+
+    Chekda JAMI ko'rinmasa, boshqa ishonchli raqam yo'q — summalar
+    o'qilganicha qoladi. Asl qator narxi `summa_asl` da saqlanadi
+    (to'liq ro'yxatda ko'rsatish uchun).
+    """
+    target = data.get("chekdagi_jami")
+    items = data["mahsulotlar"]
+    if not target or not items:
+        return data
+    fitted = fit_to_total([i["summa"] for i in items], target,
+                          data.get("valyuta") or "som")
+    for item, amount in zip(items, fitted):
+        item["summa_asl"] = item["summa"]
+        item["summa"] = amount
+    return data
 
 
 async def parse_receipt(
@@ -711,6 +867,7 @@ async def parse_receipt(
                 data, check = data2, check2
 
     data["tekshiruv"] = check
+    apply_receipt_total(data)
     data["_usage"] = usage
     return data
 
@@ -736,6 +893,9 @@ QA_SYSTEM = (
     "taqqoslama — kurs berilmagan, taxminiy konvertatsiya noto'g'ri javobga "
     "olib keladi. Agar foydalanuvchida ikkala valyutada ham yozuv bo'lsa, "
     "javobda ikkalasini ALOHIDA ko'rsat (masalan \"5 000 000 so'm va $200\").\n"
+    "- Qarz turlari (qarz_berdim, qarz_oldim, qarz_qaytardim, qarz_qaytdi) "
+    "xarajat ham, daromad ham EMAS — \"qancha sarfladim\" degan savolga "
+    "ularni qo'shma, so'ralsa alohida ayt.\n"
     "- Sonlarni o'qishga qulay yoz: 1 250 000 so'm yoki $250.\n"
     "- Ma'lumot yetarli bo'lmasa, buni ochiq ayt va nimasi yetishmayotganini tushuntir.\n"
     "- Javob 6 qatordan oshmasin. Ortiqcha muqaddima yozma.\n"

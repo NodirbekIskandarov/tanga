@@ -39,6 +39,15 @@
         qarz_oldim: "#eb6834", jamgarma: "#7048c4", jamgarma_yechdim: "#b07d18" }
     : { kirim: "#0ca30c", chiqim: "#e66767", qarz_berdim: "#3987e5",
         qarz_oldim: "#d95926", jamgarma: "#a98ae0", jamgarma_yechdim: "#e0b155" };
+  // Qarz qaytarish o'z yo'nalishining rangida: men qaytargan pul — men
+  // olgan qarz rangida, menga qaytarilgani — men bergan qarz rangida.
+  STATUS.qarz_qaytardim = STATUS.qarz_oldim;
+  // Qo'rqitmaydigan ranglar: kirim yo'q oyda chiqim halqasi — neytral;
+  // chiqim kirimdan oshgan oyda — qizil emas, sokin sariq.
+  const CALM = SCHEME === "light"
+    ? { neutral: "#8a94a6", over: "#c98500" }
+    : { neutral: "#7d8799", over: "#d9a441" };
+  STATUS.qarz_qaytdi = STATUS.qarz_berdim;
 
   const CATEGORY_PALETTE = SCHEME === "light"
     ? ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
@@ -100,6 +109,12 @@
     if (!res.ok) {
       let detail = res.statusText;
       try { detail = (await res.json()).detail || detail; } catch (_) {}
+      // 402 — Bepul daraja chegarasi: {paywall, message}.
+      if (detail && typeof detail === "object") {
+        const err = new Error(detail.message || "PRO imkoniyati");
+        err.paywall = detail.paywall;
+        throw err;
+      }
       throw new Error(detail);
     }
     if (res.status === 204) return null;
@@ -151,6 +166,12 @@
     return (state.me && state.me.kind_icons && state.me.kind_icons[kind]) || "•";
   }
 
+  /** Kategoriyaning ko'rinadigan nomi (masalan «oylik» -> «ish haqi»).
+   * Bazada va so'rovlarda asl nom qoladi — faqat ekranda o'zgaradi. */
+  function catLabel(cat) {
+    return (state.me && state.me.category_labels && state.me.category_labels[cat]) || cat;
+  }
+
   function kindLabel(kind) {
     return (state.me && state.me.kind_labels && state.me.kind_labels[kind]) || kind;
   }
@@ -159,6 +180,14 @@
     const MONTHS = ["yan", "fev", "mar", "apr", "may", "iyun", "iyul", "avg", "sen", "okt", "noy", "dek"];
     const [y, m, d] = iso.split("-").map(Number);
     return `${d}-${MONTHS[m - 1]}`;
+  }
+
+  /** "2028-03-31" -> "2028-yil mart" (maqsad bashorati uchun). */
+  function fmtMonthYear(iso) {
+    const MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul",
+                    "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
+    const [y, m] = iso.split("-").map(Number);
+    return `${y}-yil ${MONTHS[m - 1]}`;
   }
 
   function toast(msg) {
@@ -319,7 +348,7 @@
           <div class="cat-icon" style="background:${color}22">${row._other ? "…" : catIcon(row.kategoriya)}</div>
           <div class="cat-info">
             <div class="cat-name-row">
-              <span class="cat-name">${escapeHtml(row.kategoriya)}</span>
+              <span class="cat-name">${escapeHtml(catLabel(row.kategoriya))}</span>
               <span class="cat-amount">${fmtMoney(row.summa, currency)}</span>
             </div>
             <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${(share * 100).toFixed(0)}%;background:${color}"></div></div>
@@ -346,6 +375,8 @@
               <span class="cat-name">${escapeHtml(item.person)}</span>
               <span class="cat-amount">${fmtMoney(item.amount, currency)}</span>
             </div>
+            ${item.original && item.original > item.amount
+              ? `<div class="tx-meta">qoldiq · asli ${fmtMoney(item.original, currency)}</div>` : ""}
             <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${(share * 100).toFixed(0)}%;background:${color}"></div></div>
           </div>
           <button class="cat-settle" data-settle-id="${item.id}">Yopish</button>
@@ -362,8 +393,43 @@
     state.me = await api("/api/me");
   }
 
+  /** PRO imkoniyatga urilganda: Telegram'ning o'z oynasi va «PRO ga
+   * o'tish» — bot tariflar sahifasini ochadi (/start pro). */
+  function showPaywall(message) {
+    haptic("warning");
+    const bot = state.me && state.me.bot_username;
+    const go = () => {
+      if (bot && tg && tg.openTelegramLink) tg.openTelegramLink(`https://t.me/${bot}?start=pro`);
+      else toast("Botda /obuna buyrug'ini bosing");
+    };
+    const text = message.length > 250 ? message.slice(0, 247) + "…" : message;
+    if (tg && tg.showPopup) {
+      tg.showPopup({
+        title: "💎 Tanga PRO",
+        message: text,
+        buttons: [{ id: "pro", type: "default", text: "💎 PRO ga o'tish" }, { type: "close" }],
+      }, (id) => { if (id === "pro") go(); });
+    } else if (confirm(text + "\n\nPRO ga o'tasizmi?")) {
+      go();
+    }
+  }
+
   async function loadSummary() {
-    const data = await api(`/api/summary?period=${state.period}&ref=${state.ref}`);
+    let data;
+    try {
+      data = await api(`/api/summary?period=${state.period}&ref=${state.ref}`);
+    } catch (e) {
+      if (!e.paywall || !state.lastGood) throw e;
+      // Bepul darajada joriy oydan oldingi davr — oxirgi ko'ringan davrga
+      // qaytamiz va PRO taklifini ko'rsatamiz.
+      state.period = state.lastGood.period;
+      state.ref = state.lastGood.ref;
+      document.querySelectorAll("#periodTabs button").forEach((b) =>
+        b.classList.toggle("active", b.dataset.period === state.period));
+      showPaywall(e.message);
+      return;
+    }
+    state.lastGood = { period: state.period, ref: state.ref };
     state.summary = data;
     document.getElementById("rangeLabel").textContent = data.label;
 
@@ -418,6 +484,8 @@
 
   function renderCurrentKind() {
     const cur = state.currency;
+    // Kirim taklifi faqat «Hammasi» ko'rinishida (pastda qayta yoqiladi).
+    document.getElementById("incomeCta").classList.add("hidden");
 
     if (state.kind === "qarz") {
       renderQarzKind();
@@ -439,14 +507,25 @@
     }
 
     if (state.kind === ALL) {
-      renderDonut(
-        [
-          { value: data.kirim, color: STATUS.kirim },
-          { value: data.chiqim, color: STATUS.chiqim },
-        ],
-        fmtMoneyParts(data.farq, cur),
-        "Farq"
-      );
+      // Kirim yozilmagan davrda «Farq» = −chiqim: katta qizil manfiy son
+      // odamni qo'rqitadi, lekin hech narsa aytmaydi (kirim shunchaki
+      // kiritilmagan). Shunda chiqim jami neytral rangda va kirimni
+      // kiritish taklifi ko'rsatiladi; «Farq» faqat kirim bo'lganda.
+      const noIncome = !data.kirim;
+      document.getElementById("incomeCta").classList.toggle("hidden", !noIncome || !data.chiqim);
+      if (noIncome) {
+        renderDonut([{ value: data.chiqim, color: CALM.neutral }],
+          fmtMoneyParts(data.chiqim, cur), "Chiqim");
+      } else {
+        renderDonut(
+          [
+            { value: data.kirim, color: STATUS.kirim },
+            { value: data.chiqim, color: data.farq < 0 ? CALM.over : STATUS.chiqim },
+          ],
+          fmtMoneyParts(data.farq, cur),
+          "Farq"
+        );
+      }
       // Jamg'arma halqaga QO'SHILMAYDI: halqa kirim/chiqim nisbatini
       // ko'rsatadi, jamg'arma esa sarflangan pul emas. Lekin yorliqda
       // turadi — «avval o'zingga to'la» qoidasi ko'zga tashlansin.
@@ -503,9 +582,27 @@
     ], cur);
     const berdimItems = state.debts.qarz_berdim.items[cur] || [];
     const oldimItems = state.debts.qarz_oldim.items[cur] || [];
+    // Shu davrda qaytarilgan pul — chiqim ham, kirim ham emas, shuning
+    // uchun faqat shu yerda ko'rinadi.
+    const period = state.summary && state.summary.by_currency[cur];
+    const repaid = period
+      ? [["↩️ Qarzimni qaytardim", period.qarz_qaytardim],
+         ["↪️ Menga qaytarildi", period.qarz_qaytdi]].filter((r) => r[1])
+      : [];
+    const repaidHtml = repaid.length
+      ? `<div class="section-label">Shu davrda qaytarilgan</div>` +
+        repaid.map(([label, value]) => `
+          <div class="cat-row">
+            <div class="cat-info"><div class="cat-name-row">
+              <span class="cat-name">${escapeHtml(label)}</span>
+              <span class="cat-amount">${fmtMoney(value, cur)}</span>
+            </div></div>
+          </div>`).join("")
+      : "";
     listEl.innerHTML =
       renderPersonSection("📤 Menga qarzdorlar", berdimItems, cur, STATUS.qarz_berdim, "qarz_berdim") +
-      renderPersonSection("📥 Men qarzdorman", oldimItems, cur, STATUS.qarz_oldim, "qarz_oldim");
+      renderPersonSection("📥 Men qarzdorman", oldimItems, cur, STATUS.qarz_oldim, "qarz_oldim") +
+      repaidHtml;
     bindSettleButtons();
   }
 
@@ -559,6 +656,36 @@
     return (Math.abs(v - Math.round(v)) < 0.05 ? v.toFixed(0) : v.toFixed(1)) + "%";
   }
 
+  function renderGoalRow(g) {
+    const pct = g.percent || 0;
+    let html = `
+      <div class="cat-row">
+        <div class="cat-icon" style="background:${STATUS.jamgarma}22">${g.primary ? "⭐" : "🎯"}</div>
+        <div class="cat-info">
+          <div class="cat-name-row">
+            <span class="cat-name">${escapeHtml(g.name)}</span>
+            <span class="cat-amount">${fmtMoney(g.saved, "som")} / ${fmtMoney(g.amount, "som")}</span>
+          </div>
+          <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${Math.min(100, pct).toFixed(0)}%;background:${STATUS.jamgarma}"></div></div>
+        </div>
+        <div class="cat-share">${pct.toFixed(0)}%</div>
+      </div>`;
+    if (g.left <= 0) {
+      return html + '<div class="hint-row">🎉 Maqsadga yetdingiz!</div>';
+    }
+    if (g.forecast_locked) {
+      html += '<div class="hint-row">🔒 «Qachon erishaman» bashorati — PRO</div>';
+    } else if (g.eta) {
+      html += `<div class="hint-row">📈 Shu sur'atda <b>${fmtMonthYear(g.eta)}</b>da erishasiz</div>`;
+    } else if (g.pace === null) {
+      html += '<div class="hint-row">📈 Bashorat uchun kamida 2 haftalik jamg\'arma kerak</div>';
+    }
+    if (g.need_monthly) {
+      html += `<div class="hint-row">📅 ${fmtMonthYear(g.deadline)} gacha oyiga <b>${fmtMoney(g.need_monthly, "som")}</b> kerak</div>`;
+    }
+    return html;
+  }
+
   function renderSavingsBlock(hadMovement) {
     const s = state.savings;
     if (!s) return "";
@@ -575,29 +702,16 @@
         </div>
       </div>`;
 
-    if (s.goal > 0) {
-      const pct = s.percent || 0;
-      const note = s.goal_note ? ` — ${escapeHtml(s.goal_note)}` : "";
-      html += `
-        <div class="cat-row">
-          <div class="cat-icon" style="background:${STATUS.jamgarma}22">🎯</div>
-          <div class="cat-info">
-            <div class="cat-name-row">
-              <span class="cat-name">Maqsad${note}</span>
-              <span class="cat-amount">${fmtMoney(s.goal, "som")}</span>
-            </div>
-            <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${pct.toFixed(0)}%;background:${STATUS.jamgarma}"></div></div>
-          </div>
-          <div class="cat-share">${pct.toFixed(0)}%</div>
-        </div>`;
-      html += s.left > 0
-        ? `<div class="hint-row">Yetishga <b>${fmtMoney(s.left, "som")}</b> qoldi</div>`
-        : '<div class="hint-row">🎉 Maqsadga yetdingiz!</div>';
+    // Har bir maqsad: progress va (PRO'da) «qachon erishaman» bashorati.
+    const goals = s.goals || [];
+    if (goals.length) {
+      html += '<div class="section-label">Maqsadlar</div>';
+      goals.forEach((g) => { html += renderGoalRow(g); });
     } else {
       html += '<div class="hint-row">Maqsad qo\'yilmagan. Botda: '
-            + '<b>/maqsad 10 mln</b></div>';
+            + '<b>/maqsad Uy 300 mln 2028-mart</b></div>';
       html += `<div class="hint-row">Jamg'arma foizingiz: `
-            + `<b>${pctText(s.rate)}</b>. O'zgartirish: <b>/foiz 15</b></div>`;
+            + `<b>${pctText(s.rate)}</b>. O'zgartirish: <b>/foiz</b></div>`;
     }
 
     if (s.streak >= 2) {
@@ -654,6 +768,8 @@
     const params = new URLSearchParams({
       start: state.summary.start, end: state.summary.end,
       limit: state.recentLimit, offset: state.recentOffset,
+      // Chek — bitta qator (mahsulotlari bosilganda ochiladi).
+      group_receipts: "1",
     });
     // «hammasi» — valyuta filtri yo'q degani, uni serverga yubormaymiz.
     if (state.currency !== ALL) params.set("currency", state.currency);
@@ -738,15 +854,72 @@
     };
   }
 
+  function buildReceiptRow(tx) {
+    const div = document.createElement("div");
+    div.className = "tx-row";
+    const name = tx.shop ? `${tx.shop} cheki` : "Chek";
+    div.innerHTML = `
+      <div class="tx-icon">🧾</div>
+      <div class="tx-main">
+        <div class="tx-note">${escapeHtml(name)}</div>
+        <div class="tx-meta">${fmtDate(tx.date)} · ${tx.items_count} mahsulot</div>
+      </div>
+      <div class="tx-amount chiqim">${kindIcon("chiqim")} ${fmtMoney(tx.amount, tx.currency)}</div>
+    `;
+    div.onclick = () => openReceiptSheet(tx);
+    return div;
+  }
+
+  /** Chek: mahsulotlar ro'yxati (har biri bosilsa — kategoriyasini
+   * tuzatish) va butun chekni o'chirish. */
+  async function openReceiptSheet(tx) {
+    const body = document.getElementById("detailBody");
+    const name = tx.shop ? `${tx.shop} cheki` : "Chek";
+    body.innerHTML = `
+      <div class="sheet-titlebar">
+        <div class="tx-detail-header">
+          <span style="font-size:22px">🧾</span>
+          <span class="tx-detail-amount">${fmtMoney(tx.amount, tx.currency)}</span>
+        </div>
+        <button class="icon-btn" id="detailClose" aria-label="Yopish">✕</button>
+      </div>
+      <div class="tx-detail-meta">${escapeHtml(name)} · ${fmtDate(tx.date)} · ${tx.items_count} mahsulot</div>
+      <div id="receiptAll" class="tx-list">${skeleton(3)}</div>
+      <div class="sheet-actions">
+        <button class="btn btn-danger" id="deleteReceiptBtn">🗑 Butun chekni o'chirish</button>
+      </div>`;
+    openSheet("detailBackdrop");
+    body.querySelector("#detailClose").onclick = () => closeSheet("detailBackdrop");
+    body.querySelector("#deleteReceiptBtn").onclick = () =>
+      confirmAction("Butun chek o'chirilsinmi?", async () => {
+        try {
+          await api(`/api/receipts/${encodeURIComponent(tx.receipt_id)}`, { method: "DELETE" });
+          haptic("success"); toast("Chek o'chirildi");
+          closeSheet("detailBackdrop");
+          refreshAll();
+        } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
+      });
+    try {
+      const data = await api(`/api/transactions?receipt_id=${encodeURIComponent(tx.receipt_id)}&limit=200`);
+      const el = body.querySelector("#receiptAll");
+      el.innerHTML = "";
+      data.items.forEach((item) => el.appendChild(buildTxRow(item)));
+    } catch (e) {
+      body.querySelector("#receiptAll").innerHTML =
+        `<div class="empty-state">${escapeHtml(e.message)}</div>`;
+    }
+  }
+
   function buildTxRow(tx) {
+    if (tx.receipt_id && tx.items_count) return buildReceiptRow(tx);
     const div = document.createElement("div");
     div.className = "tx-row";
     const icon = tx.kind.startsWith("qarz") ? "🤝" : catIcon(tx.category);
     div.innerHTML = `
       <div class="tx-icon">${icon}</div>
       <div class="tx-main">
-        <div class="tx-note">${escapeHtml(tx.note || tx.category)}${tx.person ? " — " + escapeHtml(tx.person) : ""}${tx.settled ? " ✅" : ""}</div>
-        <div class="tx-meta">${fmtDate(tx.date)} · ${escapeHtml(tx.category)}${tx.receipt_id ? " · 🧾" : ""}</div>
+        <div class="tx-note">${escapeHtml(tx.note || catLabel(tx.category))}${tx.person ? " — " + escapeHtml(tx.person) : ""}${tx.settled ? " ✅" : ""}</div>
+        <div class="tx-meta">${fmtDate(tx.date)} · ${escapeHtml(catLabel(tx.category))}${tx.receipt_id ? " · 🧾" : ""}</div>
       </div>
       <div class="tx-amount ${tx.kind}">${kindIcon(tx.kind)} ${fmtMoney(tx.amount, tx.currency)}</div>
     `;
@@ -761,14 +934,14 @@
       <div class="tx-icon">${item.kind === "qarz_berdim" ? "📤" : "📥"}</div>
       <div class="tx-main">
         <div class="tx-note">${escapeHtml(item.person)}</div>
-        <div class="tx-meta">${fmtDate(item.date)}${item.note ? " · " + escapeHtml(item.note) : ""}</div>
+        <div class="tx-meta">${fmtDate(item.date)}${item.note ? " · " + escapeHtml(item.note) : ""}${item.due ? " · ⏰ " + fmtDate(item.due) : ""}</div>
       </div>
       <div class="tx-amount ${item.kind}">${fmtMoney(item.amount, currency)}</div>
     `;
     div.onclick = () => openDetailSheet({
       id: item.id, kind: item.kind, amount: item.amount, currency,
       category: "qarz", note: item.note, person: item.person, date: item.date,
-      receipt_id: null, settled: false,
+      receipt_id: null, settled: false, due: item.due || null,
     });
     return div;
   }
@@ -809,7 +982,10 @@
   function openDetailSheet(tx) {
     state.detailTx = tx;
     const isDebt = tx.kind.startsWith("qarz");
-    const canToggleKind = tx.kind === "kirim" || tx.kind === "chiqim";
+    // Qaysi turga almashtirish mumkinligi serverdan keladi
+    // (config.KIND_SWITCHES): kirim <-> chiqim va ular <-> qarz qaytarish.
+    const switches = (state.me.kind_switches && state.me.kind_switches[tx.kind]) || [];
+    const canSettle = tx.kind === "qarz_berdim" || tx.kind === "qarz_oldim";
     const cats = (state.me.categories_by_kind[tx.kind] || []);
 
     let html = `
@@ -833,16 +1009,26 @@
       html += `<div class="sheet-row">
         <div class="sheet-label">Kategoriya</div>
         <div class="chip-grid" id="catChips">
-          ${cats.map((c) => `<button class="chip ${c === tx.category ? "active" : ""}" data-cat="${escapeHtml(c)}">${catIcon(c)} ${escapeHtml(c)}</button>`).join("")}
+          ${cats.map((c) => `<button class="chip ${c === tx.category ? "active" : ""}" data-cat="${escapeHtml(c)}">${catIcon(c)} ${escapeHtml(catLabel(c))}</button>`).join("")}
         </div>
       </div>`;
     }
 
-    if (canToggleKind) {
-      const other = tx.kind === "kirim" ? "chiqim" : "kirim";
-      html += `<button class="btn btn-secondary" id="toggleKindBtn" style="width:100%;margin-bottom:10px">
-        🔄 ${escapeHtml(kindLabel(other))}ga almashtirish
+    switches.forEach((other) => {
+      html += `<button class="btn btn-secondary" data-switch-kind="${escapeHtml(other)}" style="width:100%;margin-bottom:10px">
+        🔄 ${kindIcon(other)} ${escapeHtml(kindLabel(other))} deb belgilash
       </button>`;
+    });
+
+    // Qarzni qaytarish muddati — bir kun oldin va o'sha kuni eslatma (PRO).
+    if (canSettle && !tx.settled) {
+      const opts = [[1, "Ertaga"], [7, "1 hafta"], [14, "2 hafta"], [30, "1 oy"], [0, "Muddatsiz"]];
+      html += `<div class="sheet-row">
+        <div class="sheet-label">📅 Qaytarish muddati${tx.due ? ": " + fmtDate(tx.due) : ""}</div>
+        <div class="chip-grid" id="dueChips">
+          ${opts.map(([d, label]) => `<button class="chip" data-due="${d}">${label}</button>`).join("")}
+        </div>
+      </div>`;
     }
 
     if (tx.receipt_id) {
@@ -850,7 +1036,7 @@
     }
 
     html += `<div class="sheet-actions">
-      ${isDebt && !tx.settled ? '<button class="btn btn-good" id="settleBtn">✅ Yopish</button>' : ""}
+      ${canSettle && !tx.settled ? '<button class="btn btn-good" id="settleBtn">✅ Yopish</button>' : ""}
       <button class="btn btn-danger" id="deleteBtn">🗑 O'chirish</button>
     </div>`;
 
@@ -860,11 +1046,15 @@
 
     // Selektorlar faqat shu panel ichida — sahifadagi bir xil atributli
     // boshqa elementlarga tegmasligi uchun.
+    body.querySelectorAll("#dueChips .chip").forEach((chip) => {
+      chip.onclick = () => setDebtDue(tx.id, Number(chip.dataset.due));
+    });
     body.querySelectorAll("#catChips .chip").forEach((chip) => {
       chip.onclick = () => updateTxCategory(tx.id, chip.dataset.cat);
     });
-    const toggleBtn = body.querySelector("#toggleKindBtn");
-    if (toggleBtn) toggleBtn.onclick = () => toggleTxKind(tx.id, tx.kind === "kirim" ? "chiqim" : "kirim");
+    body.querySelectorAll("[data-switch-kind]").forEach((btn) => {
+      btn.onclick = () => toggleTxKind(tx.id, btn.dataset.switchKind);
+    });
     const settleBtn = body.querySelector("#settleBtn");
     if (settleBtn) settleBtn.onclick = () => confirmAction("Bu qarzni yopilgan deb belgilaysizmi?", () => settleDebt(tx.id));
     body.querySelector("#deleteBtn").onclick = () =>
@@ -912,6 +1102,18 @@
     } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
   }
 
+  async function setDebtDue(id, days) {
+    try {
+      await api(`/api/debts/${id}/due`, { method: "POST", body: { days } });
+      haptic("success"); toast(days ? "Muddat qo'yildi — eslataman" : "Muddat olib tashlandi");
+      closeSheet("detailBackdrop");
+      refreshAll();
+    } catch (e) {
+      if (e.paywall) { showPaywall(e.message); return; }
+      haptic("error"); toast("Xatolik: " + e.message);
+    }
+  }
+
   async function settleDebt(id) {
     try {
       await api(`/api/debts/${id}/settle`, { method: "POST" });
@@ -947,10 +1149,11 @@
     amount: "", note: "", person: "",
   };
 
-  function openAddSheet() {
-    addForm.kind = "chiqim";
+  function openAddSheet(kind, category) {
+    addForm.kind = typeof kind === "string" ? kind : "chiqim";
     addForm.currency = state.currencies[0] || "som";
-    addForm.category = (state.me.categories_by_kind.chiqim || [])[0] || "";
+    addForm.category = (typeof category === "string" && category) ||
+      (state.me.categories_by_kind[addForm.kind] || [])[0] || "";
     addForm.date = todayIso();
     addForm.amount = "";
     addForm.note = "";
@@ -988,6 +1191,7 @@
         <div class="sheet-label">Turi</div>
         <div class="chip-grid">
           ${["chiqim", "kirim", "qarz_berdim", "qarz_oldim",
+             "qarz_qaytardim", "qarz_qaytdi",
              "jamgarma", "jamgarma_yechdim"].map((k) =>
             `<button class="chip ${k === addForm.kind ? "active" : ""}" data-kind="${k}">${kindIcon(k)} ${escapeHtml(kindLabel(k))}</button>`
           ).join("")}
@@ -1012,7 +1216,7 @@
       <div class="sheet-row">
         <div class="sheet-label">Kategoriya</div>
         <div class="chip-grid">
-          ${cats.map((c) => `<button class="chip ${c === addForm.category ? "active" : ""}" data-cat="${escapeHtml(c)}">${catIcon(c)} ${escapeHtml(c)}</button>`).join("")}
+          ${cats.map((c) => `<button class="chip ${c === addForm.category ? "active" : ""}" data-cat="${escapeHtml(c)}">${catIcon(c)} ${escapeHtml(catLabel(c))}</button>`).join("")}
         </div>
       </div>` : ""}
 
@@ -1099,6 +1303,7 @@
         window.open(url, "_blank");
       }
     } catch (e) {
+      if (e.paywall) { showPaywall(e.message); return; }
       haptic("error");
       toast("Yuklab bo'lmadi: " + e.message);
     }
@@ -1196,7 +1401,8 @@
       loadRecent(true);
     };
 
-    document.getElementById("fabAdd").onclick = openAddSheet;
+    document.getElementById("fabAdd").onclick = () => openAddSheet();
+    document.getElementById("incomeCta").onclick = () => openAddSheet("kirim", "oylik");
     document.getElementById("csvBtn").onclick = exportCsv;
 
     document.getElementById("detailBackdrop").onclick = (ev) => {

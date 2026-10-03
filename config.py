@@ -147,6 +147,11 @@ def private_key_pragma() -> str:
             "Yangi kalit: python -c "
             "\"import secrets; print(secrets.token_hex(32))\"")
     return _key_pragma(PRIVATE_DB_KEY, "PRIVATE_DB_KEY")
+# Shartlar va maxfiylik siyosatiga rozilik versiyasi. Shartlar o'zgarsa
+# oshiriladi va roziligi eskirganlardan qaytadan so'raladi. Bot ham, Mini
+# App ham shu qiymatni tekshiradi.
+CONSENT_VERSION = "2026-08-1"
+
 CURRENCY = os.getenv("CURRENCY", "so'm")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))
 
@@ -221,6 +226,10 @@ def trial_days() -> int:
         return TRIAL_DAYS
 # Do'st taklif qilgan uchun ikkala tomonga qo'shiladigan bepul kunlar
 REFERRAL_BONUS_DAYS = int(os.getenv("REFERRAL_BONUS_DAYS", "7"))
+
+# Bepul darajada kunlik eslatma standart holatda shu soatda (Toshkent).
+# /eslatma bilan soat o'zgartiriladi yoki o'chiriladi.
+DEFAULT_REMINDER_HOUR = int(os.getenv("DEFAULT_REMINDER_HOUR", "21"))
 
 # Necha kun yozmagan odamga «qaytish» eslatmasi yuboriladi. Bitta odamga
 # oyiga bir martadan ko'p yuborilmaydi — bezdirmaslik uchun.
@@ -302,27 +311,44 @@ def card_pretty() -> str:
 # --------------------------------------------------------------------------- #
 # Obuna tariflari
 #
-# Narxni o'zgartirish uchun shu ro'yxatni tahrirlang — bot matnlari, tejash
-# foizi va oylik narx avtomatik qayta hisoblanadi.
-# Uzoq muddatli obuna ataylab arzonroq: AI xarajati past, shuning uchun
-# obunachini uzoq muddatga "qulflash" foydali.
+# Tarif ro'yxati SHU YERDA, narxlar esa admin panelning «Sozlamalar»
+# ekranida (`app_settings`, kalit `plan_price_<kod>`) — bot ham, admin
+# panel ham o'sha jadvalni o'qiydi. Quyidagi narx — jadvalda qiymat
+# bo'lmasa ishlatiladigan boshlang'ich qiymat.
+#
+# Kodlar ATAYLAB eski: PRO oylik = «1m», PRO yillik = «12m». Admin panel
+# so'rovni tasdiqlaganda tarifni kod bo'yicha o'z ro'yxatidan topadi —
+# kod o'zgarsa tasdiqlash ishlamay qoladi.
+#
+# `public` — yangi xarid uchun ko'rsatiladimi. 3 va 6 oylik endi
+# sotilmaydi, lekin ro'yxatda qoladi: eski so'rovlar va to'lov tarixi
+# ular orqali nomlanadi, faol obunalar o'z muddatigacha ishlaydi.
 # --------------------------------------------------------------------------- #
 
 SUBSCRIPTION_PLANS = [
-    {"code": "1m",  "days": 30,  "months": 1,  "price": 37_000,  "label": "Oylik"},
-    {"code": "3m",  "days": 90,  "months": 3,  "price": 99_000,  "label": "3 oylik"},
-    {"code": "6m",  "days": 180, "months": 6,  "price": 179_000, "label": "6 oylik"},
-    {"code": "12m", "days": 365, "months": 12, "price": 289_000, "label": "Yillik"},
+    # Ro'yxatdagi tartib — ekrandagi tartib: eng foydalisi birinchi.
+    {"code": "12m", "days": 365, "months": 12, "price": 149_000,
+     "label": "PRO yillik", "public": True, "best": True},
+    {"code": "1m",  "days": 30,  "months": 1,  "price": 19_000,
+     "label": "PRO oylik", "public": True},
+    # Asoschilar taklifi: birinchi FOUNDERS_LIMIT ta to'lovchi uchun.
+    {"code": "f12", "days": 365, "months": 12, "price": 99_000,
+     "label": "Asoschilar taklifi", "public": True, "founders": True},
+    {"code": "3m",  "days": 90,  "months": 3,  "price": 99_000,
+     "label": "3 oylik", "public": False},
+    {"code": "6m",  "days": 180, "months": 6,  "price": 179_000,
+     "label": "6 oylik", "public": False},
 ]
+MONTHLY_PLAN_CODE = "1m"
+FOUNDERS_LIMIT = int(os.getenv("FOUNDERS_LIMIT", "100"))
 
 
 def plans() -> list[dict]:
-    """Joriy tariflar.
+    """Barcha tariflar (yashirinlari ham) joriy narxlari bilan.
 
     Narx admin panelning «Sozlamalar» ekranida o'zgartiriladi va bazadagi
     `app_settings` jadvaliga tushadi. Bot shu jadvalni o'qiydi, ya'ni narx
-    bir joyda turadi — ilgari ro'yxat ikki loyihada takrorlanardi va
-    o'zgartirishda biri unutilib qolishi mumkin edi.
+    bir joyda turadi.
     """
     overrides = runtime_settings()
     result = []
@@ -337,23 +363,81 @@ def plans() -> list[dict]:
 
 
 def plan_by_code(code: str) -> dict | None:
+    """Har qanday tarif — yashirini ham (eski so'rov nomini ko'rsatish uchun)."""
     return next((p for p in plans() if p["code"] == code), None)
 
 
+def founders_left() -> int:
+    """Asoschilar taklifida qolgan joylar.
+
+    Tasdiqlangan va to'lov cheki yuborib tekshiruvda turgan so'rovlar
+    hisoblanadi — tanlab, lekin to'lamaganlar joy egallamaydi.
+    """
+    try:
+        import db
+        taken = db.founders_taken()
+    except Exception:
+        taken = 0
+    return max(0, FOUNDERS_LIMIT - taken)
+
+
+def public_plans() -> list[dict]:
+    """Yangi xarid uchun ko'rsatiladigan tariflar. Asoschilar taklifi
+    joylar tugagach o'z-o'zidan yopiladi."""
+    left = None
+    out = []
+    for p in plans():
+        if not p.get("public"):
+            continue
+        if p.get("founders"):
+            left = founders_left() if left is None else left
+            if left <= 0:
+                continue
+            p["left"] = left
+        out.append(p)
+    return out
+
+
+def purchasable_plan(code: str) -> dict | None:
+    """Tanlangan tarifni hozir sotib olish mumkinmi — eski xabardagi 3 oylik
+    tugmasi yoki yopilgan asoschilar taklifi bo'lsa None."""
+    return next((p for p in public_plans() if p["code"] == code), None)
+
+
 def plan_monthly_price(plan: dict) -> int:
-    return round(plan["price"] / plan["months"])
+    """Oyiga to'g'ri keladigan narx, yuzlikka yaxlitlangan: 149 000 / 12
+    = 12 417 -> 12 400. Reklama matnida aniq tiyin emas, tushunarli son."""
+    value = plan["price"] / plan["months"]
+    return int(round(value, -2)) if plan["months"] > 1 else int(value)
 
 
 def plan_discount_percent(plan: dict) -> int:
     """Oylik tarifga nisbatan necha foiz tejaladi."""
-    base = plans()[0]["price"] * plan["months"]
+    monthly = plan_by_code(MONTHLY_PLAN_CODE)
+    base = (monthly["price"] if monthly else 0) * plan["months"]
     if base <= 0 or plan["price"] >= base:
         return 0
     return round((base - plan["price"]) / base * 100)
 
+
 # --------------------------------------------------------------------------- #
-# Kunlik limitlar — suiiste'moldan himoya. Egalarga qo'llanmaydi.
-# Bitta foydalanuvchi cheksiz so'rov yuborib katta xarajat keltirmasligi uchun.
+# Bepul va PRO darajasi
+#
+# PRO — sinov muddati, obuna yoki ega. Qolgan hamma — Bepul: botdan
+# foydalanadi, lekin ayrim imkoniyatlar yopiq (tiers.py).
+# --------------------------------------------------------------------------- #
+
+# Bepul: oyiga shuncha chek. Chek o'qish eng qimmat amal (Opus/Sonnet
+# vision), shuning uchun bepul darajada eng qattiq cheklangan.
+FREE_RECEIPTS_PER_MONTH = int(os.getenv("FREE_RECEIPTS_PER_MONTH", "3"))
+# Bepul: kuniga shuncha AI savol.
+FREE_QA_PER_DAY = int(os.getenv("FREE_QA_PER_DAY", "3"))
+
+# --------------------------------------------------------------------------- #
+# Kunlik limitlar — suiiste'moldan himoya, Bepul ham, PRO ham uchun
+# («adolatli foydalanish»). Egalarga qo'llanmaydi. Matnli yozuv oddiy
+# odam hech qachon yetmaydigan darajada: odat shakllanishiga xalaqit
+# bermaydi, lekin skript bilan cheksiz AI chaqiruvini to'xtatadi.
 # --------------------------------------------------------------------------- #
 LIMIT_TEXT_PER_DAY = int(os.getenv("LIMIT_TEXT_PER_DAY", "120"))
 LIMIT_RECEIPT_PER_DAY = int(os.getenv("LIMIT_RECEIPT_PER_DAY", "25"))
@@ -385,6 +469,13 @@ KIND_CHIQIM = "chiqim"
 KIND_KIRIM = "kirim"
 KIND_QARZ_BERDIM = "qarz_berdim"   # men birovga qarz berdim
 KIND_QARZ_OLDIM = "qarz_oldim"     # men birovdan qarz oldim
+# Qarzni qaytarish — ikki yo'nalish. Ikkalasi ham pul harakati, lekin
+# XARAJAT ham, DAROMAD ham EMAS: qarzni qaytarish yangi sarf emas, eski
+# majburiyatning yopilishi. Kredit to'lovi ham shu turga kiradi.
+# Ilgari bunday yozuv kirim yoki «boshqa chiqim» bo'lib tushardi va
+# oylik chiqimning katta qismini egallab, statistikani buzardi.
+KIND_QARZ_QAYTARDIM = "qarz_qaytardim"  # men qarzimni qaytardim (pul chiqdi)
+KIND_QARZ_QAYTDI = "qarz_qaytdi"        # menga qarz qaytarildi (pul kirdi)
 
 # Shaxsiy jamg'arma. ATAYLAB chiqim EMAS: jamg'armaga qo'yilgan pul
 # sarflanmagan, u hamon odamning o'ziniki — faqat boshqa cho'ntakka
@@ -397,8 +488,17 @@ KIND_JAMGARMA = "jamgarma"                  # jamg'armaga qo'ydim
 KIND_JAMGARMA_YECHDIM = "jamgarma_yechdim"  # jamg'armadan oldim
 
 KINDS = [KIND_CHIQIM, KIND_KIRIM, KIND_QARZ_BERDIM, KIND_QARZ_OLDIM,
-         KIND_JAMGARMA, KIND_JAMGARMA_YECHDIM]
-DEBT_KINDS = [KIND_QARZ_BERDIM, KIND_QARZ_OLDIM]
+         KIND_JAMGARMA, KIND_JAMGARMA_YECHDIM,
+         KIND_QARZ_QAYTARDIM, KIND_QARZ_QAYTDI]
+# Qarz bilan bog'liq hamma tur — kundalik kirim/chiqim statistikasiga
+# KIRMAYDI ("Bugungi chiqim", kategoriya foizlari, "Farq").
+DEBT_KINDS = [KIND_QARZ_BERDIM, KIND_QARZ_OLDIM,
+              KIND_QARZ_QAYTARDIM, KIND_QARZ_QAYTDI]
+# Ochiq qolishi mumkin bo'lgan qarzlar (qaytarilishi kutiladi).
+DEBT_OPEN_KINDS = [KIND_QARZ_BERDIM, KIND_QARZ_OLDIM]
+# Qaytarish qaysi qarzni yopadi: men qaytarsam — men olgan qarzni,
+# menga qaytarilsa — men bergan qarzni.
+REPAYS = {KIND_QARZ_QAYTARDIM: KIND_QARZ_OLDIM, KIND_QARZ_QAYTDI: KIND_QARZ_BERDIM}
 SAVINGS_KINDS = [KIND_JAMGARMA, KIND_JAMGARMA_YECHDIM]
 
 KIND_LABELS = {
@@ -408,6 +508,8 @@ KIND_LABELS = {
     KIND_QARZ_OLDIM: "Qarz oldim",
     KIND_JAMGARMA: "Jamg'armaga",
     KIND_JAMGARMA_YECHDIM: "Jamg'armadan yechdim",
+    KIND_QARZ_QAYTARDIM: "Qarzimni qaytardim",
+    KIND_QARZ_QAYTDI: "Qarz qaytdi",
 }
 
 KIND_ICONS = {
@@ -417,6 +519,19 @@ KIND_ICONS = {
     KIND_QARZ_OLDIM: "📥",
     KIND_JAMGARMA: "🏦",
     KIND_JAMGARMA_YECHDIM: "🏧",
+    KIND_QARZ_QAYTARDIM: "↩️",
+    KIND_QARZ_QAYTDI: "↪️",
+}
+
+# Yozuv turini qo'lda tuzatish: qaysi turdan qaysiga o'tish mumkin.
+# Qarz berdim/oldim ATAYLAB yo'q — ular shaxsga bog'liq va noto'g'ri
+# almashtirilsa ochiq qarzlar ro'yxati buziladi. Jamg'arma ham yo'q —
+# qoldiqni jimgina buzardi.
+KIND_SWITCHES = {
+    KIND_CHIQIM: [KIND_KIRIM, KIND_QARZ_QAYTARDIM],
+    KIND_KIRIM: [KIND_CHIQIM, KIND_QARZ_QAYTDI],
+    KIND_QARZ_QAYTARDIM: [KIND_CHIQIM],
+    KIND_QARZ_QAYTDI: [KIND_KIRIM],
 }
 
 # «Avval o'zingga to'la» — daromadning kamida shuncha qismi jamg'armaga.
@@ -437,6 +552,9 @@ EXPENSE_CATEGORIES = [
     "sovg'a",
     "xizmatlar",
     "biznes xarajat",
+    # Sovun, shampun, kir yuvish vositasi, paket — ilgari «boshqa chiqim» ga
+    # tushib, chek tahlilida eng katta noaniq bo'lakni hosil qilardi.
+    "uy-ro'zg'or va gigiyena",
     "boshqa chiqim",
 ]
 
@@ -456,6 +574,21 @@ SAVINGS_CATEGORIES = ["jamg'arma"]
 ALL_CATEGORIES = (EXPENSE_CATEGORIES + INCOME_CATEGORIES + DEBT_CATEGORIES
                   + SAVINGS_CATEGORIES)
 
+# Kategoriya tugmalarining callback'i uchun BARQAROR raqamlar. Ro'yxat
+# faqat OXIRIDAN to'ldiriladi: yangi kategoriya ekranda istalgan joyda
+# turishi mumkin, lekin raqami o'zgarmaydi — chatda qolib ketgan eski
+# tugmalar boshqa kategoriyani tanlab qo'ymaydi.
+CATEGORY_REGISTRY = [
+    "oziq-ovqat", "kafe va restoran", "transport", "uy-joy", "kommunal",
+    "aloqa va internet", "salomatlik", "kiyim-kechak", "ta'lim", "dam olish",
+    "sovg'a", "xizmatlar", "biznes xarajat", "boshqa chiqim",
+    "oylik", "biznes daromadi", "qo'shimcha ish", "sotuvdan", "sovg'a olindi",
+    "investitsiya", "boshqa kirim", "qarz", "jamg'arma",
+    # --- keyin qo'shilganlar ---
+    "uy-ro'zg'or va gigiyena",
+]
+assert set(CATEGORY_REGISTRY) == set(ALL_CATEGORIES), "CATEGORY_REGISTRY to'liq emas"
+
 CATEGORY_ICONS = {
     "oziq-ovqat": "🥦",
     "kafe va restoran": "🍽",
@@ -470,6 +603,7 @@ CATEGORY_ICONS = {
     "sovg'a": "🎁",
     "xizmatlar": "🛠",
     "biznes xarajat": "💼",
+    "uy-ro'zg'or va gigiyena": "🧴",
     "boshqa chiqim": "📦",
     "oylik": "💰",
     "biznes daromadi": "📈",
@@ -481,6 +615,19 @@ CATEGORY_ICONS = {
     "qarz": "🤝",
     "jamg'arma": "🏦",
 }
+
+
+# Foydalanuvchiga ko'rinadigan nom. Kodda va bazada kategoriya o'z nomi
+# bilan qoladi: eski yozuvlar, byudjetlar va o'rganilgan qoidalar shu
+# nomga bog'langan — qayta nomlash ularning hammasini ko'chirishni
+# talab qilardi. Faqat ko'rinish o'zgaradi.
+CATEGORY_LABELS = {
+    "oylik": "ish haqi",
+}
+
+
+def category_label(name: str) -> str:
+    return CATEGORY_LABELS.get(name, name)
 
 
 def fallback_category(kind: str) -> str:

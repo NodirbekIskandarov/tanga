@@ -1,0 +1,3 @@
+# Faqat ishlab chiqish va sinov uchun — serverga o'rnatilmaydi.
+-r requirements.txt
+pytest>=8

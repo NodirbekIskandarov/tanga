@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# Production bazasining NUSXASIDA ma'lumot migratsiyalarini dry-run qiladi.
+#
+#   sudo tanga-dryrun          (yoki: sudo bash /opt/tanga/deploy/tanga-dryrun)
+#
+# Nima qiladi:
+#   1. tanga-backup --local — ikkala bazaning izchil (sqlite .backup)
+#      shifrlangan nusxasi /var/backups/tanga/ ga.
+#   2. Eng yangi nusxani /var/tmp/tanga-dryrun/ ga ochadi (openssl qatlami
+#      olinadi; fayllar SQLCipher bilan shifrlanganicha qoladi).
+#   3. scripts/migrate_receipts.py, migrate_debts.py va analyze_other.py ni
+#      SHU NUSXAGA qarab, standart (dry-run) rejimda ishga tushiradi.
+#
+# Jonli bazaga tegilmaydi. Yozuv raqamlari production bilan bir xil —
+# migrate_debts natijasidagi raqamlarni keyin jonli bazada
+# `--apply --ids ...` bilan ishlatish mumkin.
+
+set -euo pipefail
+
+APP=/opt/tanga
+WORK=/var/tmp/tanga-dryrun
+BACKUPS=/var/backups/tanga
+KEYFILE=/etc/tanga-backup.key
+
+if [[ $EUID -ne 0 ]]; then
+  echo "root sifatida ishga tushiring: sudo $0" >&2
+  exit 1
+fi
+
+BACKUP_CMD=$(command -v tanga-backup || echo "$APP/deploy/tanga-backup")
+echo "==> Izchil nusxa olinmoqda ($BACKUP_CMD --local)"
+"$BACKUP_CMD" --local
+
+main=$(ls -t "$BACKUPS"/hisobchi-*.db.enc | head -1)
+priv=$(ls -t "$BACKUPS"/shaxsiy-*.db.enc | head -1)
+echo "==> Nusxalar: $(basename "$main"), $(basename "$priv")"
+
+rm -rf "$WORK"
+install -d -o tanga -g tanga -m 700 "$WORK"
+
+decrypt() {
+  openssl enc -d -aes-256-cbc -pbkdf2 -iter 300000 \
+    -in "$1" -out "$2" -pass "file:$KEYFILE"
+  chown tanga:tanga "$2"
+  chmod 600 "$2"
+}
+decrypt "$main" "$WORK/main.db"
+decrypt "$priv" "$WORK/shaxsiy.db"
+
+cd "$APP"
+for script in migrate_receipts migrate_debts analyze_other; do
+  echo
+  echo "======================== $script ========================"
+  # .env dagi kalitlar ishlatiladi; faqat fayl yo'llari nusxaga buriladi
+  # (load_dotenv mavjud muhit o'zgaruvchisini almashtirmaydi).
+  sudo -u tanga env DB_PATH="$WORK/main.db" PRIVATE_DB_PATH="$WORK/shaxsiy.db" \
+    .venv/bin/python "scripts/$script.py"
+done
+
+echo
+echo "Tayyor. Nusxa: $WORK — ko'rib bo'lgach o'chiring: sudo rm -rf $WORK"
