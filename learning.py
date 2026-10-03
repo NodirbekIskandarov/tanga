@@ -81,6 +81,57 @@ def remember(user_id: int, kind: str, note: str | None, category: str) -> str | 
     return keyword
 
 
+# --------------------------------------------------------------------------- #
+# Do'kon bo'yicha qoida
+#
+# Odam chekdagi mahsulot kategoriyasini tuzatsa, o'sha DO'KON ham eslab
+# qolinadi: «Dori-Darmon 24» -> salomatlik. Lekin u faqat AI aniqlay
+# olmagan («boshqa chiqim») mahsulotlarga qo'llanadi: supermarketda har
+# xil narsa sotiladi va bitta tuzatish butun chekni bir kategoriyaga
+# o'tkazib yubormasligi kerak. Mahsulot nomi bo'yicha qoida undan ustun.
+# Bazada kalit so'z o'rnida «@<do'kon>» turadi (category_rules jadvali).
+# --------------------------------------------------------------------------- #
+
+_SHOP_NOISE = ("mchj", "ooo", "xk", "ok", "llc", "ип", "ооо", "чп", "yatt", "magazin",
+               "do'kon", "dokon", "market")
+
+
+def shop_key(shop: str | None) -> str:
+    """«OOO "Korzinka" (Chilonzor)» va «korzinka» — bitta do'kon."""
+    raw = (shop or "").casefold()
+    for ch in "ʻʼ‘’`'\"«»“”()[],.":
+        raw = raw.replace(ch, " ")
+    words = [w for w in raw.split() if w not in _SHOP_NOISE]
+    return " ".join(words[:3])
+
+
+def remember_shop(user_id: int, shop: str | None, category: str) -> str | None:
+    """Chek mahsulotini tuzatishda do'konni eslab qoladi. Qaytaradi: kalit."""
+    key = shop_key(shop)
+    if not key or category not in config.EXPENSE_CATEGORIES:
+        return None
+    with db.get_conn() as conn:
+        conn.execute(
+            """INSERT INTO category_rules (user_id, keyword, kind, category)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(user_id, keyword, kind) DO UPDATE SET
+                 category = excluded.category, updated_at = datetime('now')""",
+            (user_id, "@" + key, config.KIND_CHIQIM, category))
+    return key
+
+
+def apply_receipt_item(rules: dict, shop: str | None, name: str | None,
+                       category: str) -> str:
+    """Chek mahsuloti: avval mahsulot nomi qoidasi, keyin — faqat AI
+    «boshqa chiqim» degan bo'lsa — do'kon qoidasi."""
+    category = apply(rules, config.KIND_CHIQIM, name, category)
+    if category == "boshqa chiqim":
+        learned = rules.get(("@" + shop_key(shop), config.KIND_CHIQIM))
+        if learned and learned in config.EXPENSE_CATEGORIES:
+            return learned
+    return category
+
+
 def rules_for(user_id: int) -> dict[tuple[str, str], str]:
     """{(kalit so'z, tur): kategoriya} — bitta xabar uchun bir marta o'qiladi."""
     with db.get_conn() as conn:

@@ -179,7 +179,10 @@ chekdagi \u00abJAMI\u00bb bilan solishtiradi:
 Har bir yozuv ostida tugmalar bor:
 \u2022 <b>\u270f\ufe0f Kategoriya</b> \u2014 kategoriyani almashtirish.
   Bot buni <b>eslab qoladi</b>: bir marta "suv" ni
-  oziq-ovqatga o'zgartirsangiz, keyingi "suv" o'zi shu yerga tushadi
+  oziq-ovqatga o'zgartirsangiz, keyingi "suv" o'zi shu yerga tushadi.
+  Chek mahsulotini tuzatsangiz, <b>do'kon</b> ham eslab qolinadi:
+  o'sha do'konning keyingi chekida aniqlanmagan mahsulotlar shu
+  kategoriyaga tushadi
 \u2022 <b>\U0001F504 Turini almashtirish</b> \u2014 masalan chiqimni
   "qarzimni qaytardim" ga
 \u2022 <b>\U0001F5D1 O'chirish</b> \u2014 yozuvni o'chirish
@@ -1096,6 +1099,14 @@ async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🗑 #{tx_id} o'chirildi.")
 
 
+def remember_receipt_shop(user_id: int, row, category: str) -> None:
+    """Chek mahsuloti tuzatilsa — do'konni ham eslab qoladi (learning.py)."""
+    if row["receipt_id"] and row["kind"] == config.KIND_CHIQIM:
+        receipt = db.get_receipt(user_id, row["receipt_id"])
+        if receipt and receipt.get("shop"):
+            learning.remember_shop(user_id, receipt["shop"], category)
+
+
 def delete_entry(user_id: int, tx_id: int) -> int | None:
     """Botdagi o'chirish: yozuv chekka tegishli bo'lsa BUTUN chek o'chadi.
 
@@ -1322,8 +1333,8 @@ async def _process_receipt(update: Update, context, images: list, caption: str):
     db.log_event(user_id, "chek_yuborildi")
     rules = learning.rules_for(user_id)
     for item in data["mahsulotlar"]:
-        item["kategoriya"] = learning.apply(rules, config.KIND_CHIQIM,
-                                            item["nomi"], item["kategoriya"])
+        item["kategoriya"] = learning.apply_receipt_item(
+            rules, data["dokon"], item["nomi"], item["kategoriya"])
 
     receipt_id = uuid.uuid4().hex[:10]
     shop = data["dokon"]
@@ -1882,6 +1893,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         db.update_category(user_id, tx_id, category)
         learned = learning.remember(user_id, row["kind"], row["note"], category)
+        remember_receipt_shop(user_id, row, category)
         await query.answer(f"Eslab qoldim: «{learned}» → {config.category_label(category)}"
                            if learned else "Yangilandi")
         row = db.get_transaction(user_id, tx_id)

@@ -566,6 +566,10 @@ def api_update_transaction(tx_id: int, body: TxUpdate, user: dict = Depends(curr
         # Botdagi tuzatish bilan bir xil: keyingi shunday yozuv o'zi
         # to'g'ri kategoriyaga tushadi.
         learning.remember(user["user_id"], row["kind"], row["note"], body.category)
+        if row["receipt_id"] and row["kind"] == config.KIND_CHIQIM:
+            receipt = db.get_receipt(user["user_id"], row["receipt_id"])
+            if receipt and receipt.get("shop"):
+                learning.remember_shop(user["user_id"], receipt["shop"], body.category)
 
     return _serialize_tx(db.get_transaction(user["user_id"], tx_id))
 

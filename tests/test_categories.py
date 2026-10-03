@@ -97,3 +97,44 @@ def test_analysis_hides_rare_words_and_identities(user_id):
     rows = analyze_other.collect(min_users=3)
     assert ("paket", 3, 3) in rows
     assert all(word != "maxfiy" for word, _, _ in rows)
+
+
+def test_shop_key_normalizes_names():
+    assert learning.shop_key('OOO "Korzinka" (Chilonzor)') == "korzinka chilonzor"
+    assert learning.shop_key("korzinka chilonzor") == "korzinka chilonzor"
+    assert learning.shop_key("") == ""
+
+
+def test_shop_rule_only_fills_uncertain_items(user_id):
+    """Dorixonada tuzatilgan kategoriya keyingi o'sha do'kon chekida faqat
+    AI aniqlay olmagan mahsulotlarga qo'llanadi."""
+    learning.remember_shop(user_id, "Dori-Darmon 24", "salomatlik")
+    rules = learning.rules_for(user_id)
+    # AI «boshqa chiqim» degan — do'kon qoidasi to'ldiradi.
+    assert learning.apply_receipt_item(rules, "DORI-DARMON 24", "Nurofen", "boshqa chiqim") \
+        == "salomatlik"
+    # AI aniq kategoriya bergan — tegilmaydi (dorixonada suv ham sotiladi).
+    assert learning.apply_receipt_item(rules, "Dori-Darmon 24", "Suv", "oziq-ovqat") \
+        == "oziq-ovqat"
+    # Boshqa do'kon — tegilmaydi.
+    assert learning.apply_receipt_item(rules, "Makro", "X", "boshqa chiqim") == "boshqa chiqim"
+
+
+def test_item_rule_beats_shop_rule(user_id):
+    learning.remember_shop(user_id, "Makro", "uy-ro'zg'or va gigiyena")
+    learning.remember(user_id, "chiqim", "Pampers 4", "boshqa chiqim")
+    learning.remember(user_id, "chiqim", "Shokolad", "oziq-ovqat")
+    rules = learning.rules_for(user_id)
+    assert learning.apply_receipt_item(rules, "Makro", "Shokolad Alpen", "boshqa chiqim") \
+        == "oziq-ovqat"
+
+
+def test_correcting_receipt_item_remembers_shop(user_id):
+    import bot
+    ids = db.add_receipt(user_id, "rs1", shop="Dori-Darmon 24", occurred_on="2026-10-01",
+                         currency="som", printed_total=None, discount=None,
+                         items=[{"kind": "chiqim", "amount": 30_000,
+                                 "category": "boshqa chiqim", "note": "Nurofen"}])
+    row = db.get_transaction(user_id, ids[0])
+    bot.remember_receipt_shop(user_id, row, "salomatlik")
+    assert learning.rules_for(user_id)[("@dori-darmon 24", "chiqim")] == "salomatlik"
