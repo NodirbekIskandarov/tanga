@@ -1392,6 +1392,33 @@ T.update({
     },
     "feature_debt_reminders": {"uz": "Qarz eslatmalari", "ru": "Напоминания о долгах"},
 
+    # ---- Bepul foydalanuvchiga avtomatik xabarlar ----
+    "reminder_off_btn": {"uz": "🔕 Eslatmani o'chirish", "ru": "🔕 Выключить напоминание"},
+    "reminder_default_on": {
+        "uz": ("🔔 Kunlik eslatma yoqilgan: soat <b>{hour}:00</b> da, faqat o'sha "
+               "kuni hali hech narsa yozmagan bo'lsangiz.\n\n"
+               "Soatni o'zgartirish: <code>/eslatma 20</code>\n"
+               "O'chirish: <code>/eslatma o'chir</code>"),
+        "ru": ("🔔 Ежедневное напоминание включено: в <b>{hour}:00</b>, только если "
+               "за день ещё ничего не записано.\n\n"
+               "Сменить час: <code>/eslatma 20</code>\n"
+               "Выключить: <code>/eslatma o'chir</code>"),
+    },
+    "digest_free_empty": {
+        "uz": ("\n\nO'tgan hafta yozuv kiritilmadi. Bir daqiqa — esingizdagi "
+               "xarajatlarni yozib qo'ying, masalan <code>taksiga 25 ming</code>."),
+        "ru": ("\n\nНа прошлой неделе записей не было. Минута — запишите, что "
+               "помните, например <code>такси 25 тысяч</code>."),
+    },
+    "digest_pro_hint": {
+        "uz": "\n\n💎 PRO: barcha oylar tahlili, maqsad bashorati va cheksiz chek — /obuna",
+        "ru": "\n\n💎 PRO: анализ всех месяцев, прогноз целей и безлимитные чеки — /obuna",
+    },
+    "goal_month_free": {
+        "uz": "🎯 <b>Oy yakuni</b>\n\n«{name}» — <b>{percent}%</b>\n{bar}\n{saved} / {amount}",
+        "ru": "🎯 <b>Итог месяца</b>\n\n«{name}» — <b>{percent}%</b>\n{bar}\n{saved} / {amount}",
+    },
+
     # ---- /xabar_yubor: mavjud foydalanuvchilarga bir martalik xabar ----
     "broadcast_default": {
         "uz": ("🪙 <b>Tanga'da yangiliklar</b>\n\n"

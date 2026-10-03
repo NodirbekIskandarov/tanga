@@ -306,6 +306,13 @@ TABLE_MIGRATIONS = [
     # Shu ikkisi bo'lgani uchun so'm va dollar bitta jamlanmada qo'shiladi.
     # Ega uchun «oddiy rejim»: o'zini obunasiz foydalanuvchidek ko'radi.
     ("users", "sim_free", "ALTER TABLE users ADD COLUMN sim_free INTEGER NOT NULL DEFAULT 0"),
+    # Botni bloklagan (Telegram 403): avtomatik xabar yuborilmaydi. Odam
+    # botga yana yozsa tozalanadi (get_or_create_user).
+    ("users", "bot_blocked_at", "ALTER TABLE users ADD COLUMN bot_blocked_at TEXT"),
+    # Kunlik eslatmani o'zi o'chirgan. Bepul darajada eslatma standart
+    # holatda yoqilgan — «hali sozlamagan» va «o'chirgan» farqlanishi kerak.
+    ("users", "reminder_off",
+     "ALTER TABLE users ADD COLUMN reminder_off INTEGER NOT NULL DEFAULT 0"),
     ("transactions", "rate", "ALTER TABLE transactions ADD COLUMN rate REAL NOT NULL DEFAULT 1"),
     ("transactions", "amount_base", "ALTER TABLE transactions ADD COLUMN amount_base REAL"),
 ]
@@ -759,6 +766,10 @@ def debts_due(days: tuple[date, ...]) -> list[dict]:
         users = [r["user_id"] for r in conn.execute(
             "SELECT DISTINCT user_id FROM transactions WHERE due_on IN (%s)"
             % ",".join("?" * len(wanted)), tuple(wanted)).fetchall()]
+        # Botni bloklaganlar (Telegram 403) — eslatma yuborilmaydi.
+        blocked = {r["user_id"] for r in conn.execute(
+            "SELECT user_id FROM users WHERE blocked = 1 OR bot_blocked_at IS NOT NULL")}
+    users = [u for u in users if u not in blocked]
     out = []
     for uid in users:
         for d in open_debts(uid):
@@ -1190,8 +1201,10 @@ def get_or_create_user(user_id: int, first_name: str = "", username: str | None 
             row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
         else:
             # Ism/username o'zgargan bo'lishi mumkin — yangilab turamiz.
+            # Botga yozdi — demak bloklamagan (blokdan chiqargan bo'lsa ham).
             conn.execute(
-                "UPDATE users SET first_name = ?, username = ?, last_seen_at = ? WHERE user_id = ?",
+                "UPDATE users SET first_name = ?, username = ?, last_seen_at = ?, "
+                "bot_blocked_at = NULL WHERE user_id = ?",
                 (first_name or row["first_name"], username, _now().isoformat(), user_id),
             )
         return row
@@ -1566,7 +1579,7 @@ def users_for_winback(days: int = 7) -> list[dict]:
         rows = conn.execute(
             """SELECT u.*, (SELECT MAX(occurred_on) FROM transactions t
                             WHERE t.user_id = u.user_id) AS last_tx
-               FROM users u WHERE u.blocked = 0""").fetchall()
+               FROM users u WHERE u.blocked = 0 AND u.bot_blocked_at IS NULL""").fetchall()
     for r in rows:
         if r["user_id"] in config.OWNER_IDS:
             continue
@@ -1819,18 +1832,19 @@ def users_for_savings_reminder() -> list[dict]:
     today_ = now.date()
     month = now.strftime("%Y-%m")
 
+    import notify
     with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM users WHERE blocked = 0").fetchall()
         profiles = {r["user_id"]: dict(r) for r in conn.execute(
             "SELECT * FROM savings_profile").fetchall()}
 
     out = []
-    for r in rows:
+    for c in notify_candidates():
+        r = c["row"]
         uid = r["user_id"]
-        sub = _parse_dt(r["subscribed_until"])
-        trial = _parse_dt(r["trial_ends_at"])
-        if uid not in config.OWNER_IDS and not (
-                (sub and sub > now) or (trial and trial > now)):
+        # Bepul: faqat faol bo'lsa (14 kundan kam) — va matni boshqacha:
+        # faqat maqsad progressi (buni vazifa hal qiladi).
+        if c["tier"] == "free" and notify.MONTHLY not in notify.free_policy(
+                c["inactive_days"]):
             continue
         prof = profiles.get(uid) or {}
         if (prof.get("reminded_month") or "") == month:
@@ -1845,6 +1859,7 @@ def users_for_savings_reminder() -> list[dict]:
         met = income > 0 and saved >= income * rate
         out.append({
             "met": met,
+            "tier": c["tier"],
             "user_id": uid,
             "lang": r["lang"] or "uz",
             "card_state": prof.get("card_state") or CARD_SORALMAGAN,
@@ -1857,21 +1872,16 @@ def users_for_savings_reminder() -> list[dict]:
 
 
 def users_for_digest() -> list[dict]:
-    """Haftalik xulosa yuboriladiganlar: kirish huquqi bor, bloklanmaganlar.
-
-    Yozuvi bo'lmaganlarga xulosa yuborilmaydi — buni chaqiruvchi
-    `week_summary` natijasi bo'yicha hal qiladi.
-    """
-    now = datetime.now(config.TZ)
+    """Haftalik xulosa oluvchilar: PRO hammasi; Bepul — faollik qoidasi
+    ruxsat bersa (30 kundan ko'p yozmaganga yuborilmaydi)."""
+    import notify
     out = []
-    with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM users WHERE blocked = 0").fetchall()
-    for r in rows:
-        sub = _parse_dt(r["subscribed_until"])
-        trial = _parse_dt(r["trial_ends_at"])
-        if r["user_id"] in config.OWNER_IDS or (sub and sub > now) \
-                or (trial and trial > now):
-            out.append({"user_id": r["user_id"], "streak": r["streak"] or 0})
+    for c in notify_candidates():
+        if c["tier"] == "free" and notify.WEEKLY not in notify.free_policy(
+                c["inactive_days"]):
+            continue
+        out.append({"user_id": c["user_id"], "streak": c["row"]["streak"] or 0,
+                    "tier": c["tier"], "inactive_days": c["inactive_days"]})
     return out
 
 
@@ -1881,10 +1891,18 @@ def mark_winback(user_id: int) -> None:
                      (_now_local(), user_id))
 
 
-def week_summary(user_id: int) -> dict:
-    """Haftalik xulosa: shu hafta va o'tgan hafta taqqoslamasi."""
-    today = datetime.now(config.TZ).date()
-    this_start = today - timedelta(days=today.weekday())
+def week_summary(user_id: int, today: date | None = None) -> dict:
+    """Haftalik xulosa: oxirgi TUGAGAN hafta (dushanba–yakshanba) va undan
+    oldingi hafta taqqoslamasi.
+
+    Xulosa dushanba ertalab yuboriladi. Ilgari «shu hafta» olinardi —
+    dushanba 09:30 da u bir necha soatlik bo'lib, xulosa deyarli doim bo'sh
+    chiqardi va «o'tgan haftadan 95% kam» degan yolg'on solishtirish berardi.
+    """
+    today = today or datetime.now(config.TZ).date()
+    current_monday = today - timedelta(days=today.weekday())
+    this_start = current_monday - timedelta(days=7)
+    end = current_monday - timedelta(days=1)
     prev_start = this_start - timedelta(days=7)
     prev_end = this_start - timedelta(days=1)
 
@@ -1896,16 +1914,16 @@ def week_summary(user_id: int) -> dict:
                 (user_id, config.KIND_CHIQIM, start.isoformat(), end.isoformat())
             ).fetchone()[0])
 
-    now_spent = spent(this_start, today)
+    now_spent = spent(this_start, end)
     was_spent = spent(prev_start, prev_end)
-    top = by_category_unified(user_id, this_start, today, config.KIND_CHIQIM)
+    top = by_category_unified(user_id, this_start, end, config.KIND_CHIQIM)
     with get_conn() as conn:
         count = int(conn.execute(
             "SELECT COUNT(*) FROM transactions WHERE user_id = ? "
             "AND occurred_on BETWEEN ? AND ?",
-            (user_id, this_start.isoformat(), today.isoformat())).fetchone()[0])
+            (user_id, this_start.isoformat(), end.isoformat())).fetchone()[0])
     return {"spent": now_spent, "previous": was_spent, "count": count,
-            "top": top[:3], "start": this_start, "end": today}
+            "top": top[:3], "start": this_start, "end": end}
 
 
 def get_lang(user_id: int) -> str:
@@ -1921,9 +1939,63 @@ def set_lang(user_id: int, lang: str) -> None:
 
 
 def set_reminder_hour(user_id: int, hour: int | None) -> None:
+    """Soat — yoqish; None — o'chirish (va «o'zi o'chirgan» deb belgilash)."""
     with get_conn() as conn:
-        conn.execute("UPDATE users SET reminder_hour = ? WHERE user_id = ?",
-                     (hour, user_id))
+        conn.execute("UPDATE users SET reminder_hour = ?, reminder_off = ? "
+                     "WHERE user_id = ?", (hour, 0 if hour is not None else 1, user_id))
+
+
+def mark_bot_blocked(user_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute("UPDATE users SET bot_blocked_at = ? WHERE user_id = ?",
+                     (_now_local(), user_id))
+
+
+def _tier_of_row(r, now: datetime) -> str:
+    """access_status bilan bir xil qoida, lekin bitta qatordan (vazifalar uchun)."""
+    if r["user_id"] in config.OWNER_IDS:
+        return "free" if r["sim_free"] else "pro"
+    sub = _parse_dt(r["subscribed_until"])
+    trial = _parse_dt(r["trial_ends_at"])
+    return "pro" if (sub and sub > now) or (trial and trial > now) else "free"
+
+
+def notify_candidates() -> list[dict]:
+    """Avtomatik xabar oluvchi bo'lishi mumkin bo'lganlar: bloklanmagan
+    (admin ham, Telegram 403 ham emas). Har biriga daraja va oxirgi
+    yozuvdan beri o'tgan kunlar qo'shiladi.
+
+    Oxirgi faollik — `entry_counts` dagi eng so'nggi kun (bot, chek va
+    Mini App yozuvlari hammasi shu yerga tushadi) yoki `last_entry_day`;
+    yozuv umuman bo'lmasa — ro'yxatdan o'tgan kun.
+    """
+    now = _now()
+    today_ = now.date()
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT u.*, (SELECT MAX(day) FROM entry_counts e
+                            WHERE e.user_id = u.user_id AND e.n > 0) AS last_day
+               FROM users u
+               WHERE u.blocked = 0 AND u.bot_blocked_at IS NULL""").fetchall()
+    out = []
+    for r in rows:
+        days = [d for d in (r["last_day"], r["last_entry_day"]) if d]
+        last = max(days) if days else str(r["created_at"] or "")[:10]
+        try:
+            inactive = max(0, (today_ - date.fromisoformat(last[:10])).days)
+        except ValueError:
+            inactive = 0
+        out.append({"row": r, "user_id": r["user_id"], "tier": _tier_of_row(r, now),
+                    "inactive_days": inactive,
+                    "wrote_today": last[:10] == today_.isoformat()})
+    return out
+
+
+def reminder_opted_out(user_id: int) -> bool:
+    with get_conn() as conn:
+        row = conn.execute("SELECT reminder_off FROM users WHERE user_id = ?",
+                           (user_id,)).fetchone()
+    return bool(row and row["reminder_off"])
 
 
 def get_reminder_hour(user_id: int) -> int | None:
@@ -1933,21 +2005,30 @@ def get_reminder_hour(user_id: int) -> int | None:
         return row["reminder_hour"] if row else None
 
 
-def users_for_reminder(hour: int) -> list[int]:
-    """Shu soatga eslatma buyurgan va kirish huquqi bor foydalanuvchilar."""
-    now = datetime.now(config.TZ)
+def users_for_reminder(hour: int) -> list[dict]:
+    """Shu soatdagi kunlik eslatma oluvchilar: [{"user_id", "mode"}].
+
+      * PRO — o'zi /eslatma bilan yoqqan bo'lsa, «summary» (kun xulosasi).
+      * Bepul — standart holatda YOQILGAN (config.DEFAULT_REMINDER_HOUR),
+        /eslatma o'chir bilan o'chiriladi; faqat o'sha kuni hali yozuv
+        kiritmaganga va faollik qoidasi ruxsat bersa (notify.free_policy),
+        «nudge» (qisqa eslatma).
+    """
+    import notify
     out = []
-    with get_conn() as conn:
-        for r in conn.execute(
-                "SELECT * FROM users WHERE reminder_hour = ? AND blocked = 0",
-                (hour,)).fetchall():
-            if r["user_id"] in config.OWNER_IDS:
-                out.append(r["user_id"])
-                continue
-            sub = _parse_dt(r["subscribed_until"])
-            trial = _parse_dt(r["trial_ends_at"])
-            if (sub and sub > now) or (trial and trial > now):
-                out.append(r["user_id"])
+    for c in notify_candidates():
+        r = c["row"]
+        if c["tier"] == "pro":
+            if r["reminder_hour"] == hour:
+                out.append({"user_id": c["user_id"], "mode": "summary"})
+            continue
+        if r["reminder_off"]:
+            continue
+        effective = (r["reminder_hour"] if r["reminder_hour"] is not None
+                     else config.DEFAULT_REMINDER_HOUR)
+        if (effective == hour and not c["wrote_today"]
+                and notify.DAILY in notify.free_policy(c["inactive_days"])):
+            out.append({"user_id": c["user_id"], "mode": "nudge"})
     return out
 
 
@@ -1969,7 +2050,7 @@ def trial_notices() -> list[dict]:
     now = datetime.now(config.TZ)
     out = []
     with get_conn() as conn:
-        rows = conn.execute("SELECT * FROM users WHERE blocked = 0").fetchall()
+        rows = conn.execute("SELECT * FROM users WHERE blocked = 0 AND bot_blocked_at IS NULL").fetchall()
     for r in rows:
         if r["user_id"] in config.OWNER_IDS:
             continue
@@ -2013,7 +2094,7 @@ def users_expiring(stages: tuple[int, ...] = (3, 1)) -> list[dict]:
     now = datetime.now(config.TZ)
     out = []
     with get_conn() as conn:
-        for r in conn.execute("SELECT * FROM users WHERE blocked = 0").fetchall():
+        for r in conn.execute("SELECT * FROM users WHERE blocked = 0 AND bot_blocked_at IS NULL").fetchall():
             if r["user_id"] in config.OWNER_IDS:
                 continue
             sub = _parse_dt(r["subscribed_until"])
@@ -2309,7 +2390,8 @@ def broadcast_audience(days: int = 30) -> list[int]:
         rows = conn.execute(
             """SELECT e.user_id, COUNT(*) AS active_days
                FROM entry_counts e JOIN users u ON u.user_id = e.user_id
-               WHERE e.day >= ? AND u.blocked = 0 AND u.consent_at IS NOT NULL
+               WHERE e.day >= ? AND u.blocked = 0 AND u.bot_blocked_at IS NULL
+                 AND u.consent_at IS NOT NULL
                  AND u.consent_version = ?
                GROUP BY e.user_id
                ORDER BY active_days DESC, e.user_id""",

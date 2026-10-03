@@ -41,6 +41,7 @@ import broadcast
 import config
 import db
 import goals
+import notify
 import guide_ru
 import i18n
 import learning
@@ -3159,6 +3160,13 @@ async def cmd_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     current = db.get_reminder_hour(user_id)
+    # Bepul darajada eslatma standart holatda yoqilgan (o'zi o'chirmagan bo'lsa).
+    if (current is None and not db.reminder_opted_out(user_id)
+            and not tiers.is_pro(db.access_status(user_id))):
+        await msg.reply_text(
+            i18n.t(lang, "reminder_default_on", hour=f"{config.DEFAULT_REMINDER_HOUR:02d}"),
+            parse_mode=ParseMode.HTML)
+        return
     if current is None:
         await msg.reply_text(
             i18n.t(lang, "reminder_intro"),
@@ -3175,7 +3183,15 @@ async def cmd_reminder(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def on_reminder_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    hour = int((query.data or "rem:21").split(":")[1])
+    arg = (query.data or "rem:21").split(":")[1]
+    if arg == "off":
+        # Bepul eslatma ostidagi «🔕 O'chirish» — bir bosishda.
+        db.set_reminder_hour(update.effective_user.id, None)
+        await query.answer("🔕")
+        await query.edit_message_text(
+            i18n.t(lang_of(update.effective_user.id, context), "reminder_off"))
+        return
+    hour = int(arg)
     db.set_reminder_hour(update.effective_user.id, hour)
     await query.answer("🔔")
     await query.edit_message_text(
@@ -3291,18 +3307,25 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
 # --------------------------------------------------------------------------- #
 
 async def job_daily_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Har soatda ishlaydi va shu soatga eslatma buyurganlarga xabar yuboradi."""
+    """Har soatda ishlaydi: shu soatdagi kunlik eslatma oluvchilarga.
+
+    PRO — o'zi yoqqan bo'lsa kun xulosasi. Bepul — standart holatda
+    yoqilgan qisqa eslatma, faqat o'sha kuni hali yozuv bo'lmasa va
+    «🔕 O'chirish» tugmasi bilan (db.users_for_reminder, notify.free_policy).
+    """
     hour = datetime.now(config.TZ).hour
     users = db.users_for_reminder(hour)
     if not users:
         return
     today = reports.today()
     sent = 0
-    for user_id in users:
+    for item in users:
+        user_id = item["user_id"]
         try:
             lang = lang_of(user_id)
-            s = db.day_summary(user_id, today)
-            if s["count"]:
+            markup = None
+            s = db.day_summary(user_id, today) if item["mode"] == "summary" else None
+            if s and s["count"]:
                 parts = []
                 for cur, amount in s["chiqim"].items():
                     parts.append("−" + reports.fmt_money(amount, cur))
@@ -3312,11 +3335,14 @@ async def job_daily_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
                               parts=" · ".join(parts))
             else:
                 text = i18n.t(lang, "daily_empty")
-            await context.bot.send_message(user_id, text, parse_mode=ParseMode.HTML)
-            sent += 1
+                if item["mode"] == "nudge":
+                    markup = InlineKeyboardMarkup([[InlineKeyboardButton(
+                        i18n.t(lang, "reminder_off_btn"), callback_data="rem:off")]])
+            if await notify.send(context.bot, user_id, text,
+                                 parse_mode=ParseMode.HTML, reply_markup=markup):
+                sent += 1
         except Exception:
             log.info("Eslatma yuborilmadi: %s", user_id)
-        await asyncio.sleep(0.06)      # Telegram cheklovi
     log.info("Kunlik eslatma: %s ta yuborildi (soat %s)", sent, hour)
 
 
@@ -3335,14 +3361,14 @@ async def job_expiry_warning(context: ContextTypes.DEFAULT_TYPE) -> None:
                     if r["days_left"] > 0
                     else i18n.t(lang, "expiry_sub_today"))
             body = i18n.t(lang, "expiry_sub_body")
-            await context.bot.send_message(
-                user_id, f"{head}\n\n{body}", parse_mode=ParseMode.HTML,
-                reply_markup=plans_keyboard(lang))
+            if not await notify.send(
+                    context.bot, user_id, f"{head}\n\n{body}",
+                    parse_mode=ParseMode.HTML, reply_markup=plans_keyboard(lang)):
+                continue
             db.mark_warned(user_id, r["stage"])
             sent += 1
         except Exception:
             log.info("Ogohlantirish yuborilmadi: %s", user_id)
-        await asyncio.sleep(0.06)
     log.info("Muddat ogohlantirishi: %s ta yuborildi", sent)
 
 
@@ -3390,21 +3416,22 @@ async def job_trial_notices(context: ContextTypes.DEFAULT_TYPE) -> None:
             lang = lang_of(user_id)
             if r["kind"] == "day5":
                 text = trial_summary_text(user_id, lang, r["days_left"])
-                await context.bot.send_message(
-                    user_id, text, parse_mode=ParseMode.HTML,
-                    reply_markup=plans_keyboard(lang))
+                if not await notify.send(context.bot, user_id, text,
+                                         parse_mode=ParseMode.HTML,
+                                         reply_markup=plans_keyboard(lang)):
+                    continue
                 db.mark_warned(user_id, db.TRIAL_STAGE_DAY5)
             else:
                 text = trial_ended_text(user_id, lang) + "\n\n" + plans_text(lang=lang)
-                await context.bot.send_message(
-                    user_id, text, parse_mode=ParseMode.HTML,
-                    reply_markup=plans_keyboard(lang))
+                if not await notify.send(context.bot, user_id, text,
+                                         parse_mode=ParseMode.HTML,
+                                         reply_markup=plans_keyboard(lang)):
+                    continue
                 db.mark_warned(user_id, db.TRIAL_STAGE_ENDED)
                 db.log_event(user_id, "sinov_tugadi")
             sent += 1
         except Exception:
             log.info("Sinov xabari yuborilmadi: %s", user_id)
-        await asyncio.sleep(0.06)
     if sent:
         log.info("Sinov xabarlari: %s ta yuborildi", sent)
 
@@ -3436,20 +3463,69 @@ async def job_debt_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
             if not tiers.allows(db.access_status(user_id), "debt_reminders"):
                 continue
             lang = lang_of(user_id)
-            await context.bot.send_message(
-                user_id, debt_reminder_text(debt, lang, f"when_{stage}"),
-                parse_mode=ParseMode.HTML)
+            if not await notify.send(
+                    context.bot, user_id, debt_reminder_text(debt, lang, f"when_{stage}"),
+                    parse_mode=ParseMode.HTML):
+                continue
             db.log_event(user_id, "qarz_eslatma", tag)
             sent += 1
         except Exception:
             log.info("Qarz eslatmasi yuborilmadi: %s", user_id)
-        await asyncio.sleep(0.06)
     if sent:
         log.info("Qarz eslatmalari: %s ta yuborildi", sent)
 
 
+def digest_text(user_id: int, lang: str, row: dict) -> str | None:
+    """Haftalik xulosa matni. None — yuborilmaydi.
+
+    PRO — to'liq (yozuvlar soni, zanjir, byudjet maslahati). Bepul —
+    qisqa: jami chiqim, o'tgan hafta bilan farq, eng katta 3 kategoriya;
+    oxirida PRO haqida bitta qator, oyiga ko'pi bilan bir marta.
+    Bo'sh hafta: PRO ga yuborilmaydi; Bepulga — bitta qisqa eslatma
+    (14 kundan keyin unga boradigan yagona xabar shu).
+    """
+    s = db.week_summary(user_id)
+    free = row.get("tier") == "free"
+    text = i18n.t(lang, "digest_head", start=s["start"].strftime("%d.%m"),
+                  end=s["end"].strftime("%d.%m"))
+    if not s["count"]:
+        if not free:
+            return None
+        return text + i18n.t(lang, "digest_free_empty")
+
+    if free:
+        text += f"\n\n💸 <b>{reports.fmt_money(s['spent'])}</b>"
+    else:
+        text += i18n.t(lang, "digest_body", spent=reports.fmt_money(s["spent"]),
+                       count=s["count"])
+    if s["previous"] > 0:
+        diff = (s["spent"] - s["previous"]) / s["previous"] * 100
+        if diff <= -5:
+            text += i18n.t(lang, "digest_less", pct=abs(round(diff)))
+        elif diff >= 5:
+            text += i18n.t(lang, "digest_more", pct=round(diff))
+    if s["top"]:
+        text += i18n.t(lang, "digest_top")
+        for name, total, _ in s["top"][:3]:
+            text += (f"\n• {reports.esc(config.category_label(name))} — "
+                     f"{reports.fmt_money(total)}")
+
+    if free:
+        month = datetime.now(config.TZ).strftime("%Y-%m")
+        if not db.event_count_detail(user_id, "digest_pro_hint", month):
+            text += i18n.t(lang, "digest_pro_hint")
+            db.log_event(user_id, "digest_pro_hint", month)
+        return text
+
+    if row["streak"] >= 3:
+        text += i18n.t(lang, "digest_streak", n=row["streak"])
+    if not db.list_budgets(user_id):
+        text += i18n.t(lang, "digest_tip")
+    return text
+
+
 async def job_weekly_digest(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Dushanba ertalab — o'tgan hafta bilan taqqoslangan qisqa xulosa.
+    """Dushanba ertalab — o'tgan (tugagan) hafta xulosasi.
 
     Botni eslatadigan, lekin foydali xabar: reklama emas, o'z sonlaringiz.
     """
@@ -3457,36 +3533,13 @@ async def job_weekly_digest(context: ContextTypes.DEFAULT_TYPE) -> None:
     for row in db.users_for_digest():
         user_id = row["user_id"]
         try:
-            s = db.week_summary(user_id)
-            if not s["count"]:
-                continue                   # bo'sh haftaga xabar yubormaymiz
             lang = lang_of(user_id)
-            text = i18n.t(lang, "digest_head",
-                          start=s["start"].strftime("%d.%m"),
-                          end=s["end"].strftime("%d.%m"))
-            text += i18n.t(lang, "digest_body",
-                           spent=reports.fmt_money(s["spent"]), count=s["count"])
-            if s["previous"] > 0:
-                diff = (s["spent"] - s["previous"]) / s["previous"] * 100
-                if diff <= -5:
-                    text += i18n.t(lang, "digest_less", pct=abs(round(diff)))
-                elif diff >= 5:
-                    text += i18n.t(lang, "digest_more", pct=round(diff))
-            if s["top"]:
-                text += i18n.t(lang, "digest_top")
-                for name, total, _ in s["top"]:
-                    text += (f"\n• {reports.esc(name)} — "
-                             f"{reports.fmt_money(total)}")
-            if row["streak"] >= 3:
-                text += i18n.t(lang, "digest_streak", n=row["streak"])
-            if not db.list_budgets(user_id):
-                text += i18n.t(lang, "digest_tip")
-            await context.bot.send_message(user_id, text,
-                                           parse_mode=ParseMode.HTML)
-            sent += 1
+            text = digest_text(user_id, lang, row)
+            if text and await notify.send(context.bot, user_id, text,
+                                          parse_mode=ParseMode.HTML):
+                sent += 1
         except Exception:
             log.info("Haftalik xulosa yuborilmadi: %s", user_id)
-        await asyncio.sleep(0.06)
     log.info("Haftalik xulosa: %s ta yuborildi", sent)
 
 
@@ -3507,14 +3560,23 @@ async def job_winback(context: ContextTypes.DEFAULT_TYPE) -> None:
             text = i18n.t(lang, "winback", days=gap)
             if r["streak"] >= 3:
                 text += i18n.t(lang, "winback_best", n=r["streak"])
-            await context.bot.send_message(r["user_id"], text,
-                                           parse_mode=ParseMode.HTML)
+            if not await notify.send(context.bot, r["user_id"], text,
+                                     parse_mode=ParseMode.HTML):
+                continue
             db.mark_winback(r["user_id"])
             sent += 1
         except Exception:
             log.info("Qaytarish xabari yuborilmadi: %s", r["user_id"])
-        await asyncio.sleep(0.06)
     log.info("Qaytarish xabari: %s ta yuborildi", sent)
+
+
+def goal_month_free_text(goal: dict, lang: str) -> str:
+    """Bepul foydalanuvchiga oy oxirida: maqsad progressi, bashoratsiz."""
+    share = min(1.0, goal["saved"] / goal["amount"]) if goal["amount"] > 0 else 0
+    return i18n.t(lang, "goal_month_free", name=reports.esc(goal["name"]),
+                  percent=goal["percent"], bar=_goal_bar(share),
+                  saved=reports.fmt_money(goal["saved"], "som"),
+                  amount=reports.fmt_money(goal["amount"], "som"))
 
 
 async def job_savings_monthly(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -3546,6 +3608,20 @@ async def job_savings_monthly(context: ContextTypes.DEFAULT_TYPE) -> None:
         balance = r["balance"]
         rate = r.get("rate") or config.SAVINGS_RATE
         target = income * rate
+
+        if r.get("tier") == "free":
+            # Bepul: faqat maqsad progressi, bashoratsiz. Maqsad bo'lmasa —
+            # hech narsa (umumiy «jamg'aring» eslatmasi bepulga ketmaydi).
+            try:
+                goal = await asyncio.to_thread(goals.primary, user_id)
+                if goal and await notify.send(
+                        context.bot, user_id, goal_month_free_text(goal, lang),
+                        parse_mode=ParseMode.HTML):
+                    await asyncio.to_thread(db.mark_month_reminded, user_id, month)
+                    sent += 1
+            except Exception:
+                log.info("Jamg'arma eslatmasi yuborilmadi: %s", user_id)
+            continue
 
         goal = None
         if tiers.allows(db.access_status(user_id), "goals_forecast"):
@@ -3590,16 +3666,15 @@ async def job_savings_monthly(context: ContextTypes.DEFAULT_TYPE) -> None:
             # Kartasi hali so'ralmagan bo'lsa — shu xabarga tugma ilashtiramiz.
             markup = (_card_keyboard(lang)
                       if r["card_state"] == db.CARD_SORALMAGAN else None)
-            await context.bot.send_message(user_id, text,
-                                           parse_mode=ParseMode.HTML,
-                                           reply_markup=markup)
+            if not await notify.send(context.bot, user_id, text,
+                                     parse_mode=ParseMode.HTML, reply_markup=markup):
+                continue
             if markup is not None:
                 await asyncio.to_thread(db.mark_card_asked, user_id)
             await asyncio.to_thread(db.mark_month_reminded, user_id, month)
             sent += 1
         except Exception:
             log.info("Jamg'arma eslatmasi yuborilmadi: %s", user_id)
-        await asyncio.sleep(0.06)          # Telegram cheklovi
     log.info("Jamg'arma eslatmasi: %s ta yuborildi", sent)
 
 

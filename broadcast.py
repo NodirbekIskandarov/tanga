@@ -8,32 +8,31 @@ HECH NARSA AVTOMATIK YUBORILMAYDI. Oqim:
   2. «👁 Menga sinov»        — xabar egaga yuboriladi (HTML xatosi shu
                                yerda chiqadi, foydalanuvchilarga emas).
   3. «✅ Yuborish» -> «Ha, N ta odamga yuborish» — ikki bosqichli tasdiq.
-  4. Yuborish fonda, Telegram tezlik chegarasidan past (soniyasiga ~20);
-     oxirida hisobot: yetdi / botni bloklagan / boshqa xato.
+  4. Yuborish fonda, umumiy chegara bilan (notify: soniyasiga ≤25);
+     botni bloklaganlar belgilanadi; oxirida hisobot: yetdi / bloklagan /
+     boshqa xato.
 
 Loyiha 1 soat yashaydi. Bir vaqtda faqat bitta yuborish.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
-from telegram.error import Forbidden
 from telegram.ext import ContextTypes
 
 import config
 import db
 import i18n
+import notify
 import reports
 
 log = logging.getLogger("tanga.broadcast")
 
 DRAFT_TTL = 3600
-SEND_DELAY = 0.05
 
 
 def _price(value: int) -> str:
@@ -165,17 +164,16 @@ async def _send_all(context, owner_id: int, draft: dict) -> None:
     ok = blocked = failed = 0
     for user_id in draft["ids"]:
         try:
-            await context.bot.send_message(user_id, text_for(draft, user_id),
-                                           parse_mode=ParseMode.HTML,
-                                           reply_markup=_plans_button())
-            db.log_event(user_id, "xabar_olindi")
-            ok += 1
-        except Forbidden:
-            blocked += 1
+            if await notify.send(context.bot, user_id, text_for(draft, user_id),
+                                 parse_mode=ParseMode.HTML,
+                                 reply_markup=_plans_button()):
+                db.log_event(user_id, "xabar_olindi")
+                ok += 1
+            else:
+                blocked += 1
         except Exception:
             failed += 1
             log.info("Xabar yuborilmadi: %s", user_id, exc_info=True)
-        await asyncio.sleep(SEND_DELAY)
     context.bot_data.get("broadcast", {}).pop(owner_id, None)
     log.info("Xabar yuborildi: %s ta, bloklagan %s, xato %s", ok, blocked, failed)
     await context.bot.send_message(
