@@ -212,6 +212,10 @@ sarfladingizmi, qarz ko'paymadimi.
 Yillik hisobotda esa yil davomida qancha jamg'arganingiz va
 necha oyda foizni bajarganingiz ko'rsatiladi.
 
+/solishtir (PRO) — shu oyni o'tgan oyning <b>xuddi shu
+kunlari</b> bilan solishtiradi: chiqim, kirim va qaysi kategoriya
+ko'proq o'sgani. Oylik hisobot ostida tugmasi ham bor.
+
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
 \U0001F3E6 <b>6. JAMG'ARMA</b>
 
@@ -1006,6 +1010,28 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 PRO_PERIODS = ("otgan_oy", "yil")
 
 
+@private_only
+async def cmd_compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/solishtir — shu oy va o'tgan oyning bir xil kunlari (PRO)."""
+    if not tiers.allows(context.user_data.get("access"), "history"):
+        await show_paywall(update, context, "history")
+        return
+    await update.effective_message.reply_text(
+        reports.compare_text(update.effective_user.id), parse_mode=ParseMode.HTML)
+
+
+async def on_compare_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Oylik hisobot ostidagi «📊 O'tgan oy bilan solishtirish»."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    if not tiers.allows(db.access_status(user_id), "history"):
+        await show_paywall(update, context, "history")
+        return
+    await query.answer()
+    await query.message.reply_text(reports.compare_text(user_id),
+                                   parse_mode=ParseMode.HTML)
+
+
 def _period_command(period: str):
     @private_only
     async def handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1018,12 +1044,16 @@ def _period_command(period: str):
         # Oy va yil hisobotini rasm qilib ulashsa bo'ladi — do'stlarga
         # ko'rsatiladigan natija botni o'zi reklama qiladi.
         markup = None
+        rows = []
         if period in ("oy", "otgan_oy", "yil") and sharecard.available():
-            markup = InlineKeyboardMarkup([[
-                InlineKeyboardButton(
-                    i18n.t(lang_of(update.effective_user.id, context), "share_btn"),
-                    callback_data=f"share:{period}")
-            ]])
+            rows.append([InlineKeyboardButton(
+                i18n.t(lang_of(update.effective_user.id, context), "share_btn"),
+                callback_data=f"share:{period}")])
+        if period == "oy":
+            rows.append([InlineKeyboardButton(
+                "📊 O'tgan oy bilan solishtirish", callback_data="cmp:oy")])
+        if rows:
+            markup = InlineKeyboardMarkup(rows)
         await update.effective_message.reply_text(
             text, parse_mode=ParseMode.HTML, reply_markup=markup)
 
@@ -1767,6 +1797,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data.startswith("rem:"):
         await on_reminder_callback(update, context)
+        return
+    if data.startswith("cmp:"):
+        await on_compare_callback(update, context)
         return
     if data.startswith("share:"):
         await on_share_callback(update, context)
@@ -3798,6 +3831,7 @@ COMMAND_SECTIONS = [
         ("oy", "Shu oylik hisobot"),
         ("otganoy", "O'tgan oylik hisobot"),
         ("yil", "Yillik hisobot"),
+        ("solishtir", "Shu oyni o'tgan oy bilan solishtirish"),
         ("csv", "Barcha yozuvlarni fayl qilib olish"),
     ]),
     ("\U0001F3E6", "Jamg'arma", [
@@ -4048,6 +4082,7 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("oy", _period_command("oy")))
     app.add_handler(CommandHandler("otganoy", _period_command("otgan_oy")))
     app.add_handler(CommandHandler("yil", _period_command("yil")))
+    app.add_handler(CommandHandler(["solishtir", "compare"], cmd_compare))
     app.add_handler(CommandHandler("oxirgi", cmd_recent))
     app.add_handler(CommandHandler("qarz", cmd_debts))
     app.add_handler(CommandHandler("ochir", cmd_delete))
