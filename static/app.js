@@ -182,6 +182,14 @@
     return `${d}-${MONTHS[m - 1]}`;
   }
 
+  /** "2028-03-31" -> "2028-yil mart" (maqsad bashorati uchun). */
+  function fmtMonthYear(iso) {
+    const MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul",
+                    "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
+    const [y, m] = iso.split("-").map(Number);
+    return `${y}-yil ${MONTHS[m - 1]}`;
+  }
+
   function toast(msg) {
     const el = document.getElementById("toast");
     el.textContent = msg;
@@ -648,6 +656,36 @@
     return (Math.abs(v - Math.round(v)) < 0.05 ? v.toFixed(0) : v.toFixed(1)) + "%";
   }
 
+  function renderGoalRow(g) {
+    const pct = g.percent || 0;
+    let html = `
+      <div class="cat-row">
+        <div class="cat-icon" style="background:${STATUS.jamgarma}22">${g.primary ? "⭐" : "🎯"}</div>
+        <div class="cat-info">
+          <div class="cat-name-row">
+            <span class="cat-name">${escapeHtml(g.name)}</span>
+            <span class="cat-amount">${fmtMoney(g.saved, "som")} / ${fmtMoney(g.amount, "som")}</span>
+          </div>
+          <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${Math.min(100, pct).toFixed(0)}%;background:${STATUS.jamgarma}"></div></div>
+        </div>
+        <div class="cat-share">${pct.toFixed(0)}%</div>
+      </div>`;
+    if (g.left <= 0) {
+      return html + '<div class="hint-row">🎉 Maqsadga yetdingiz!</div>';
+    }
+    if (g.forecast_locked) {
+      html += '<div class="hint-row">🔒 «Qachon erishaman» bashorati — PRO</div>';
+    } else if (g.eta) {
+      html += `<div class="hint-row">📈 Shu sur'atda <b>${fmtMonthYear(g.eta)}</b>da erishasiz</div>`;
+    } else if (g.pace === null) {
+      html += '<div class="hint-row">📈 Bashorat uchun kamida 2 haftalik jamg\'arma kerak</div>';
+    }
+    if (g.need_monthly) {
+      html += `<div class="hint-row">📅 ${fmtMonthYear(g.deadline)} gacha oyiga <b>${fmtMoney(g.need_monthly, "som")}</b> kerak</div>`;
+    }
+    return html;
+  }
+
   function renderSavingsBlock(hadMovement) {
     const s = state.savings;
     if (!s) return "";
@@ -664,29 +702,16 @@
         </div>
       </div>`;
 
-    if (s.goal > 0) {
-      const pct = s.percent || 0;
-      const note = s.goal_note ? ` — ${escapeHtml(s.goal_note)}` : "";
-      html += `
-        <div class="cat-row">
-          <div class="cat-icon" style="background:${STATUS.jamgarma}22">🎯</div>
-          <div class="cat-info">
-            <div class="cat-name-row">
-              <span class="cat-name">Maqsad${note}</span>
-              <span class="cat-amount">${fmtMoney(s.goal, "som")}</span>
-            </div>
-            <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${pct.toFixed(0)}%;background:${STATUS.jamgarma}"></div></div>
-          </div>
-          <div class="cat-share">${pct.toFixed(0)}%</div>
-        </div>`;
-      html += s.left > 0
-        ? `<div class="hint-row">Yetishga <b>${fmtMoney(s.left, "som")}</b> qoldi</div>`
-        : '<div class="hint-row">🎉 Maqsadga yetdingiz!</div>';
+    // Har bir maqsad: progress va (PRO'da) «qachon erishaman» bashorati.
+    const goals = s.goals || [];
+    if (goals.length) {
+      html += '<div class="section-label">Maqsadlar</div>';
+      goals.forEach((g) => { html += renderGoalRow(g); });
     } else {
       html += '<div class="hint-row">Maqsad qo\'yilmagan. Botda: '
-            + '<b>/maqsad 10 mln</b></div>';
+            + '<b>/maqsad Uy 300 mln 2028-mart</b></div>';
       html += `<div class="hint-row">Jamg'arma foizingiz: `
-            + `<b>${pctText(s.rate)}</b>. O'zgartirish: <b>/foiz 15</b></div>`;
+            + `<b>${pctText(s.rate)}</b>. O'zgartirish: <b>/foiz</b></div>`;
     }
 
     if (s.streak >= 2) {
@@ -916,7 +941,7 @@
     div.onclick = () => openDetailSheet({
       id: item.id, kind: item.kind, amount: item.amount, currency,
       category: "qarz", note: item.note, person: item.person, date: item.date,
-      receipt_id: null, settled: false,
+      receipt_id: null, settled: false, due: item.due || null,
     });
     return div;
   }
@@ -995,6 +1020,17 @@
       </button>`;
     });
 
+    // Qarzni qaytarish muddati — bir kun oldin va o'sha kuni eslatma (PRO).
+    if (canSettle && !tx.settled) {
+      const opts = [[1, "Ertaga"], [7, "1 hafta"], [14, "2 hafta"], [30, "1 oy"], [0, "Muddatsiz"]];
+      html += `<div class="sheet-row">
+        <div class="sheet-label">📅 Qaytarish muddati${tx.due ? ": " + fmtDate(tx.due) : ""}</div>
+        <div class="chip-grid" id="dueChips">
+          ${opts.map(([d, label]) => `<button class="chip" data-due="${d}">${label}</button>`).join("")}
+        </div>
+      </div>`;
+    }
+
     if (tx.receipt_id) {
       html += `<div id="receiptItems" class="sheet-row"><div class="sheet-label">🧾 Shu chekdagi boshqa mahsulotlar</div><div class="spinner">Yuklanmoqda…</div></div>`;
     }
@@ -1010,6 +1046,9 @@
 
     // Selektorlar faqat shu panel ichida — sahifadagi bir xil atributli
     // boshqa elementlarga tegmasligi uchun.
+    body.querySelectorAll("#dueChips .chip").forEach((chip) => {
+      chip.onclick = () => setDebtDue(tx.id, Number(chip.dataset.due));
+    });
     body.querySelectorAll("#catChips .chip").forEach((chip) => {
       chip.onclick = () => updateTxCategory(tx.id, chip.dataset.cat);
     });
@@ -1061,6 +1100,18 @@
       closeSheet("detailBackdrop");
       refreshAll();
     } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
+  }
+
+  async function setDebtDue(id, days) {
+    try {
+      await api(`/api/debts/${id}/due`, { method: "POST", body: { days } });
+      haptic("success"); toast(days ? "Muddat qo'yildi — eslataman" : "Muddat olib tashlandi");
+      closeSheet("detailBackdrop");
+      refreshAll();
+    } catch (e) {
+      if (e.paywall) { showPaywall(e.message); return; }
+      haptic("error"); toast("Xatolik: " + e.message);
+    }
   }
 
   async function settleDebt(id) {

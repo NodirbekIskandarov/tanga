@@ -432,7 +432,23 @@ def api_savings(user: dict = Depends(current_user)):
         out["percent"] = round(min(100.0, primary["saved"] / goal * 100), 1)
         out["left"] = primary["left"]
         out["goal_saved"] = primary["saved"]
-        out["goals_count"] = len(goals.list_goals(uid))
+
+    # Barcha maqsadlar — progress va (PRO'da) «qachon erishaman» bashorati.
+    forecast_ok = tiers.allows(user["access"], "goals_forecast")
+    out["goals"] = []
+    for g in goals.list_goals(uid):
+        item = {"id": g["id"], "name": g["name"], "amount": g["amount"],
+                "saved": g["saved"], "left": g["left"], "percent": g["percent"],
+                "deadline": g["deadline"], "primary": g["primary"],
+                "forecast_locked": not forecast_ok,
+                "eta": None, "pace": None, "need_monthly": None}
+        if forecast_ok and g["left"] > 0:
+            fc = goals.forecast(uid, g)
+            item["eta"] = fc["eta"].isoformat() if fc["eta"] else None
+            item["pace"] = round(fc["pace"], 2) if fc["pace"] is not None else None
+            item["need_monthly"] = (round(fc["need_monthly"], 2)
+                                    if fc["need_monthly"] else None)
+        out["goals"].append(item)
     return out
 
 
@@ -500,6 +516,7 @@ def _serialize_tx(row) -> dict:
         "category": row["category"], "note": row["note"],
         "person": row["person"], "receipt_id": row["receipt_id"],
         "settled": bool(row["settled"]),
+        "due": row["due_on"] if "due_on" in row.keys() else None,
     }
     # group_receipts=1 da chek qatori: mahsulotlar soni va do'kon.
     if "n" in row.keys():
@@ -551,6 +568,22 @@ def api_update_transaction(tx_id: int, body: TxUpdate, user: dict = Depends(curr
         learning.remember(user["user_id"], row["kind"], row["note"], body.category)
 
     return _serialize_tx(db.get_transaction(user["user_id"], tx_id))
+
+
+class DueBody(BaseModel):
+    # 0 — muddatsiz; aks holda bugundan necha kun keyin.
+    days: int = Field(ge=0, le=3650)
+
+
+@app.post("/api/debts/{tx_id}/due")
+def api_debt_due(tx_id: int, body: DueBody, user: dict = Depends(current_user)):
+    """Qarzni qaytarish muddati — botdagi «📅» tugmasi bilan bir xil (PRO)."""
+    if not tiers.allows(user["access"], "debt_reminders"):
+        _paywall(user, "debt_reminders")
+    due = tiers.today() + timedelta(days=body.days) if body.days else None
+    if not db.set_due(user["user_id"], tx_id, due):
+        raise HTTPException(404, "Ochiq qarz topilmadi")
+    return {"due": due.isoformat() if due else None}
 
 
 @app.post("/api/debts/{tx_id}/settle")

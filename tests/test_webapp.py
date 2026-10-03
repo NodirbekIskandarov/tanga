@@ -131,3 +131,40 @@ def test_receipt_is_one_row_in_mini_app_and_deletes_whole(client):
     assert client.delete("/api/receipts/rc2", headers=h).json()["deleted"] == 3
     assert db.get_receipt(57, "rc2") is None
     assert client.delete("/api/receipts/rc2", headers=h).status_code == 404
+
+
+def test_savings_lists_all_goals_with_forecast(client):
+    import goals
+    h = _user(58)
+    uy = goals.create(58, "Uy", 10_000_000, None)
+    goals.create(58, "Mashina", 5_000_000, None)
+    for days_ago in (60, 30):
+        db.add_transaction(58, "jamgarma", 1_000_000, "jamg'arma", "",
+                           occurred_on=(tiers.today() - timedelta(days=days_ago)).isoformat(),
+                           goal_id=uy)
+    data = client.get("/api/savings", headers=h).json()
+    names = [g["name"] for g in data["goals"]]
+    assert names == ["Uy", "Mashina"]
+    first = data["goals"][0]
+    assert first["primary"] and first["percent"] == 20 and first["eta"]
+    assert data["goal"] == 10_000_000                     # eski maydonlar ham
+
+    h_free = _user(59, free=True)
+    goals.create(59, "Uy", 10_000_000, None)
+    g = client.get("/api/savings", headers=h_free).json()["goals"][0]
+    assert g["forecast_locked"] and g["eta"] is None
+
+
+def test_debt_due_from_mini_app_is_pro(client):
+    h = _user(60)
+    debt = db.add_transaction(60, "qarz_berdim", 200_000, "qarz", "", "Akmal")
+    r = client.post(f"/api/debts/{debt}/due", headers=h, json={"days": 7})
+    assert r.json()["due"] == (tiers.today() + timedelta(days=7)).isoformat()
+    items = client.get("/api/debts", headers=h).json()["qarz_berdim"]["items"]["som"]
+    assert items[0]["due"] == r.json()["due"]
+    assert client.post(f"/api/debts/{debt}/due", headers=h, json={"days": 0}).json()["due"] is None
+
+    h_free = _user(61, free=True)
+    debt = db.add_transaction(61, "qarz_berdim", 200_000, "qarz", "", "Akmal")
+    r = client.post(f"/api/debts/{debt}/due", headers=h_free, json={"days": 7})
+    assert r.status_code == 402
