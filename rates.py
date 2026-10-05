@@ -19,7 +19,7 @@ import json
 import logging
 import urllib.error
 import urllib.request
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import config
 
@@ -68,7 +68,9 @@ def get(currency: str, day: date | None = None, *, allow_network: bool = True) -
     currency = (currency or "som").lower()
     if currency == "som":
         return 1.0
-    day = day or date.today()
+    # Toshkent sanasi: server boshqa mintaqada bo'lsa date.today()
+    # yarim tundan keyin kechagi kunni berardi.
+    day = day or datetime.now(config.TZ).date()
     key = (day.isoformat(), currency)
     if key in _memo:
         return _memo[key]

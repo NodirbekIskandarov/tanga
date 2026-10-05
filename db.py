@@ -533,7 +533,7 @@ def backfill_base(default_rate: float | None = None) -> int:
             try:
                 day = date.fromisoformat(r["occurred_on"])
             except (TypeError, ValueError):
-                day = date.today()
+                day = _now().date()
             try:
                 rate = rates_module.get(r["currency"], day)
             except Exception:
@@ -617,7 +617,8 @@ def add_transaction(
     goal_id: int | None = None,
     due_on: str | None = None,
 ) -> int:
-    occurred_on = occurred_on or date.today().isoformat()
+    # Toshkent sanasi — server boshqa mintaqada bo'lishi mumkin.
+    occurred_on = occurred_on or _now().date().isoformat()
     rate, amount_base = _base_of(amount, currency, occurred_on)
     with get_conn() as conn:
         cur = conn.execute(
@@ -1299,7 +1300,14 @@ def founders_taken() -> int:
 
 
 def grant_subscription(user_id: int, days: int) -> datetime:
-    """Obunani uzaytiradi. Amaldagi obuna bor bo'lsa uning ustiga qo'shiladi."""
+    """Obunani uzaytiradi. Amaldagi obuna bor bo'lsa uning ustiga qo'shiladi.
+
+    `warned_stage` nolga qaytariladi: yangi muddatning ogohlantirishlari
+    (3 va 1 kun qolganda) qaytadan yuborilishi kerak. Ilgari u qolib
+    ketardi va ikkinchi obunada «tugashiga 1 kun qoldi» xabari umuman
+    kelmasdi (users_expiring eski darajani «allaqachon yuborilgan» deb
+    hisoblardi). Admin panel ham xuddi shunday qiladi (store.py).
+    """
     with get_conn() as conn:
         row = conn.execute("SELECT subscribed_until FROM users WHERE user_id = ?",
                            (user_id,)).fetchone()
@@ -1310,8 +1318,8 @@ def grant_subscription(user_id: int, days: int) -> datetime:
             current = _parse_dt(row["subscribed_until"])
             base = current if current and current > _now() else _now()
         new_until = base + timedelta(days=days)
-        conn.execute("UPDATE users SET subscribed_until = ? WHERE user_id = ?",
-                     (new_until.isoformat(), user_id))
+        conn.execute("UPDATE users SET subscribed_until = ?, warned_stage = 0 "
+                     "WHERE user_id = ?", (new_until.isoformat(), user_id))
         return new_until
 
 
@@ -1336,10 +1344,12 @@ def add_subscription_request(user_id: int, plan_code: str, price: int) -> int:
             (user_id,),
         ).fetchone()
         if row:
+            # Vaqt yangi so'rovdagidek mahalliy ISO bilan: datetime('now')
+            # UTC beradi va admin panel/analitika sanani adashtirardi.
             conn.execute(
                 "UPDATE subscription_requests SET plan_code = ?, price = ?, "
-                "created_at = datetime('now') WHERE id = ?",
-                (plan_code, price, row["id"]),
+                "created_at = ? WHERE id = ?",
+                (plan_code, price, _now_local(), row["id"]),
             )
             return int(row["id"])
         cur = conn.execute(
@@ -1435,8 +1445,9 @@ def add_bonus_days(user_id: int, days: int) -> datetime:
         sub = _parse_dt(row["subscribed_until"])
         if sub and sub > now:
             until = sub + timedelta(days=days)
-            conn.execute("UPDATE users SET subscribed_until = ?, bonus_days = ? "
-                         "WHERE user_id = ?",
+            # Muddat surildi — ogohlantirishlar yangi sana uchun qaytadan.
+            conn.execute("UPDATE users SET subscribed_until = ?, bonus_days = ?, "
+                         "warned_stage = 0 WHERE user_id = ?",
                          (until.isoformat(timespec="seconds"),
                           (row["bonus_days"] or 0) + days, user_id))
         else:
@@ -2204,6 +2215,9 @@ def drain_erase_queue() -> int:
             conn.execute("DELETE FROM category_rules WHERE user_id = ?", (uid,))
             conn.execute("DELETE FROM goals WHERE user_id = ?", (uid,))
             conn.execute("DELETE FROM entry_counts WHERE user_id = ?", (uid,))
+            # Hodisalar ham iz: qachon start bosgani, qaysi paywall'ni
+            # ko'rgani. erase_user ularni o'chiradi — bu yerda ham shunday.
+            conn.execute("DELETE FROM events WHERE user_id = ?", (uid,))
         # Navbat qatorining o'zi ham qoldirilmaydi: unda foydalanuvchi
         # id si turadi, ya'ni u ham iz.
         conn.execute("DELETE FROM private_erase_queue WHERE done_at IS NULL")
@@ -2426,6 +2440,29 @@ def user_count() -> dict:
         ).fetchone()
         return {"total": int(r["total"] or 0), "blocked": int(r["blocked"] or 0),
                 "subscribed": int(r["subscribed"] or 0), "trial": int(r["trial"] or 0)}
+
+
+def monthly_totals(user_id: int, months: int = 12) -> list[dict]:
+    """Oxirgi `months` oy bo'yicha tur va valyuta kesimidagi jamlar.
+
+    AI savol-javobi uchun: xom yozuvlar ro'yxati QA_MAX_ROWS bilan
+    cheklangan, oylik jamlar esa SQL'da to'liq hisoblanadi — «yanvarda
+    qancha sarfladim» degan savolga javob yozuvlar soniga bog'liq
+    bo'lmasin. Valyutalar aralashtirilmaydi.
+    """
+    first = _now().date().replace(day=1)
+    for _ in range(max(0, months - 1)):
+        first = (first - timedelta(days=1)).replace(day=1)
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT substr(occurred_on, 1, 7) AS oy, kind, currency,
+                      ROUND(SUM(amount), 2) AS total, COUNT(*) AS n
+               FROM transactions
+               WHERE user_id = ? AND occurred_on >= ?
+               GROUP BY oy, kind, currency
+               ORDER BY oy""",
+            (user_id, first.isoformat())).fetchall()
+    return [dict(r) for r in rows]
 
 
 def rows_for_ai(user_id: int, limit: int) -> list[sqlite3.Row]:

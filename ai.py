@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from anthropic import AsyncAnthropic
@@ -13,6 +13,11 @@ from anthropic import AsyncAnthropic
 import config
 
 log = logging.getLogger(__name__)
+
+
+def _today() -> date:
+    """Toshkent bo'yicha bugun (server mintaqasidan qat'i nazar)."""
+    return datetime.now(config.TZ).date()
 
 _client: AsyncAnthropic | None = None
 
@@ -339,7 +344,7 @@ async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
 
     Qaytaradi: {"niyat": str, "yozuvlar": [ ... ], "izoh_matni": str}
     """
-    today = today or date.today()
+    today = today or _today()
 
     resp = await client().messages.create(
         model=config.PARSE_MODEL,
@@ -806,7 +811,7 @@ async def parse_receipt(
     Aniqlik uchun ikki bosqich: agar mahsulotlar yig'indisi chekdagi JAMI bilan
     mos kelmasa, model rasmni farq haqida xabardor qilingan holda qayta o'qiydi.
     """
-    today = today or date.today()
+    today = today or _today()
 
     payload, usage = await _receipt_call(images, today, caption)
     if payload is None:
@@ -887,6 +892,9 @@ QA_SYSTEM = (
     "- MUHIM: 'hisoblangan' bo'limida tayyor jamlanmalar berilgan — ular dastur "
     "tomonidan aniq hisoblangan. Savol shu jamlanmalar bilan javob berilsa, "
     "sonlarni O'ZING QAYTA QO'SHMA, tayyorini ol.\n"
+    "- 'Oxirgi yozuvlar' ro'yxati faqat eng so'nggi yozuvlar — u to'liq "
+    "bo'lmasligi mumkin. Davr jamlari uchun HAR DOIM tayyor jamlanmalar va "
+    "oylar bo'yicha jamlarni ishlat, xom ro'yxatni qo'shib chiqma.\n"
     "- Faqat tayyor jamlanmada yo'q narsani hisoblashing kerak bo'lsa, "
     "qo'shishni bosqichma-bosqich va diqqat bilan bajar.\n"
     "- MUHIM: som va dollar summalarini HECH QACHON bir-biriga qo'shma yoki "
@@ -963,22 +971,50 @@ def _aggregate(rows) -> dict[str, Any]:
     }
 
 
+def _monthly_json(monthly: list[dict]) -> str:
+    """{oy: {valyuta: {tur: summa}}} — oylik jamlar, valyutalar alohida."""
+    out: dict[str, dict[str, dict[str, float]]] = {}
+    for m in monthly:
+        bucket = out.setdefault(m["oy"], {}).setdefault(m["currency"], {})
+        bucket[m["kind"]] = float(m["total"])
+    return json.dumps(out, ensure_ascii=False, indent=1)
+
+
 async def answer_question(
-    question: str, rows, today: date | None = None
+    question: str, rows, today: date | None = None,
+    summary_rows=None, monthly: list[dict] | None = None,
 ) -> tuple[str, dict[str, Any] | None]:
-    """Qaytaradi: (javob matni, token sarfi). Sarf None bo'lsa API chaqirilmagan."""
-    today = today or date.today()
-    if not rows:
+    """Qaytaradi: (javob matni, token sarfi). Sarf None bo'lsa API chaqirilmagan.
+
+    rows         — oxirgi xom yozuvlar (QA_MAX_ROWS bilan cheklangan);
+    summary_rows — jamlanma hisoblanadigan davrning BARCHA yozuvlari
+                   (o'tgan oy boshidan bugungacha). Ilgari jamlanma `rows`
+                   dan olinardi va ko'p yozadigan odamda «bu oy qancha
+                   sarfladim» degan savolga to'liq bo'lmagan son chiqardi;
+    monthly      — oxirgi 12 oyning tur/valyuta bo'yicha jamlari (SQL).
+    """
+    today = today or _today()
+    if not rows and not summary_rows:
         return "Hozircha bazada yozuv yo'q. Avval bir nechta xarajat yozing.", None
 
-    content = (
+    agg_rows = summary_rows if summary_rows is not None else rows
+    period = ""
+    if summary_rows is not None:
+        period = " — o'tgan oy boshidan bugungacha, BARCHA yozuvlar bo'yicha"
+    parts = [
         f"Bugungi sana: {today.isoformat()}\n"
-        f"Valyutalar: som ({config.CURRENCY}) va usd ($) — alohida-alohida.\n\n"
-        f"Tayyor jamlanmalar (dastur aniq hisoblagan):\n"
-        f"{json.dumps(_aggregate(rows), ensure_ascii=False, indent=1)}\n\n"
-        f"Yozuvlar (JSON):\n{_rows_to_json(rows)}\n\n"
-        f"Savol: {question}"
-    )
+        f"Valyutalar: som ({config.CURRENCY}) va usd ($) — alohida-alohida.\n",
+        f"Tayyor jamlanmalar (dastur aniq hisoblagan{period}):\n"
+        f"{json.dumps(_aggregate(agg_rows), ensure_ascii=False, indent=1)}\n",
+    ]
+    if monthly:
+        parts.append("Oylar bo'yicha jamlar (oxirgi 12 oy, to'liq; "
+                     "{oy: {valyuta: {turi: summa}}}):\n"
+                     f"{_monthly_json(monthly)}\n")
+    parts.append(f"Oxirgi yozuvlar (JSON, eng ko'pi {len(rows)} ta — "
+                 f"to'liq ro'yxat bo'lmasligi mumkin):\n{_rows_to_json(rows)}\n")
+    parts.append(f"Savol: {question}")
+    content = "\n".join(parts)
 
     # Sonnet 5'da adaptiv "thinking" sukut bo'yicha yoqilgan va max_tokens
     # o'ylash + javobni birgalikda cheklaydi — shuning uchun chegara keng.

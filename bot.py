@@ -476,7 +476,8 @@ def private_only(func):
     Kirish huquqidan keyin roziligi ham tekshiriladi.
     """
     @wraps(func)
-    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                      *args, **kwargs):
         user = update.effective_user
         if user is None:
             return
@@ -491,7 +492,7 @@ def private_only(func):
                 and not await _consent_ok(update, context):
             return
 
-        return await func(update, context)
+        return await func(update, context, *args, **kwargs)
 
     return wrapper
 
@@ -1399,6 +1400,12 @@ async def _process_receipt(update: Update, context, images: list, caption: str):
         reply_markup=receipt_keyboard(receipt_id),
     )
 
+    # Byudjet: chek mahsulotlari ham chiqim. Ilgari faqat matnli yozuv
+    # tekshirilardi — eng katta xaridlar (supermarket cheki) chegaradan
+    # oshsa ham ogohlantirish kelmasdi.
+    await check_budget_alerts(
+        context, user_id, {item["kategoriya"] for item in data["mahsulotlar"]})
+
     await _celebrate(update, context, message, len(data["mahsulotlar"]))
 
 
@@ -1521,13 +1528,46 @@ MENU_ACTIONS: dict = {}
 MENU_HANDLERS: dict = {}
 
 
-@private_only
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message = update.message
+    message = update.effective_message
+    user = update.effective_user
+    if message is None or user is None:
+        return
     text = (message.text or "").strip()
     if not text:
         return
 
+    # Hisobni o'chirishning oxirgi bosqichi kirish va rozilik
+    # darvozasidan OLDIN turadi: /ochirish rozilikdan oldin ham ochiq
+    # (cmd_erase), demak uning tasdiq so'zi ham shunday bo'lishi kerak.
+    # Aks holda rozilik bermagan (yoki shartlar versiyasi yangilangan)
+    # odam o'chirishni boshlab, oxiriga yetkaza olmasdi.
+    if _erase_typed.get(user.id):
+        await _finish_erase(update, context, text, message)
+        return
+
+    await _on_text_gated(update, context, text, message)
+
+
+async def _finish_erase(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                        text: str, message) -> None:
+    """Foydalanuvchi o'chirish so'zini yozdi — tekshirib, hisobni o'chiradi."""
+    user_id = update.effective_user.id
+    _erase_typed.pop(user_id, None)
+    lang = lang_of(user_id, context)
+    if text.strip().casefold() == i18n.t(lang, "erase_word").casefold():
+        stats = db.erase_user(user_id)
+        await message.reply_text(
+            i18n.t(lang, "erase_done", n=stats["transactions"]),
+            parse_mode=ParseMode.HTML)
+        log.info("Foydalanuvchi o'z hisobini o'chirdi: %s", user_id)
+    else:
+        await message.reply_text(i18n.t(lang, "erase_wrong_word"))
+
+
+@private_only
+async def _on_text_gated(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                         text: str, message) -> None:
     action = MENU_ACTIONS.get(text)
     if action:
         await action(update, context)
@@ -1546,21 +1586,8 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
     message = message or update.effective_message
     user_id = update.effective_user.id
 
-    # Hisobni o'chirishning oxirgi bosqichi. Bu tekshiruv HAMMASIDAN
-    # oldin turadi: kutilayotgan matn yozuv sifatida tahlil qilinib
-    # ketmasin.
-    if _erase_typed.get(user_id):
-        _erase_typed.pop(user_id, None)
-        lang = lang_of(user_id, context)
-        if text.strip().casefold() == i18n.t(lang, "erase_word").casefold():
-            stats = db.erase_user(user_id)
-            await message.reply_text(
-                i18n.t(lang, "erase_done", n=stats["transactions"]),
-                parse_mode=ParseMode.HTML)
-            log.info("Foydalanuvchi o'z hisobini o'chirdi: %s", user_id)
-        else:
-            await message.reply_text(i18n.t(lang, "erase_wrong_word"))
-        return
+    # Hisobni o'chirish so'zi bu yerga kelmaydi — on_text uni kirish
+    # darvozasidan oldin ushlaydi (_finish_erase).
 
     # «➕ Yangi maqsad» bosilgan bo'lsa — bu xabar maqsadning o'zi.
     if context.user_data.pop("await_goal", False):
@@ -1599,8 +1626,16 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
         if qa_id is None:
             return
         try:
+            today = reports.today()
             rows = db.rows_for_ai(user_id, config.QA_MAX_ROWS)
-            answer, qa_usage = await ai.answer_question(text, rows, today=reports.today())
+            # Jamlanma to'liq davr bo'yicha: o'tgan oy boshidan bugungacha
+            # barcha yozuvlar va 12 oylik jamlar — xom ro'yxat cheklangan.
+            prev_start = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+            summary_rows = db.list_range(user_id, prev_start, today)
+            monthly = db.monthly_totals(user_id)
+            answer, qa_usage = await ai.answer_question(
+                text, rows, today=today, summary_rows=summary_rows,
+                monthly=monthly)
         except Exception:
             log.exception("AI javobida xatolik")
             db.usage_cancel(qa_id)
@@ -1874,7 +1909,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Tugagach «✅ Tayyor» bosing — chek boshidan qayta hisoblanadi."
         )
         await query.message.reply_text(
-            "Qolgan qismlarni kutyapman…", reply_markup=COLLECT_MENU
+            "Qolgan qismlarni kutyapman…",
+            reply_markup=collect_menu(lang_of(user_id, context)),
         )
         return
 
@@ -2609,10 +2645,15 @@ def _cushion_line(user_id: int, lang: str, balance: float) -> str:
     if monthly < 1:
         return ""
     months = balance / monthly
-    if months < 1:
-        text = f"{months * 30:.0f} kun" if lang == "uz" else f"{months * 30:.0f} дней"
+    # Qiymat t() ga tayyor holda beriladi (o'rin to'ldirgichlar
+    # transliteratsiyadan keyin qo'yiladi) — shuning uchun kirill
+    # o'zbekchasi shu yerda o'giriladi. Ilgari «uzc» ruscha so'z olardi.
+    if lang == "ru":
+        text = (f"{months * 30:.0f} дней" if months < 1
+                else f"{months:.1f} мес.")
     else:
-        text = f"{months:.1f} oy" if lang == "uz" else f"{months:.1f} мес."
+        text = i18n.cyr(lang, f"{months * 30:.0f} kun" if months < 1
+                        else f"{months:.1f} oy")
     return i18n.t(lang, "savings_cushion",
                   monthly=reports.fmt_money(monthly, "som"), months=text)
 
@@ -2817,9 +2858,14 @@ async def on_savings_add_callback(update: Update, context: ContextTypes.DEFAULT_
         offer = {"amount": offer, "goal_id": None}
     amount = offer["amount"]
 
+    # Sana ochiq beriladi (Toshkent bo'yicha bugun): server boshqa
+    # mintaqada bo'lsa, yarim tundan keyingi soatlarda yozuv kechagi
+    # sanaga tushib qolardi.
+    today = reports.today().isoformat()
     await asyncio.to_thread(
         lambda: db.add_transaction(
             user_id, config.KIND_JAMGARMA, float(amount), "jamg'arma", "",
+            occurred_on=today,
             raw_text="avval o'zingizga to'lang", currency="som",
             goal_id=offer["goal_id"]))
     balance = await asyncio.to_thread(db.savings_balance, user_id)
@@ -4104,7 +4150,13 @@ def register_handlers(app) -> None:
     app.add_handler(CommandHandler("tayyor", cmd_collect_done))
     app.add_handler(CommandHandler("bekor", cmd_collect_cancel))
     app.add_handler(CallbackQueryHandler(on_callback))
-    app.add_handler(MessageHandler(filters.PHOTO | filters.Document.IMAGE, on_photo))
+    # PDF ham shu yerdan o'tadi: bank kvitansiyasi (to'lov cheki) va
+    # do'kon cheki ko'pincha PDF bo'ladi. Ba'zi mijozlar PDF'ni noto'g'ri
+    # MIME turi bilan yuboradi — kengaytma bo'yicha ham qabul qilinadi
+    # (on_photo ichida _guess_pdf xuddi shunday tekshiradi).
+    app.add_handler(MessageHandler(
+        filters.PHOTO | filters.Document.IMAGE | filters.Document.PDF
+        | filters.Document.FileExtension("pdf"), on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
     schedule_jobs(app)
