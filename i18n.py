@@ -95,6 +95,19 @@ T = {
                "Теперь запишите доход (<i>«зарплата 8 млн»</i>) "
                "или поставьте цель: 🎯 Цели."),
     },
+    # Onboarding (K7): /start dan keyin va 2 soatdan keyin bitta eslatma.
+    "try_prompt": {
+        "uz": "Yoki shu misolni bir bosishda sinab ko'ring 👇",
+        "ru": "Или попробуйте этот пример одним нажатием 👇",
+    },
+    "first_entry_nudge": {
+        "uz": ("👋 Birinchi yozuvingizni kutyapman.\n\n"
+               "Bugun nimaga pul ketdi? Shunchaki yozing — masalan "
+               "<i>«taksi 20 ming»</i>. Yoki pastdagi misolni bosing 👇"),
+        "ru": ("👋 Жду вашу первую запись.\n\n"
+               "На что сегодня ушли деньги? Просто напишите — например "
+               "<i>«такси 20 тысяч»</i>. Или нажмите пример ниже 👇"),
+    },
     "guide_menu": {
         "uz": ("📖 <b>Qo'llanma</b>\n\nKerakli bo'limni tanlang.\n"
                "<i>Tez boshlash: shunchaki yozing — «taksiga 25 ming».</i>"),
@@ -149,7 +162,8 @@ T = {
                "1️⃣ Yuqoridagi kartaga <b>{price}</b> o'tkazing\n"
                "2️⃣ To'lov chekini shu yerga yuboring — <b>skrinshot rasm "
                "yoki PDF</b>\n"
-               "3️⃣ Admin tekshirib tasdiqlaydi — obunangiz darhol faollashadi\n\n"
+               "3️⃣ Admin tekshirib tasdiqlaydi (odatda bir necha soat ichida) — "
+               "shundan keyin obuna faollashadi\n\n"
                "<i>Karta raqamini bosib nusxa olishingiz mumkin.</i>\n"
                "Savol bo'lsa: {contact}"),
         "ru": ("Тариф: <b>{plan}</b>\n"
@@ -162,7 +176,8 @@ T = {
                "<b>Что дальше:</b>\n"
                "1️⃣ Переведите <b>{price}</b> на карту выше\n"
                "2️⃣ Отправьте чек сюда — <b>скриншот или PDF</b>\n"
-               "3️⃣ Администратор проверит — подписка активируется сразу\n\n"
+               "3️⃣ Администратор проверит (обычно в течение нескольких часов) — "
+               "после этого подписка активируется\n\n"
                "<i>Нажмите на номер карты, чтобы скопировать.</i>\n"
                "Вопросы: {contact}"),
     },
@@ -419,63 +434,47 @@ T = {
     },
 
     # ---- Rozilik (shaxsiy ma'lumotni qayta ishlashdan oldin) ----
+    # Rozilik ekrani (K6): qisqa — nima qilaman, misol, ma'lumot qanday
+    # saqlanadi va to'liq matnga havola. Ilgari ~20 qatorli huquqiy matn
+    # edi va /start bosganlarning uchdan biri shu ekranda ketib qolardi.
+    # To'liq siyosat va shartlar o'chirilmagan: ular shu xabardagi
+    # buyruqlar va tugmalar orqali bir bosishda ochiladi.
     "consent": {
-        "uz": ("👋 <b>Boshlashdan oldin</b>\n\n"
-               "Men sizning moliyaviy yozuvlaringizni saqlayman va tahlil "
-               "qilaman. Qonun talabiga ko'ra buni boshlashdan oldin "
-               "roziligingizni olishim kerak.\n\n"
-               "<b>Nima saqlanadi</b>\n"
-               "Telegram ID va ismingiz, siz yozgan summalar, kategoriyalar, "
-               "izohlar, qarzdorlar ismi, shaxsiy jamg'armangiz, obuna va "
-               "to'lov tarixi.\n\n"
-               "<b>Qayerda saqlanadi</b>\n"
-               "Yevropadagi ijaraga olingan serverda (Fransiya). Summalar, "
-               "kategoriyalar va izohlar <b>alohida shifrlangan bazada</b> "
-               "turadi — uning kaliti admin panelda yo'q, ya'ni ularni "
-               "sizdan boshqa hech kim ochib ko'ra olmaydi. Har kuni "
-               "shifrlangan zaxira nusxa olinadi.\n\n"
-               "<b>Kimga uzatiladi</b>\n"
-               "Yozganingizni tushunish uchun matn va chek rasmi "
-               "<b>Anthropic</b> (AQSh) xizmatiga yuboriladi. U yerda "
-               "saqlanmaydi va modelni o'qitishga ishlatilmaydi. Boshqa hech "
-               "kimga berilmaydi va sotilmaydi.\n\n"
-               "<b>Sizning huquqlaringiz</b>\n"
-               "• /csv — barcha ma'lumotingizni yuklab olish\n"
-               "• /ochirish — hisobni va butun tarixni butunlay o'chirish\n"
-               "• /maxfiylik — to'liq siyosat\n"
-               "• /shartlar — xizmat shartlari va to'lov qoidalari\n\n"
-               "<b>Muhim:</b> men moliyaviy maslahat bermayman — faqat "
-               "sizning yozuvlaringizni hisoblab beraman.\n\n"
-               "Davom etish uchun roziligingizni bildiring 👇"),
-        "ru": ("👋 <b>Перед началом</b>\n\n"
-               "Я храню и анализирую ваши финансовые записи. По закону я "
-               "обязан получить ваше согласие до начала обработки.\n\n"
-               "<b>Что хранится</b>\n"
-               "Telegram ID и имя, введённые вами суммы, категории, "
-               "комментарии, имена должников, ваши накопления, история "
-               "подписки и оплат.\n\n"
-               "<b>Где хранится</b>\n"
-               "На арендованном сервере в Европе (Франция). Суммы, "
-               "категории и комментарии хранятся в <b>отдельной "
-               "зашифрованной базе</b> — ключа от неё нет в админ-панели, "
-               "то есть открыть их не может никто, кроме вас. Каждый день "
-               "создаётся зашифрованная резервная копия.\n\n"
-               "<b>Кому передаётся</b>\n"
-               "Чтобы понять написанное, текст и фото чека отправляются в "
-               "сервис <b>Anthropic</b> (США). Там они не сохраняются и не "
-               "используются для обучения модели. Больше никому не "
-               "передаются и не продаются.\n\n"
-               "<b>Ваши права</b>\n"
-               "• /csv — скачать все свои данные\n"
-               "• /ochirish — полностью удалить аккаунт и всю историю\n"
-               "• /maxfiylik — полная политика\n"
-               "• /shartlar — условия сервиса и правила оплаты\n\n"
-               "<b>Важно:</b> я не даю финансовых советов — только считаю "
-               "ваши записи.\n\n"
-               "Чтобы продолжить, подтвердите согласие 👇"),
+        "uz": ("👋 <b>Salom! Men Tanga</b> — xarajatlaringizni oddiy tilda "
+               "yozasiz, men hisoblab beraman.\n"
+               "Masalan: <i>«obedga 45 ming»</i> → 🔻 45 000 so'm · 🍽 kafe "
+               "va restoran\n\n"
+               "🔒 Yozuvlaringiz shifrlangan holda saqlanadi va hech kimga "
+               "sotilmaydi. Matnni tushunish uchun u AI xizmatiga "
+               "(Anthropic) yuboriladi.\n\n"
+               "«Boshlash» bilan /maxfiylik siyosati va /shartlar ga rozilik "
+               "bildirasiz."),
+        "ru": ("👋 <b>Здравствуйте! Я Tanga</b> — пишите расходы обычным "
+               "текстом, я всё посчитаю.\n"
+               "Например: <i>«обед 45 тысяч»</i> → 🔻 45 000 сум · 🍽 кафе "
+               "и рестораны\n\n"
+               "🔒 Записи хранятся в зашифрованном виде и никому не "
+               "продаются. Чтобы понять текст, он отправляется в "
+               "AI-сервис (Anthropic).\n\n"
+               "Нажимая «Начать», вы соглашаетесь с /maxfiylik (политика "
+               "конфиденциальности) и /shartlar (условия)."),
     },
-    "consent_yes": {"uz": "✅ Roziman, davom etamiz",
-                    "ru": "✅ Согласен, продолжим"},
+    # Shartlar versiyasi oshganda roziligi eskirgan foydalanuvchiga: u
+    # botni taniydi, unga tanishtiruv emas, nima o'zgargani kerak.
+    "consent_updated": {
+        "uz": ("🔄 <b>Maxfiylik siyosati yangilandi</b>\n\n"
+               "Ma'lumot qanday saqlanishi, zaxira nusxalar va AI xizmati "
+               "haqidagi matn aniqlashtirildi. /csv endi hamma uchun bepul.\n\n"
+               "«Davom etish» bilan yangilangan /maxfiylik va /shartlar ga "
+               "rozilik bildirasiz. Rozi bo'lmasangiz — /ochirish."),
+        "ru": ("🔄 <b>Политика конфиденциальности обновлена</b>\n\n"
+               "Уточнено, как хранятся данные, резервные копии и как "
+               "используется AI-сервис. /csv теперь бесплатен для всех.\n\n"
+               "Нажимая «Продолжить», вы соглашаетесь с обновлёнными "
+               "/maxfiylik и /shartlar. Если не согласны — /ochirish."),
+    },
+    "consent_yes": {"uz": "✅ Boshlash", "ru": "✅ Начать"},
+    "consent_yes_again": {"uz": "✅ Davom etish", "ru": "✅ Продолжить"},
     "consent_privacy": {"uz": "🔒 Maxfiylik", "ru": "🔒 Конфиденциальность"},
     "consent_terms": {"uz": "📄 Shartlar", "ru": "📄 Условия"},
     "consent_done": {"uz": "Rahmat! Endi boshlaymiz.",
@@ -574,123 +573,116 @@ T = {
     },
 
     # ---- Maxfiylik siyosati ----
+    # Maxfiylik siyosati. Har bir da'vo haqiqatga mos bo'lishi SHART —
+    # 2026-10 auditida bu yerda uchta noto'g'ri va'da topilgan edi
+    # («sizdan boshqa hech kim», «Anthropic'da darhol o'chadi», «parol
+    # bilan kirish o'chirilgan»). Infratuzilma o'zgarsa — matn ham.
     "privacy": {
         "uz": ("🔒 <b>MAXFIYLIK SIYOSATI</b>\n\n"
                "<b>Qanday ma'lumot saqlanadi</b>\n"
                "• Telegram ID, ismingiz va username\n"
-               "• Siz yozgan xarajat/kirim yozuvlari: summa, kategoriya, "
-               "izoh, sana\n"
+               "• Siz yozgan yozuvlar: summa, kategoriya, izoh, sana\n"
                "• Qarz yozuvlarida siz ko'rsatgan shaxs ismi\n"
-               "• Shaxsiy jamg'arma yozuvlari, maqsadingiz va "
-               "jamg'arma uchun alohida kartangiz bor-yo'qligi\n"
-               "• Obuna muddati va to'lov tarixi\n\n"
-               "<b>Qanday saqlanadi \u2014 shifrlangan</b>\n"
-               "Hamma ma'lumot diskda <b>shifrlangan</b> holda yotadi. "
-               "Baza fayli o'g'irlansa ham kalitisiz ochilmaydi \u2014 "
-               "ichida faqat tushunarsiz belgilar ko'rinadi.\n\n"
-               "Moliyaviy yozuvlaringiz \u2014 summa, kategoriya, izoh \u2014 "
-               "bundan tashqari <b>alohida faylda, alohida kalit</b> bilan "
-               "saqlanadi. O'sha kalit admin panelda umuman yo'q, ya'ni "
-               "ularni sizdan boshqa hech kim ochib ko'ra olmaydi.\n\n"
-               "Har kunlik zaxira nusxa ham shifrlangan (AES-256).\n\n"
-               "<b>Chek rasmlari</b>\n"
-               "Chek suratini yuborsangiz, u <b>faqat o'qish uchun</b> "
-               "Anthropic (AQSh) serveriga yuboriladi. Rasm bizda ham, u "
-               "yerda ham saqlanmaydi — o'qilgandan keyin darhol o'chadi. "
-               "Faqat undan chiqqan <b>matnli yozuvlar</b> sizning "
-               "bazangizda qoladi.\n\n"
-               "Yozgan matnlaringiz ham xuddi shu tarzda tahlil uchun "
-               "yuboriladi. Anthropic bu ma'lumotni modelni o'qitishga "
-               "ishlatmaydi.\n\n"
+               "• Jamg'arma yozuvlari va maqsadlaringiz\n"
+               "• Obuna muddati va to'lov tarixi\n"
+               "• Botdan foydalanish statistikasi (qachon kirgansiz, nechta "
+               "yozuv) — summalarsiz\n\n"
+               "<b>Qanday saqlanadi</b>\n"
+               "Hamma ma'lumot diskda <b>shifrlangan</b> (SQLCipher). "
+               "Moliyaviy yozuvlaringiz — summa, kategoriya, izoh — "
+               "<b>alohida faylda, alohida kalit</b> bilan saqlanadi. Bu "
+               "kalit admin panelda yo'q: panel orqali ularni hech kim "
+               "ko'ra olmaydi, administrator faqat yozuvlar SONINI "
+               "ko'radi.\n"
+               "Kalit serverda, botning o'zida turadi — bot yozuvlaringizni "
+               "sizga ko'rsatishi uchun ularni ochishi kerak. Ular hech "
+               "kimga sotilmaydi va berilmaydi.\n\n"
+               "<b>AI xizmati (Anthropic, AQSh)</b>\n"
+               "Yozganingizni tushunish uchun matn va chek rasmi Anthropic "
+               "API'siga yuboriladi. Anthropic bu ma'lumotni modelni "
+               "o'qitishga ishlatmaydi; xavfsizlik nazorati uchun 30 "
+               "kungacha saqlashi mumkin. Chek rasmi bizning serverda "
+               "saqlanmaydi — undan chiqqan matnli yozuvlargina qoladi.\n\n"
                "<b>Kim ko'ra oladi</b>\n"
-               "• <b>Faqat siz</b> — bot va boshqaruv paneli orqali\n"
-               "• Administrator sizning summalaringiz, kategoriyalaringiz "
-               "va izohlaringizni <b>ko'ra olmaydi</b>. Bu va'da emas, "
-               "texnik to'siq: yozuvlar alohida shifrlangan bazada "
-               "saqlanadi va uning kaliti admin panelda umuman yo'q. "
-               "Adminга faqat yozuvlar SONI ko'rinadi — obuna va limitni "
-               "hal qilish uchun shu yetadi.\n"
-               "• Boshqa foydalanuvchilar sizning ma'lumotingizni "
-               "<b>hech qachon</b> ko'rmaydi. Har bir yozuv Telegram ID "
-               "bo'yicha ajratilgan.\n\n"
+               "• Siz — bot va Mini App orqali\n"
+               "• Admin panel orqali — hech kim (faqat yozuvlar soni)\n"
+               "• Boshqa foydalanuvchilar — hech qachon: har bir yozuv "
+               "Telegram ID bo'yicha ajratilgan\n\n"
                "<b>Qayerda saqlanadi</b>\n"
-               "Fransiyadagi ijaraga olingan serverda (Contabo). Kirish "
-               "faqat SSH kaliti orqali, parol bilan kirish o'chirilgan. "
-               "Baza diskda shifrlangan holda yotadi (SQLCipher), "
-               "moliyaviy yozuvlar esa alohida fayl va alohida kalit "
-               "bilan. Har kuni AES-256 bilan shifrlangan zaxira nusxa "
-               "olinadi.\n\n"
+               "Fransiyadagi ijaraga olingan serverda (Contabo).\n\n"
+               "<b>Zaxira nusxalar</b>\n"
+               "Har kuni shifrlangan (AES-256) zaxira nusxa olinadi. "
+               "Serverda 14 kun saqlanadi; nusxa xizmat egasining "
+               "Telegram'iga ham yuboriladi va u yerda qo'lda "
+               "o'chirilgunicha turadi. Nusxani ochish uchun alohida "
+               "kalitlar kerak.\n\n"
                "<b>Qancha saqlanadi</b>\n"
-               "Siz o'chirmaguningizcha. /ochirish bosilganda darhol va "
-               "butunlay o'chiriladi; zaxira nusxalar 14 kun ichida "
-               "almashib ketadi.\n\n"
+               "Siz o'chirmaguningizcha. /ochirish bosilganda ma'lumot "
+               "asosiy bazadan darhol va butunlay o'chiriladi. Undan "
+               "oldin olingan shifrlangan zaxira nusxalarda qolishi "
+               "mumkin (yuqoriga qarang).\n\n"
                "<b>Sizning huquqlaringiz</b>\n"
-               "• /csv — barcha ma'lumotingizni fayl qilib olish\n"
-               "• /ochirish — hisobni va butun tarixni butunlay o'chirish "
-               "(darhol va qaytarib bo'lmaydigan tarzda)\n"
+               "• /csv — barcha ma'lumotingizni fayl qilib olish (bepul)\n"
+               "• /ochirish — hisobni va butun tarixni o'chirish\n"
                "• Roziligingizni istalgan paytda qaytarib olishingiz "
                "mumkin — buning uchun /ochirish bosing\n\n"
                "<b>To'lov</b>\n"
                "Karta ma'lumotlaringiz bizga kelmaydi. Siz o'zingiz "
-               "o'tkazma qilasiz va faqat chek skrinshotini yuborasiz.\n\n"
+               "o'tkazma qilasiz va chek skrinshotini yuborasiz; u "
+               "Telegram'da qoladi, administrator uni tekshirish uchun "
+               "ochadi.\n\n"
                "Savol: {contact}"),
         "ru": ("🔒 <b>ПОЛИТИКА КОНФИДЕНЦИАЛЬНОСТИ</b>\n\n"
                "<b>Какие данные хранятся</b>\n"
                "• Telegram ID, имя и username\n"
-               "• Ваши записи расходов/доходов: сумма, категория, "
-               "комментарий, дата\n"
+               "• Ваши записи: сумма, категория, комментарий, дата\n"
                "• Имя человека, указанное в записях о долге\n"
-               "• Записи о накоплениях, ваша цель и наличие отдельной "
-               "карты для накоплений\n"
-               "• Срок подписки и история оплат\n\n"
-               "<b>Как хранится \u2014 в зашифрованном виде</b>\n"
-               "Все данные лежат на диске <b>зашифрованными</b>. "
-               "Даже если файл базы украдут, "
-               "без ключа его не открыть.\n\n"
-               "Ваши финансовые записи \u2014 сумма, "
-               "категория, комментарий \u2014 кроме того "
-               "хранятся <b>в отдельном файле с отдельным "
-               "ключом</b>. Этого ключа нет в админ-панели "
-               "вообще \u2014 открыть их не может никто, "
-               "кроме вас.\n\n"
-               "Ежедневная резервная копия тоже "
-               "зашифрована (AES-256).\n\n"
-               "<b>Фото чеков</b>\n"
-               "Отправленное фото чека передаётся на сервер Anthropic (США) "
-               "<b>только для распознавания</b>. Изображение не хранится ни "
-               "у нас, ни там — удаляется сразу после прочтения. В вашей "
-               "базе остаются только полученные <b>текстовые записи</b>.\n\n"
-               "Ваши текстовые сообщения передаются на анализ так же. "
-               "Anthropic не использует эти данные для обучения модели.\n\n"
+               "• Записи о накоплениях и ваши цели\n"
+               "• Срок подписки и история оплат\n"
+               "• Статистика использования (когда заходили, сколько "
+               "записей) — без сумм\n\n"
+               "<b>Как хранится</b>\n"
+               "Все данные на диске <b>зашифрованы</b> (SQLCipher). "
+               "Финансовые записи — сумма, категория, комментарий — "
+               "хранятся <b>в отдельном файле с отдельным ключом</b>. "
+               "Этого ключа нет в админ-панели: через панель их не может "
+               "увидеть никто, администратор видит только КОЛИЧЕСТВО "
+               "записей.\n"
+               "Ключ хранится на сервере, у самого бота — чтобы показать "
+               "вам ваши записи, бот должен их открыть. Записи никому не "
+               "продаются и не передаются.\n\n"
+               "<b>AI-сервис (Anthropic, США)</b>\n"
+               "Чтобы понять написанное, текст и фото чека отправляются в "
+               "API Anthropic. Anthropic не использует эти данные для "
+               "обучения модели; для контроля безопасности может хранить "
+               "их до 30 дней. Фото чека на нашем сервере не хранится — "
+               "остаются только полученные текстовые записи.\n\n"
                "<b>Кто может видеть</b>\n"
-               "• <b>Только вы</b> — через бот и панель управления\n"
-               "• Администратор <b>не может видеть</b> ваши суммы, "
-               "категории и комментарии. Это не обещание, а техническое "
-               "препятствие: записи лежат в отдельной зашифрованной базе, "
-               "и ключа от неё в админ-панели нет вообще. Администратору "
-               "видно только КОЛИЧЕСТВО записей — этого достаточно для "
-               "решений по подписке и лимитам.\n"
-               "• Другие пользователи <b>никогда</b> не видят ваши данные. "
-               "Все записи разделены по Telegram ID.\n\n"
+               "• Вы — через бот и Mini App\n"
+               "• Через админ-панель — никто (только количество записей)\n"
+               "• Другие пользователи — никогда: записи разделены по "
+               "Telegram ID\n\n"
                "<b>Где хранится</b>\n"
-               "На арендованном сервере во Франции (Contabo). Доступ только "
-               "по SSH-ключу, вход по паролю отключён. База на диске "
-               "зашифрована (SQLCipher), а финансовые записи — отдельным "
-               "файлом с отдельным ключом. Каждый день создаётся резервная "
-               "копия с шифрованием AES-256.\n\n"
+               "На арендованном сервере во Франции (Contabo).\n\n"
+               "<b>Резервные копии</b>\n"
+               "Каждый день создаётся зашифрованная (AES-256) копия. На "
+               "сервере она хранится 14 дней; копия также отправляется "
+               "владельцу сервиса в Telegram и хранится там, пока её не "
+               "удалят вручную. Для расшифровки нужны отдельные ключи.\n\n"
                "<b>Сколько хранится</b>\n"
                "Пока вы сами не удалите. По команде /ochirish данные "
-               "удаляются немедленно и полностью; резервные копии "
-               "перезаписываются в течение 14 дней.\n\n"
+               "удаляются из основной базы сразу и полностью. В "
+               "зашифрованных копиях, сделанных раньше, они могут "
+               "оставаться (см. выше).\n\n"
                "<b>Ваши права</b>\n"
-               "• /csv — выгрузить все свои данные файлом\n"
-               "• /ochirish — полностью удалить аккаунт и всю историю "
-               "(сразу и безвозвратно)\n"
+               "• /csv — выгрузить все свои данные файлом (бесплатно)\n"
+               "• /ochirish — удалить аккаунт и всю историю\n"
                "• Вы можете отозвать согласие в любой момент — для этого "
                "нажмите /ochirish\n\n"
                "<b>Оплата</b>\n"
                "Данные вашей карты к нам не попадают. Перевод вы делаете "
-               "сами и присылаете только скриншот чека.\n\n"
+               "сами и присылаете скриншот чека; он остаётся в Telegram, "
+               "администратор открывает его для проверки.\n\n"
                "Вопросы: {contact}"),
     },
 
@@ -1138,12 +1130,12 @@ T.update({
         "uz": ("🧾 <b>Bu oygi {limit} ta bepul chek ishlatildi.</b>\n\n"
                "Keyingi bepul cheklar {date} da ochiladi. Hozircha xarajatni "
                "matn bilan yozishingiz mumkin — bu cheksiz.\n\n"
-               "PRO'da chek o'qish cheksiz: har bir mahsulot o'z kategoriyasiga "
-               "tushadi."),
+               "PRO'da kuniga 10 tagacha chek: har bir mahsulot o'z "
+               "kategoriyasiga tushadi."),
         "ru": ("🧾 <b>{limit} бесплатных чека в этом месяце использованы.</b>\n\n"
                "Следующие откроются {date}. Пока можно записывать расходы "
                "текстом — это без ограничений.\n\n"
-               "В PRO чеки без ограничений: каждый товар попадает в свою категорию."),
+               "В PRO до 10 чеков в день: каждый товар попадает в свою категорию."),
     },
     "paywall_history": {
         "uz": ("📊 <b>Bepul versiyada joriy oy tahlili ochiq.</b>\n\n"
@@ -1167,9 +1159,11 @@ T.update({
     },
     "paywall_qa": {
         "uz": ("💬 <b>Bugungi {limit} ta bepul savol ishlatildi.</b>\n\n"
-               "Ertaga yana {limit} ta ochiladi. PRO'da savollar cheksiz."),
+               "Ertaga yana {limit} ta ochiladi. PRO'da savollar ancha ko'p "
+               "(adolatli foydalanish doirasida)."),
         "ru": ("💬 <b>{limit} бесплатных вопроса на сегодня использованы.</b>\n\n"
-               "Завтра откроются ещё {limit}. В PRO — без ограничений."),
+               "Завтра откроются ещё {limit}. В PRO вопросов намного больше "
+               "(в рамках честного использования)."),
     },
     # Bir kunda ikkinchi marta — qisqa, tugmasiz.
     "paywall_short": {
@@ -1295,8 +1289,8 @@ T.update({
         "ru": "Чеков в этом месяце: осталось {left}/{total} · Вопросов сегодня: {qa_left}/{qa_total}",
     },
     "status_free_hint": {
-        "uz": "<i>PRO: cheksiz chek, barcha oylar tahlili, byudjet va CSV.</i>",
-        "ru": "<i>PRO: безлимитные чеки, анализ всех месяцев, бюджет и CSV.</i>",
+        "uz": "<i>PRO: kuniga 10 tagacha chek, barcha oylar tahlili va byudjet.</i>",
+        "ru": "<i>PRO: до 10 чеков в день, анализ всех месяцев и бюджет.</i>",
     },
 
     # ---- Ega uchun oddiy rejim (2.4) ----
@@ -1463,8 +1457,8 @@ T.update({
                "помните, например <code>такси 25 тысяч</code>."),
     },
     "digest_pro_hint": {
-        "uz": "\n\n💎 PRO: barcha oylar tahlili, maqsad bashorati va cheksiz chek — /obuna",
-        "ru": "\n\n💎 PRO: анализ всех месяцев, прогноз целей и безлимитные чеки — /obuna",
+        "uz": "\n\n💎 PRO: barcha oylar tahlili, maqsad bashorati va kuniga 10 tagacha chek — /obuna",
+        "ru": "\n\n💎 PRO: анализ всех месяцев, прогноз целей и до 10 чеков в день — /obuna",
     },
     "goal_month_free": {
         "uz": "🎯 <b>Oy yakuni</b>\n\n«{name}» — <b>{percent}%</b>\n{bar}\n{saved} / {amount}",

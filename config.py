@@ -170,7 +170,9 @@ def private_key_pragma() -> str:
 # Shartlar va maxfiylik siyosatiga rozilik versiyasi. Shartlar o'zgarsa
 # oshiriladi va roziligi eskirganlardan qaytadan so'raladi. Bot ham, Mini
 # App ham shu qiymatni tekshiradi.
-CONSENT_VERSION = "2026-08-1"
+# 2026-10-1: maxfiylik matni haqiqatga moslandi (kalit qayerda, Anthropic
+# 30 kun, Telegram'dagi zaxiralar), /csv bepul, qisqa rozilik ekrani.
+CONSENT_VERSION = "2026-10-1"
 
 CURRENCY = os.getenv("CURRENCY", "so'm")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))

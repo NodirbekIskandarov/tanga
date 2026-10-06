@@ -79,10 +79,12 @@ def test_free_user_transaction_list_starts_this_month(client):
     assert [i["note"] for i in items] == ["yangi"]
 
 
-def test_free_user_csv_is_pro(client):
+def test_free_user_can_export_csv(client):
+    # CSV hamma uchun bepul — maxfiylik siyosatida huquq sifatida yozilgan.
     h = _user(53, free=True)
     r = client.post("/api/export/token", headers=h)
-    assert r.status_code == 402 and r.json()["detail"]["paywall"] == "csv"
+    assert r.status_code == 200
+    assert client.get(f"/api/export.csv?token={r.json()['token']}").status_code == 200
 
 
 def test_pro_user_sees_everything(client):

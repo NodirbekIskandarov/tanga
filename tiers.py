@@ -9,14 +9,14 @@
 | Mini App               | joriy oy            | to'liq                     |
 | Byudjet                | —                   | ha                         |
 | AI savol-javob         | kuniga 3 ta         | cheksiz*                   |
-| CSV eksport            | —**                 | ha                         |
+| CSV eksport            | ha**                | ha                         |
 
  *  «adolatli foydalanish» kunlik chegarasi bilan (config.LIMIT_*):
     oddiy odam yetmaydi, skript bilan cheksiz AI chaqiruvi to'xtaydi.
     Bepul va sinov darajasida yana kishi boshiga oylik AI chegarasi bor
     (config.user_monthly_budget_usd, bot._budget_ok).
- ** /ochirish oldidan beriladigan CSV bepul: odam ma'lumotini
-    o'chirishdan oldin olib qo'yish huquqiga ega.
+ ** CSV hamma uchun bepul: o'z ma'lumotini olish — huquq, PRO
+    imkoniyati emas (maxfiylik siyosatida shunday yozilgan).
 
 Daraja `db.access_status()["tier"]` dan olinadi. Bu modul faqat qaror
 qabul qiladi — xabar matni va tugmalar bot.py da.
@@ -33,7 +33,7 @@ FREE = "free"
 PRO = "pro"
 
 # Faqat PRO da ochiq imkoniyatlar.
-PRO_ONLY = {"history", "budget", "csv",
+PRO_ONLY = {"history", "budget",
             "goals_many", "goals_forecast", "savings_auto", "debt_reminders"}
 
 

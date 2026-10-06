@@ -173,10 +173,12 @@ def test_free_questions_three_per_day(user_id):
 def test_pro_only_features():
     free = {"tier": "free"}
     pro = {"tier": "pro"}
-    for feature in ("history", "budget", "csv"):
+    for feature in ("history", "budget"):
         assert not tiers.allows(free, feature)
         assert tiers.allows(pro, feature)
     assert tiers.allows(free, "debts")
+    # CSV — o'z ma'lumotini olish huquqi, hamma uchun bepul (K5).
+    assert tiers.allows(free, "csv")
 
 
 def test_paywall_event_dedupes_per_day(user_id):

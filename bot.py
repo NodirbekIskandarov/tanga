@@ -341,9 +341,11 @@ davom etadi, Bepul versiyada:
 \u2022 bugun, hafta va joriy oy hisobotlari
 \u2022 oyiga 3 ta chek, kuniga 3 ta AI savol
 \u2022 qarzlar ro'yxati
+\u2022 CSV eksport (o'z ma'lumotingiz \u2014 hamma uchun bepul)
 
-PRO'da: cheksiz chek va savol, barcha oylar tahlili,
-yillik hisobot, oylarni solishtirish, byudjet, CSV eksport.
+PRO'da: kuniga 10 tagacha chek, savollar adolatli foydalanish
+doirasida, barcha oylar tahlili, yillik hisobot, oylarni
+solishtirish, byudjet.
 
 /obuna \u2014 tariflar va to'lov. To'lovdan keyin chek
 suratini yuborasiz, admin tasdiqlaydi.
@@ -381,14 +383,15 @@ Ortiqcha tuyulsa /eslatma dan kunlik xabarni o'chiring.
 \U0001F512 <b>13. MA'LUMOT, MAXFIYLIK VA SOZLAMALAR</b>
 
 /csv \u2014 barcha yozuvlar Excel'da ochiladigan fayl
-ko'rinishida (PRO). Har bir chek mahsulotida \u00abchek_id\u00bb va
-do'kon nomi bor \u2014 chekni Excel'da qayta yig'ish mumkin.
-Hisobni o'chirishdan oldin CSV hamma uchun bepul.
+ko'rinishida (hamma uchun bepul). Har bir chek mahsulotida
+\u00abchek_id\u00bb va do'kon nomi bor \u2014 chekni Excel'da qayta
+yig'ish mumkin.
 
-<b>Yozuvlaringizni sizdan boshqa hech kim ko'rmaydi.</b>
+<b>Yozuvlaringiz shifrlangan holda saqlanadi.</b>
 Summalar, kategoriyalar va izohlar alohida shifrlangan
-bazada saqlanadi va uning kaliti admin panelda umuman
-yo'q \u2014 ya'ni bu va'da emas, texnik to'siq.
+bazada turadi va uning kaliti admin panelda yo'q \u2014 panel
+orqali ularni hech kim ko'ra olmaydi. Hech kimga
+sotilmaydi va berilmaydi. Batafsil: /maxfiylik
 
 /til \u2014 til almashtirish (o'zbekcha / ruscha)
 /buyruqlar \u2014 barcha buyruqlar bo'limlari bilan
@@ -444,9 +447,10 @@ def skip_consent(func):
     return func
 
 
-def consent_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
+def consent_keyboard(lang: str = "uz", again: bool = False) -> InlineKeyboardMarkup:
+    yes = i18n.t(lang, "consent_yes_again" if again else "consent_yes")
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton(i18n.t(lang, "consent_yes"), callback_data="ok:yes")],
+        [InlineKeyboardButton(yes, callback_data="ok:yes")],
         [InlineKeyboardButton(i18n.t(lang, "consent_privacy"),
                               callback_data="ok:privacy"),
          InlineKeyboardButton(i18n.t(lang, "consent_terms"),
@@ -465,9 +469,12 @@ async def _consent_ok(update: Update, context: ContextTypes.DEFAULT_TYPE) -> boo
     msg = update.effective_message
     if msg is not None:
         lang = lang_of(user.id, context)
-        await msg.reply_text(i18n.cyr(lang, i18n.t(lang, "consent")),
+        # Ilgari rozi bo'lgan odam botni taniydi — unga tanishtiruv emas,
+        # shartlarning nimasi o'zgargani ko'rsatiladi.
+        again = db.had_consent(user.id)
+        await msg.reply_text(i18n.t(lang, "consent_updated" if again else "consent"),
                              parse_mode=ParseMode.HTML,
-                             reply_markup=consent_keyboard(lang))
+                             reply_markup=consent_keyboard(lang, again))
     return False
 
 
@@ -818,6 +825,21 @@ FIRST_STEPS = [
     ("oylik tushdi 8 mln", "Kirim yozish"),
 ]
 
+# «Sinab ko'ring» tugmasidagi misol — foydalanuvchi tilida (K7).
+# Yangi kelganlarning ko'pi birinchi yozuvni qilmay ketardi: bo'sh chatda
+# nima yozishni bilmaslik eng katta to'siq. Bitta bosish — bitta haqiqiy
+# yozuv (keyin «🗑 O'chirish» bilan o'chiriladi).
+TRY_EXAMPLE = {"uz": "obedga 45 ming", "ru": "обед 45 тысяч"}
+
+
+def try_example(lang: str) -> str:
+    return i18n.cyr(lang, TRY_EXAMPLE.get(lang, TRY_EXAMPLE["uz"]))
+
+
+def try_keyboard(lang: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[InlineKeyboardButton(
+        f"✍️ «{try_example(lang)}»", callback_data="try:ex")]])
+
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Birinchi tanishuv — qisqa. To'liq qo'llanma /qollanma da."""
@@ -862,6 +884,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.HTML,
             reply_markup=main_menu(lang),
         )
+        # Bitta xabarga ham menyu (pastki klaviatura), ham inline tugma
+        # sig'maydi — «Sinab ko'ring» alohida qisqa xabar.
+        await update.effective_message.reply_text(
+            i18n.t(lang, "try_prompt"), reply_markup=try_keyboard(lang))
         return
 
     status = {
@@ -920,9 +946,10 @@ async def on_consent_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def on_try_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Onboarding tugmasi — misolni haqiqiy yozuvga aylantiradi."""
     query = update.callback_query
+    arg = (query.data or "try:0").split(":", 1)[1]
     try:
-        index = int((query.data or "try:0").split(":")[1])
-        example = FIRST_STEPS[index][0]
+        example = (try_example(lang_of(update.effective_user.id, context))
+                   if arg == "ex" else FIRST_STEPS[int(arg)][0])
     except (ValueError, IndexError):
         await query.answer("Misol topilmadi")
         return
@@ -1198,11 +1225,8 @@ async def cmd_settle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @private_only
 @skip_consent            # o'z ma'lumotini olish — rozilikka bog'liq bo'lmagan huquq
 async def cmd_csv(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # CSV — PRO. /ochirish oldidagi «avval CSV» tugmasi esa _send_csv ni
-    # to'g'ridan-to'g'ri chaqiradi va hamma uchun ochiq qoladi.
-    if not tiers.allows(context.user_data.get("access"), "csv"):
-        await show_paywall(update, context, "csv")
-        return
+    # CSV hamma uchun bepul: o'z ma'lumotini olish — huquq, PRO imkoniyati
+    # emas (maxfiylik siyosati va rozilik matnida shunday va'da qilingan).
     await _send_csv(update, context, update.effective_user.id)
 
 
@@ -3930,6 +3954,26 @@ async def job_erase_queue(context: ContextTypes.DEFAULT_TYPE) -> None:
         log.info("O'chirish navbati: %s ta foydalanuvchi yozuvlari o'chirildi", n)
 
 
+async def job_first_entry_nudge(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Rozilik berib, 2 soatda bitta ham yozuv qilmaganga bitta eslatma
+    «Sinab ko'ring» tugmasi bilan (K7). Har odamga bir marta."""
+    sent = 0
+    for r in await asyncio.to_thread(db.users_for_first_entry_nudge):
+        user_id, lang = r["user_id"], i18n.normalize(r["lang"])
+        try:
+            if await notify.send(context.bot, user_id,
+                                 i18n.t(lang, "first_entry_nudge"),
+                                 parse_mode=ParseMode.HTML,
+                                 reply_markup=try_keyboard(lang)):
+                sent += 1
+        except Exception:
+            log.info("Birinchi yozuv eslatmasi yuborilmadi: %s", user_id)
+        # Yetmasa ham belgilanadi: qayta-qayta urinib bezovta qilmaymiz.
+        db.log_event(user_id, "onboard_nudge")
+    if sent:
+        log.info("Birinchi yozuv eslatmasi: %s ta yuborildi", sent)
+
+
 async def job_expire_requests(context: ContextTypes.DEFAULT_TYPE) -> None:
     """48 soatda to'lov cheki kelmagan so'rovlarni yopadi — admin ularni
     qo'lda rad etib o'tirmasin."""
@@ -3995,6 +4039,9 @@ def schedule_jobs(app: Application) -> None:
     # Har soatda: 48 soatda chek kelmagan obuna so'rovlarini yopish.
     jq.run_repeating(job_expire_requests, interval=3600, first=120,
                      name="eski-sorovlar")
+    # Har 15 daqiqada: 2 soatdan beri birinchi yozuvni qilmaganlarga.
+    jq.run_repeating(job_first_entry_nudge, interval=900, first=300,
+                     name="birinchi-yozuv")
     # Jamg'arma eslatmasi — oyning OXIRGI kuni 18:00 da. Har kuni 18:00
     # da uyg'onadi va oxirgi kun emasligini ko'rsa darrov chiqadi: oyning
     # oxirgi kuni 28/29/30/31 bo'lgani uchun cron bilan yozib bo'lmaydi.

@@ -677,8 +677,7 @@ def api_create_transaction(body: TxCreate, user: dict = Depends(current_user)):
 @app.post("/api/export/token")
 def api_export_token(user: dict = Depends(current_user)):
     """Bir martalik, 60 soniya yashaydigan yuklab olish tokeni."""
-    if not tiers.allows(user["access"], "csv"):
-        _paywall(user, "csv")
+    # CSV hamma uchun bepul — o'z ma'lumotini olish huquq (botdagi /csv kabi).
     return {"token": _issue_export_token(user["user_id"]), "ttl": EXPORT_TOKEN_TTL}
 
 

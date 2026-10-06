@@ -1594,6 +1594,46 @@ def has_consent(user_id: int, version: str) -> bool:
     return bool(row and row["consent_at"] and row["consent_version"] == version)
 
 
+def had_consent(user_id: int) -> bool:
+    """Ilgari biror versiyaga rozilik berganmi (shartlar yangilangani
+    haqidagi xabar uchun — yangi odamga tanishtiruv, eskisiga «nima
+    o'zgardi» ko'rsatiladi)."""
+    with get_conn() as conn:
+        row = conn.execute("SELECT consent_at FROM users WHERE user_id = ?",
+                           (user_id,)).fetchone()
+    return bool(row and row["consent_at"])
+
+
+def users_for_first_entry_nudge(min_hours: int = 2, max_hours: int = 48) -> list[dict]:
+    """Rozilik berib, lekin bitta ham yozuv kiritmaganlar — bitta eslatma.
+
+    Faqat rozilik berganlar: bermaganga yozish uning ma'lumotini
+    roziliksiz ishlatish bo'lardi. Vaqt rozilikdan beri: kamida
+    `min_hours` (darrov bezovta qilmaslik), ko'pi bilan `max_hours`
+    (eskilarga birdan xabar yog'ilmasin). Har odamga bir marta —
+    `events` dagi «onboard_nudge» bilan belgilanadi.
+    """
+    now = _now()
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT u.user_id, u.consent_at, u.lang FROM users u
+               WHERE u.consent_at IS NOT NULL AND u.blocked = 0
+                 AND u.bot_blocked_at IS NULL
+                 AND NOT EXISTS (SELECT 1 FROM entry_counts e
+                                 WHERE e.user_id = u.user_id AND e.n > 0)
+                 AND NOT EXISTS (SELECT 1 FROM events ev
+                                 WHERE ev.user_id = u.user_id
+                                   AND ev.name = 'onboard_nudge')""").fetchall()
+    out = []
+    for r in rows:
+        if r["user_id"] in config.OWNER_IDS:
+            continue
+        at = _parse_dt(r["consent_at"])
+        if at and timedelta(hours=min_hours) <= now - at <= timedelta(hours=max_hours):
+            out.append({"user_id": r["user_id"], "lang": r["lang"] or "uz"})
+    return out
+
+
 def set_consent(user_id: int, version: str) -> None:
     with get_conn() as conn:
         conn.execute(
