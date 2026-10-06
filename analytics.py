@@ -156,6 +156,7 @@ FEATURE_NAMES = {
     "history": "o'tgan davrlar", "budget": "byudjet", "csv": "CSV",
     "goals": "2-maqsad", "savings_auto": "foiz sozlash",
     "debt_reminders": "qarz eslatmasi",
+    "trial_receipts": "chek (sinovdagi 10 ta)",
 }
 
 

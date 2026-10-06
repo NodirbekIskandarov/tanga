@@ -4,7 +4,7 @@
 |------------------------|---------------------|----------------------------|
 | Matnli yozuv           | cheksiz*            | cheksiz*                   |
 | Bugun/hafta/joriy oy   | ha                  | ha                         |
-| Chek o'qish            | oyiga 3 ta          | cheksiz*                   |
+| Chek o'qish            | oyiga 3 ta          | kuniga 10 ta*; sinovda jami 10 ta |
 | Tarix va tahlil        | joriy oy            | barcha davrlar             |
 | Mini App               | joriy oy            | to'liq                     |
 | Byudjet                | —                   | ha                         |
@@ -13,6 +13,8 @@
 
  *  «adolatli foydalanish» kunlik chegarasi bilan (config.LIMIT_*):
     oddiy odam yetmaydi, skript bilan cheksiz AI chaqiruvi to'xtaydi.
+    Bepul va sinov darajasida yana kishi boshiga oylik AI chegarasi bor
+    (config.user_monthly_budget_usd, bot._budget_ok).
  ** /ochirish oldidan beriladigan CSV bepul: odam ma'lumotini
     o'chirishdan oldin olib qo'yish huquqiga ega.
 
@@ -84,6 +86,14 @@ def check(user_id: int, access: dict | None, operation: str) -> dict | None:
                         "limit": config.FREE_RECEIPTS_PER_MONTH,
                         "resets": "next_month"}
             return None
+        # Sinov — to'liq PRO, lekin cheklar soni butun sinov uchun
+        # cheklangan: chek eng qimmat amal, sinovni esa yangi akkaunt
+        # bilan qayta olish mumkin.
+        if (access or {}).get("status") == "trial" and config.TRIAL_RECEIPTS_TOTAL > 0:
+            used = db.count_since(user_id, "chek", date.min)
+            if used >= config.TRIAL_RECEIPTS_TOTAL:
+                return {"type": "paywall", "feature": "trial_receipts",
+                        "limit": config.TRIAL_RECEIPTS_TOTAL, "resets": "never"}
         if db.count_today(user_id, "chek") >= config.LIMIT_RECEIPT_PER_DAY:
             return {"type": "limit", "feature": "chek",
                     "limit": config.LIMIT_RECEIPT_PER_DAY, "resets": "tomorrow"}

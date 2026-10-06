@@ -13,6 +13,7 @@ import time
 import uuid
 from datetime import date, datetime, timedelta
 from functools import wraps
+from types import SimpleNamespace
 from urllib.parse import quote
 
 from telegram import (
@@ -514,60 +515,88 @@ def owner_only(func):
 # Egalarga qo'llanmaydi.
 # --------------------------------------------------------------------------- #
 
-# Oylik sarf ogohlantirishi oyiga bir marta yuborilsin.
-_budget_warned: dict[str, bool] = {}
+# Egaga yuborilgan sarf ogohlantirishlari: "YYYY-MM:80", "YYYY-MM:100".
+# Har daraja oyiga bir marta (jarayon qayta ishga tushsa takrorlanishi
+# mumkin — bu jim qolib ketgandan yaxshi).
+_budget_warned: set[str] = set()
 
 
-async def _budget_ok(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Oylik AI sarfi chegaradan oshmaganini tekshiradi.
-
-    Nega kerak: API kaliti oshkor bo'lsa yoki kutilmagan yuk kelsa,
-    hisobdan cheksiz pul ketishi mumkin. Bot har bir chaqiruv narxini
-    allaqachon yozib boradi — shu bilan o'zini o'zi to'xtata oladi.
-
-    Chegara HAMMAGA, shu jumladan egaga ham qo'llanadi: bu pul masalasi,
-    imtiyoz masalasi emas.
-    """
-    cap = config.monthly_budget_usd()
-    if cap <= 0:
-        return True
-
-    spent = db.month_cost()
+async def _warn_owners_budget(context: ContextTypes.DEFAULT_TYPE, level: int,
+                              spent: float, cap: float) -> None:
     month = datetime.now(config.TZ).strftime("%Y-%m")
+    tag = f"{month}:{level}"
+    if tag in _budget_warned:
+        return
+    # Faqat joriy oyning belgilari saqlanadi.
+    for old in [t for t in _budget_warned if not t.startswith(month)]:
+        _budget_warned.discard(old)
+    _budget_warned.add(tag)
+    head = ("🛑 <b>Oylik AI chegarasi tugadi</b>" if level >= 100
+            else "⚠️ <b>Oylik AI sarfi chegaraga yaqinlashdi</b>")
+    tail = ("Bepul va sinov foydalanuvchilari uchun AI to'xtatildi. "
+            "Obunachilar ishlashda davom etadi." if level >= 100
+            else "Chegaraga yetganda bepul va sinov foydalanuvchilari uchun "
+                 "AI to'xtaydi (obunachilar uchun emas).")
+    text = (f"{head}\n\nSarflandi: <b>${spent:.2f}</b> / ${cap:.2f} "
+            f"({100 * spent / cap:.0f}%)\n\n{tail}\n"
+            f"Oshirish: admin panel → Sozlamalar.")
+    for owner in config.OWNER_IDS:
+        try:
+            await context.bot.send_message(owner, text, parse_mode=ParseMode.HTML)
+        except Exception:
+            log.info("Byudjet ogohlantirishi yuborilmadi: %s", owner)
 
-    # 80% da egani bir marta ogohlantiramiz — to'xtab qolishdan oldin
-    # xabari bo'lsin.
-    if spent >= cap * 0.8 and not _budget_warned.get(month):
-        # Faqat joriy oyni saqlaymiz — eskisi kerak emas.
-        _budget_warned.clear()
-        _budget_warned[month] = True
-        for owner in config.OWNER_IDS:
-            try:
-                await context.bot.send_message(
-                    owner,
-                    f"⚠️ <b>Oylik AI sarfi chegaraga yaqinlashdi</b>\n\n"
-                    f"Sarflandi: <b>${spent:.2f}</b> / ${cap:.2f} "
-                    f"({100 * spent / cap:.0f}%)\n\n"
-                    f"Chegaraga yetganda bot AI amallarini to'xtatadi. "
-                    f"Oshirish: <code>.env</code> dagi "
-                    f"<code>MONTHLY_BUDGET_USD</code>",
-                    parse_mode=ParseMode.HTML)
-            except Exception:
-                log.info("Byudjet ogohlantirishi yuborilmadi: %s", owner)
 
-    if spent < cap:
-        return True
+async def _budget_ok(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                     access: dict | None = None) -> bool:
+    """AI sarfi chegaralarini tekshiradi.
 
-    log.warning("Oylik AI byudjeti tugadi: $%.2f / $%.2f", spent, cap)
+    Ikki daraja:
+      * Umumiy oylik chegara (config.monthly_budget_usd) — API kaliti
+        oshkor bo'lsa yoki kutilmagan yuk kelsa hisobdan cheksiz pul
+        ketmasin. Unga yetilganda faqat BEPUL va SINOV foydalanuvchilari
+        to'xtaydi: pul to'lagan obunachi bepul trafik tufayli xizmatsiz
+        qolmasligi kerak. Ega ham chegarada qoladi (bu pul masalasi).
+      * Kishi boshiga oylik chegara (config.user_monthly_budget_usd) —
+        faqat bepul va sinov uchun: bitta faol bepul foydalanuvchi butun
+        umumiy chegarani yeb qo'ymasin, to'xtasa faqat o'zi to'xtaydi.
+
+    Egaga 80% va 100% da bir martadan xabar boradi.
+    """
+    user_id = update.effective_user.id
+    access = access or db.access_status(user_id)
+    status = access.get("status")
+    paying = status == "subscribed"
+    lang = lang_of(user_id, context)
     msg = update.effective_message
-    if msg:
-        await msg.reply_text(
-            "⏸ <b>Bot vaqtincha to'xtatildi</b>\n\n"
-            "Oylik xizmat chegarasi tugadi. Administrator xabardor "
-            "qilindi — tez orada tiklanadi.\n\n"
-            "<i>Yozuvlaringiz saqlanib turibdi.</i>",
-            parse_mode=ParseMode.HTML)
-    return False
+
+    cap = config.monthly_budget_usd()
+    if cap > 0:
+        spent = db.month_cost()
+        if spent >= cap:
+            await _warn_owners_budget(context, 100, spent, cap)
+        elif spent >= cap * 0.8:
+            await _warn_owners_budget(context, 80, spent, cap)
+        if spent >= cap and not paying:
+            log.warning("Oylik AI byudjeti tugadi: $%.2f / $%.2f", spent, cap)
+            if msg:
+                await msg.reply_text(i18n.t(lang, "ai_paused"),
+                                     parse_mode=ParseMode.HTML)
+            return False
+
+    per_user = config.user_monthly_budget_usd()
+    if per_user > 0 and status in ("trial", "free"):
+        if db.user_month_cost(user_id) >= per_user:
+            db.log_event(user_id, "ai_limit", status)
+            if msg:
+                await msg.reply_text(
+                    i18n.t(lang, "ai_user_limit",
+                           date=reports.fmt_date(tiers.next_month_start().isoformat())),
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+                        i18n.t(lang, "pro_btn"), callback_data="pro:ai_limit")]]))
+            return False
+    return True
 
 
 async def check_quota(update: Update, context: ContextTypes.DEFAULT_TYPE,
@@ -577,15 +606,15 @@ async def check_quota(update: Update, context: ContextTypes.DEFAULT_TYPE,
     Qaytaradi: usage_log qatorining id'si (amal tugagach yozish uchun),
     yoki limit tugagan bo'lsa None."""
     user_id = update.effective_user.id
+    access = db.access_status(user_id)
 
-    # Oylik pul chegarasi kunlik limitlardan oldin tekshiriladi.
-    if not await _budget_ok(update, context):
+    # Oylik pul chegaralari kunlik limitlardan oldin tekshiriladi.
+    if not await _budget_ok(update, context, access):
         return None
 
     if db.is_privileged(user_id):
         return db.usage_begin(user_id, operation)
 
-    access = db.access_status(user_id)
     verdict = tiers.check(user_id, access, operation)
     if verdict is None:
         return db.usage_begin(user_id, operation)
@@ -1257,9 +1286,16 @@ _collect = TTLStore(ttl_seconds=1800, max_items=200)
 # Oxirgi chek — «davomi bor» tugmasi uchun: user_id -> {"receipt_id", "images", "caption"}
 # Qisqa muddat: bu faqat "davomi bor" tugmasi uchun kerak, uzoq saqlash shart emas.
 _last_receipt = TTLStore(ttl_seconds=900, max_items=100)
-# To'lov cheki kutilayotgan foydalanuvchilar: user_id -> so'rov ID.
-# 2 soat — odam kartaga o'tkazib, chekni topib yuborishga yetadi.
-_awaiting_proof = TTLStore(ttl_seconds=7200, max_items=500)
+# «Bu to'lov chekimi yoki xarid chekimi?» savoli kutilmoqda:
+# user_id -> {"request_id", "file_id", "kind", "message", "caption"}.
+#
+# «To'lov kutilmoqda» holatining O'ZI bazada (subscription_requests,
+# status «kutilmoqda») — bot qayta ishga tushsa ham yo'qolmaydi. Ilgari u
+# faqat xotirada 2 soat turardi: restartdan keyin bank skrinshoti xarid
+# cheki bo'lib AI'ga ketardi, 2 soat ichida yuborilgan do'kon cheki esa
+# to'lov cheki bo'lib adminga tushardi. Bu yerda faqat bitta tugma
+# bosilguncha kerak bo'ladigan fayl turadi.
+_proof_choice = TTLStore(ttl_seconds=1800, max_items=500)
 # Hisobni o'chirishni tasdiqlash kutilmoqda: user_id -> True (5 daqiqa)
 _awaiting_erase = TTLStore(ttl_seconds=300, max_items=100)
 # Oxirgi bosqich: foydalanuvchi o'chirish so'zini yozishi kutilmoqda.
@@ -1418,6 +1454,13 @@ async def _flush_album(key: str, update: Update, context):
     bucket = _albums.pop(key, None)
     if not bucket or not bucket["images"]:
         return
+    if bucket.get("too_many"):
+        # Albom chegaradan katta: yarim chekni o'qib noto'g'ri jami
+        # chiqargandan ko'ra, ochiq aytamiz.
+        await update.effective_message.reply_text(
+            f"Bitta chek uchun ko'pi bilan {config.MAX_RECEIPT_PARTS} ta rasm "
+            f"yuborish mumkin. Chekni kamroq qismga bo'lib qayta yuboring.")
+        return
     await _process_receipt(update, context, bucket["images"], bucket["caption"])
 
 
@@ -1442,6 +1485,22 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if not await _consent_ok(update, context):
         return
+
+    # Qismlar soni YUKLAB OLISHDAN OLDIN tekshiriladi. Ilgari chegara faqat
+    # «Tayyor» bosilganda tekshirilardi: /chek rejimida yuborilgan har bir
+    # rasm (PDF 15 MB gacha, base64 da yanada katta) xotirada to'planaverardi
+    # — bitta odam serverni xotirasiz qoldira olardi.
+    limit = config.MAX_RECEIPT_PARTS
+    if user_id in _collect and len(_collect.get(user_id)["images"]) >= limit:
+        await message.reply_text(
+            i18n.t(lang_of(user_id, context), "receipt_parts_max", limit=limit),
+            reply_markup=collect_menu(lang_of(user_id, context)))
+        return
+    if message.media_group_id and user_id not in _collect:
+        album = _albums.get(str(message.media_group_id))
+        if album and len(album["images"]) >= limit:
+            album["too_many"] = True        # _flush_album bir marta aytadi
+            return
 
     try:
         image = await _download_receipt_file(context, message)
@@ -1805,6 +1864,11 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith(("sub:", "subok:", "subno:")):
         await on_subscription_callback(update, context)
         return
+    if data.startswith("pf:"):
+        # To'lov cheki / xarid cheki — to'lov kabi kirish chegarasidan oldin;
+        # «xarid» tarmog'i kirish va rozilikni o'zi tekshiradi.
+        await on_proof_choice_callback(update, context)
+        return
     if data.startswith("erase:"):
         await on_erase_callback(update, context)
         return
@@ -2145,7 +2209,9 @@ async def on_subscription_callback(update: Update, context: ContextTypes.DEFAULT
     lang = lang_of(user.id, context)
 
     if data == "sub:bekor":
-        _awaiting_proof.pop(user.id, None)
+        # So'rov bazada ham yopiladi — admin navbatida «kutilmoqda» bo'lib
+        # qolib ketmasin.
+        db.cancel_open_request(user.id)
         await query.answer("OK")
         await query.edit_message_text(i18n.t(lang, "pay_cancelled"))
         return
@@ -2168,9 +2234,9 @@ async def on_subscription_callback(update: Update, context: ContextTypes.DEFAULT
         await _consent_ok(update, context)
         return
 
-    request_id = db.add_subscription_request(user.id, plan["code"], plan["price"])
-    # Endi shu foydalanuvchidan keladigan rasm chek deb qabul qilinadi.
-    _awaiting_proof.set(user.id, request_id)
+    # So'rov bazada «kutilmoqda» — keyingi rasmda bot «to'lov chekimi?»
+    # deb so'raydi (handle_payment_proof), restartdan keyin ham.
+    db.add_subscription_request(user.id, plan["code"], plan["price"])
 
     await query.answer("💳")
     await query.edit_message_text(
@@ -2199,51 +2265,125 @@ async def on_subscription_callback(update: Update, context: ContextTypes.DEFAULT
             log.warning("Adminga bildirishnoma yuborilmadi: %s", owner)
 
 
-async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
-    """Kutilayotgan to'lov chekini qabul qiladi. Qabul qilinsa True qaytaradi.
+def _proof_file(message) -> tuple[str, str] | None:
+    """Xabardagi fayl: (file_id, 'rasm' | 'pdf'). Rasm yoki PDF bo'lmasa None.
 
-    Kirish chegarasidan TASHQARIDA chaqiriladi — muddati tugagan
-    foydalanuvchi ham to'lov chekini yubora olishi kerak.
+    Bank ilovalari ko'pincha PDF kvitansiya beradi.
+    """
+    if message.photo:
+        return message.photo[-1].file_id, "rasm"
+    doc = message.document
+    if doc is None:
+        return None
+    mime = (doc.mime_type or "").lower()
+    if mime == PDF_TYPE or (doc.file_name or "").lower().endswith(".pdf"):
+        return doc.file_id, "pdf"
+    if mime.startswith("image/"):
+        return doc.file_id, "rasm"
+    return None
+
+
+async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Chek yuborilmagan to'lov so'rovi bo'lsa — rasm nima ekanini so'raydi.
+
+    True — xabar shu yerda ushlandi (savol berildi). Kirish chegarasidan
+    TASHQARIDA chaqiriladi: muddati tugagan foydalanuvchi ham to'lay
+    olishi kerak.
+
+    Nega to'g'ridan-to'g'ri qabul qilinmaydi: tarif tanlagan odam ertasi
+    kuni do'kon chekini yuborishi mumkin (u admin navbatiga to'lov cheki
+    bo'lib tushardi) yoki aksincha. Bitta tugma bu adashishni yo'q qiladi.
+    «Uzun chek» rejimi va albom ataylab so'ralmaydi — ular aniq xarid cheki.
     """
     user = update.effective_user
     message = update.effective_message
-    request_id = _awaiting_proof.get(user.id)
-    if request_id is None:
+    if user.id in _collect or message.media_group_id:
+        return False
+    req = db.open_request_for(user.id)
+    if req is None or req["status"] != "kutilmoqda":
+        return False
+    found = _proof_file(message)
+    if found is None:
         return False
 
-    # Chek rasm (skrinshot) yoki PDF ko'rinishida kelishi mumkin —
-    # bank ilovalari ko'pincha PDF kvitansiya beradi.
-    kind = "rasm"
-    if message.photo:
-        file_id = message.photo[-1].file_id
-    elif message.document:
-        doc = message.document
-        mime = (doc.mime_type or "").lower()
-        name = (doc.file_name or "").lower()
-        if mime == PDF_TYPE or name.endswith(".pdf"):
-            kind = "pdf"
-        elif not mime.startswith("image/"):
-            await message.reply_text(
-                "⚠️ Chekni <b>rasm</b> (JPG/PNG) yoki <b>PDF</b> ko'rinishida "
-                "yuboring.",
-                parse_mode=ParseMode.HTML)
-            return True
-        file_id = doc.file_id
-    else:
-        return False
+    file_id, kind = found
+    _proof_choice.set(user.id, {"request_id": req["id"], "file_id": file_id,
+                                "kind": kind, "message": message,
+                                "caption": message.caption or ""})
+    lang = lang_of(user.id, context)
+    plan = config.plan_by_code(req["plan_code"])
+    await message.reply_text(
+        i18n.t(lang, "proof_ask",
+               plan=reports.esc(_plan_label(plan, lang) if plan else req["plan_code"])),
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton(i18n.t(lang, "proof_btn_pay"), callback_data="pf:pay")],
+            [InlineKeyboardButton(i18n.t(lang, "proof_btn_buy"), callback_data="pf:buy")],
+        ]))
+    return True
 
-    req = db.get_request(request_id)
-    if req is None or req["status"] not in ("kutilmoqda", "tekshiruvda"):
-        _awaiting_proof.pop(user.id, None)
-        await message.reply_text(i18n.t(lang_of(user.id, context), "proof_stale"))
-        return True
 
-    db.attach_payment_proof(request_id, file_id, kind)
-    _awaiting_proof.pop(user.id, None)
+async def on_proof_choice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """«💳 To'lov cheki» / «🧾 Xarid cheki» tugmalari."""
+    query = update.callback_query
+    user = update.effective_user
+    lang = lang_of(user.id, context)
+    choice = _proof_choice.pop(user.id)
+    if not choice:
+        await query.answer(i18n.t(lang, "proof_choice_expired"), show_alert=True)
+        return
+    action = (query.data or "pf:").split(":", 1)[1]
+
+    if action == "pay":
+        req = db.get_request(choice["request_id"])
+        if req is None or req["status"] not in ("kutilmoqda", "tekshiruvda"):
+            await query.answer()
+            await query.edit_message_text(i18n.t(lang, "proof_stale"))
+            return
+        await query.answer("💳")
+        await _accept_payment_proof(update, context, req, choice["file_id"],
+                                    choice["kind"])
+        return
+
+    # Xarid cheki — oddiy chek oqimi, odatdagi kirish va rozilik qoidalari bilan.
+    await query.answer("🧾")
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    access = db.access_status(user.id, user.first_name or "", user.username)
+    context.user_data["access"] = access
+    if not access["ok"]:
+        await _deny(query.message, user, access)
+        return
+    if not await _consent_ok(update, context):
+        return
+    try:
+        image = await _download_receipt_file(context, choice["message"])
+    except ImageError as exc:
+        await query.message.reply_text(f"⚠️ {exc}")
+        return
+    except Exception:
+        log.exception("Chek faylini yuklab olishda xatolik")
+        await query.message.reply_text("⚠️ Faylni yuklab olishda xatolik yuz berdi.")
+        return
+    # Tugma allaqachon javob oldi — chek oqimi callback'ga qayta javob
+    # bermasin (paywall show_alert bilan ikkinchi answer xato beradi).
+    plain = SimpleNamespace(effective_user=user, effective_message=query.message,
+                            effective_chat=update.effective_chat, callback_query=None)
+    await _process_receipt(plain, context, [image], choice["caption"])
+
+
+async def _accept_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                req, file_id: str, kind: str) -> None:
+    """To'lov chekini so'rovga biriktiradi va egalarga yuboradi."""
+    user = update.effective_user
+    query = update.callback_query
+    db.attach_payment_proof(req["id"], file_id, kind)
 
     plan = config.plan_by_code(req["plan_code"])
     label = plan["label"] if plan else req["plan_code"]
-    await message.reply_text(
+    await query.edit_message_text(
         i18n.t(lang_of(user.id, context), "proof_received", plan=label,
                price=_fmt_price(req["price"])),
         parse_mode=ParseMode.HTML,
@@ -2267,7 +2407,6 @@ async def handle_payment_proof(update: Update, context: ContextTypes.DEFAULT_TYP
                                              parse_mode=ParseMode.HTML)
         except Exception:
             log.warning("Adminga chek yuborilmadi: %s", owner)
-    return True
 
 
 # --------------------------------------------------------------------------- #
@@ -3791,6 +3930,18 @@ async def job_erase_queue(context: ContextTypes.DEFAULT_TYPE) -> None:
         log.info("O'chirish navbati: %s ta foydalanuvchi yozuvlari o'chirildi", n)
 
 
+async def job_expire_requests(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """48 soatda to'lov cheki kelmagan so'rovlarni yopadi — admin ularni
+    qo'lda rad etib o'tirmasin."""
+    try:
+        n = await asyncio.to_thread(db.expire_stale_requests, 48)
+    except Exception:
+        log.warning("Eskirgan so'rovlarni yopib bo'lmadi", exc_info=True)
+        return
+    if n:
+        log.info("Chek kelmagan %s ta so'rov avtomatik yopildi", n)
+
+
 def schedule_jobs(app: Application) -> None:
     """Vaqtga bog'liq vazifalarni ro'yxatga oladi."""
     jq = app.job_queue
@@ -3841,6 +3992,9 @@ def schedule_jobs(app: Application) -> None:
     jq.run_once(job_erase_queue, when=10, name="ochirish-boshlangich")
     jq.run_repeating(job_erase_queue, interval=600, first=600,
                      name="ochirish-navbati")
+    # Har soatda: 48 soatda chek kelmagan obuna so'rovlarini yopish.
+    jq.run_repeating(job_expire_requests, interval=3600, first=120,
+                     name="eski-sorovlar")
     # Jamg'arma eslatmasi — oyning OXIRGI kuni 18:00 da. Har kuni 18:00
     # da uyg'onadi va oxirgi kun emasligini ko'rsa darrov chiqadi: oyning
     # oxirgi kuni 28/29/30/31 bo'lgani uchun cron bilan yozib bo'lmaydi.
@@ -4095,7 +4249,10 @@ def main() -> None:
     register_handlers(app)
 
     log.info("Bot ishga tushdi. To'xtatish: Ctrl+C")
-    app.run_polling(drop_pending_updates=True)
+    # Kutib turgan yangilanishlar TASHLANMAYDI: deploy yoki restart paytida
+    # yuborilgan yozuv va to'lov cheki ishga tushgach qayta ishlanadi.
+    # Ilgari (True) ular jimgina yo'qolardi.
+    app.run_polling(drop_pending_updates=False)
 
 
 def register_handlers(app) -> None:

@@ -6,7 +6,7 @@ from __future__ import annotations
 import math
 import sqlite3
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Iterable
 
 import config
@@ -1395,6 +1395,56 @@ def open_request_for(user_id: int) -> sqlite3.Row | None:
         ).fetchone()
 
 
+REQUEST_CANCELLED = "bekor qilindi"
+
+
+def cancel_open_request(user_id: int, note: str = "foydalanuvchi bekor qildi",
+                        by: str = "foydalanuvchi") -> int:
+    """Foydalanuvchining chek YUBORILMAGAN so'rovini bekor qiladi.
+
+    Faqat «kutilmoqda» — chek kelgan («tekshiruvda») so'rov admin qarorini
+    kutadi: odam pul o'tkazgan bo'lishi mumkin, uni jimgina yopib
+    bo'lmaydi. Ilgari «❌ Bekor qilish» faqat xotiradagi belgini olardi va
+    so'rov admin navbatida abadiy «kutilmoqda» bo'lib qolardi.
+    """
+    with get_conn() as conn:
+        return conn.execute(
+            "UPDATE subscription_requests SET status = ?, decided_at = ?, "
+            "decided_by = ?, note = ? WHERE user_id = ? AND status = 'kutilmoqda'",
+            (REQUEST_CANCELLED, _now_local(), by, note, user_id)).rowcount
+
+
+def expire_stale_requests(hours: int = 48) -> int:
+    """`hours` soatdan beri chek kelmagan so'rovlarni yopadi.
+
+    Admin ularni qo'lda rad etib o'tirmasin: tarif tanlab, to'lamay ketgan
+    odamning so'rovi navbatni to'ldirib turardi. Vaqt Python'da
+    solishtiriladi — `created_at` ham mahalliy ISO (+05:00), ham eski UTC
+    ko'rinishida bo'lishi mumkin.
+    """
+    cutoff = _now() - timedelta(hours=hours)
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT id, created_at FROM subscription_requests "
+            "WHERE status = 'kutilmoqda'").fetchall()
+        stale = []
+        for r in rows:
+            raw = str(r["created_at"] or "")
+            created = _parse_dt(raw)
+            if created and not ("+" in raw[10:] or raw.endswith("Z")):
+                # Mintaqasiz qiymat SQLite datetime('now') dan — bu UTC.
+                created = created.replace(tzinfo=timezone.utc)
+            if created and created < cutoff:
+                stale.append(r["id"])
+        for rid in stale:
+            conn.execute(
+                "UPDATE subscription_requests SET status = ?, decided_at = ?, "
+                "decided_by = 'bot', note = ? WHERE id = ? AND status = 'kutilmoqda'",
+                (REQUEST_CANCELLED, _now_local(),
+                 f"avtomatik: {hours} soatda to'lov cheki kelmadi", rid))
+    return len(stale)
+
+
 def pending_request_count() -> int:
     with get_conn() as conn:
         return int(conn.execute(
@@ -2349,6 +2399,16 @@ def month_cost() -> float:
         return float(conn.execute(
             "SELECT COALESCE(SUM(cost_usd), 0) FROM usage_log WHERE day >= ?",
             (start,)).fetchone()[0])
+
+
+def user_month_cost(user_id: int) -> float:
+    """Shu foydalanuvchining joriy kalendar oydagi AI sarfi ($) —
+    kishi boshiga oylik chegara uchun (config.user_monthly_budget_usd)."""
+    start = _now().date().replace(day=1).isoformat()
+    with get_conn() as conn:
+        return float(conn.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM usage_log "
+            "WHERE user_id = ? AND day >= ?", (user_id, start)).fetchone()[0])
 
 
 def usage_summary(user_id: int | None = None, days: int = 30) -> dict:

@@ -142,6 +142,9 @@ def test_free_receipts_three_per_month(user_id):
 
 
 def test_pro_receipts_fair_use_per_day(user_id):
+    # Obunachi: sinovda kunlik chegaradan oldin sinovning jami chegarasi
+    # ishlaydi (test_launch_critical.py).
+    _set_user(user_id, trial_days=-1, sub_days=30)
     access = db.access_status(user_id)
     for _ in range(config.LIMIT_RECEIPT_PER_DAY):
         db.usage_begin(user_id, "chek")

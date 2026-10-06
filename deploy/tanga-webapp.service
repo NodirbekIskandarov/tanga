@@ -1,0 +1,27 @@
+[Unit]
+Description=Tanga Mini App backend
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=tanga
+Group=tanga
+WorkingDirectory=/opt/tanga
+EnvironmentFile=/opt/tanga/.env
+# Caddy Docker konteynerida ishlaydi, shuning uchun 127.0.0.1 emas, docker
+# ko'prigining host manzili. --no-server-header: javobda «server: uvicorn»
+# ko'rinmasin (dasturiy ta'minot va versiyani oshkor qilmaslik).
+ExecStart=/opt/tanga/.venv/bin/uvicorn webapp:app --host 172.30.0.1 --port 8001 --no-server-header
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/tanga
+
+[Install]
+WantedBy=multi-user.target

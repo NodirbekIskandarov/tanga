@@ -51,6 +51,17 @@ systemctl restart tanga
 Yoki shunchaki `setup.sh` ni qayta ishga tushiring — u mavjud `.env` va
 bazaga tegmaydi.
 
+## Mini App xizmati
+
+Mini App backendi (`webapp.py`) alohida xizmat: `deploy/tanga-webapp.service`
+(uvicorn, `172.30.0.1:8001`, Caddy konteyneri shu orqali kiradi). Deploy
+skripti unit faylini KO'CHIRMAYDI — unit o'zgarsa qo'lda:
+
+```bash
+cp /opt/tanga/deploy/tanga-webapp.service /etc/systemd/system/
+systemctl daemon-reload && systemctl restart tanga-webapp
+```
+
 ## Ma'lumot migratsiyalari
 
 Baza sxemasi (yangi jadval va ustunlar) bot ishga tushganda

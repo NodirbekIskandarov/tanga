@@ -34,7 +34,49 @@ import learning
 import reports
 import tiers
 
-app = FastAPI(title="Tanga — boshqaruv paneli")
+# /docs, /redoc va /openapi.json YOPIQ: ular butun API sxemasini hammaga
+# ko'rsatardi (Mini App ularni ishlatmaydi).
+app = FastAPI(title="Tanga — boshqaruv paneli",
+              docs_url=None, redoc_url=None, openapi_url=None)
+
+
+# --------------------------------------------------------------------------- #
+# Xavfsizlik sarlavhalari
+#
+# Ilova o'zi qo'yadi — proksi (Caddy) sozlamasi o'zgarsa ham himoya
+# qolsin. Mini App Telegram ichida (web.telegram.org da iframe) ochiladi,
+# shuning uchun X-Frame-Options: DENY emas — frame-ancestors bilan
+# faqat Telegram ruxsat etiladi. Tashqi skript — faqat telegram.org dagi
+# WebApp SDK; inline skript yo'q. Uslublar: app.js elementlarga style=
+# atributini qo'yadi, shuning uchun style-src da 'unsafe-inline'.
+# --------------------------------------------------------------------------- #
+
+CSP = (
+    "default-src 'self'; "
+    "script-src 'self' https://telegram.org; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "font-src 'self'; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'none'; "
+    "form-action 'none'; "
+    "frame-ancestors https://telegram.org https://*.telegram.org"
+)
+
+
+@app.middleware("http")
+async def security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers.setdefault("Content-Security-Policy", CSP)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy",
+                                "geolocation=(), microphone=(), camera=()")
+    if (request.url.scheme == "https"
+            or request.headers.get("x-forwarded-proto") == "https"):
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000")
+    return response
 
 # initData 24 soatdan eski bo'lsa rad etiladi (Telegram tavsiyasi).
 INIT_DATA_MAX_AGE = 24 * 3600

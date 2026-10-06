@@ -144,9 +144,15 @@ def test_full_flow_sim_mode_to_pro(monkeypatch):
     assert req["plan_code"] == "f12" and req["status"] == "kutilmoqda"
     assert any("Yangi obuna so'rovi" in t for _, t in tg.messages)
 
-    # 5. To'lov cheki (rasm).
+    # 5. To'lov cheki (rasm): bot «to'lov chekimi yoki xarid chekimi?» deb
+    # so'raydi, «💳 To'lov cheki» bosilgach so'rovga biriktiriladi.
+    ctx = _ctx(tg)
     u = _update(message=Message(photo=[SimpleNamespace(file_id="CHEK-1")]))
-    run(b.on_photo(u, _ctx(tg)))
+    run(b.on_photo(u, ctx))
+    assert u.message.last_buttons == ["pf:pay", "pf:buy"]
+    assert db.get_request(req["id"])["status"] == "kutilmoqda"
+    u = _update(data="pf:pay")
+    run(b.on_callback(u, ctx))
     req = db.get_request(req["id"])
     assert req["status"] == "tekshiruvda" and req["proof_file_id"] == "CHEK-1"
     assert tg.photos == [(OWNER, "CHEK-1")]

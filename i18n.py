@@ -1183,6 +1183,58 @@ T.update({
     "feature_csv": {"uz": "CSV eksport", "ru": "Экспорт в CSV"},
     "feature_qa": {"uz": "AI savollar (bugungi limit tugadi)",
                    "ru": "Вопросы AI (дневной лимит исчерпан)"},
+    "paywall_trial_receipts": {
+        "uz": ("🧾 <b>Sinov davridagi {limit} ta chek ishlatildi.</b>\n\n"
+               "Xarajatni matn bilan yozishda davom etishingiz mumkin. "
+               "PRO'da chek o'qish har kuni ochiq."),
+        "ru": ("🧾 <b>{limit} чеков пробного периода использованы.</b>\n\n"
+               "Записывать расходы текстом можно и дальше. "
+               "В PRO распознавание чеков доступно каждый день."),
+    },
+    "feature_trial_receipts": {"uz": "Chek o'qish (sinov limiti tugadi)",
+                               "ru": "Распознавание чеков (лимит пробного периода)"},
+
+    # ---- AI sarfi chegaralari (umumiy va kishi boshiga) ----
+    "ai_paused": {
+        "uz": ("⏸ <b>Bot vaqtincha to'xtatildi</b>\n\n"
+               "Bepul va sinov foydalanuvchilari uchun oylik xizmat chegarasi "
+               "tugadi. Administrator xabardor qilindi.\n\n"
+               "<i>Yozuvlaringiz saqlanib turibdi.</i>"),
+        "ru": ("⏸ <b>Бот временно приостановлен</b>\n\n"
+               "Месячный лимит сервиса для бесплатных и пробных пользователей "
+               "исчерпан. Администратор уведомлён.\n\n"
+               "<i>Ваши записи сохранены.</i>"),
+    },
+    "ai_user_limit": {
+        "uz": ("⏸ <b>Bu oygi bepul AI limiti tugadi.</b>\n\n"
+               "Yangi oy boshida ({date}) yana ochiladi. Hisobotlar, qarzlar "
+               "va Mini App ishlashda davom etadi.\n\n"
+               "PRO'da bu chegara yo'q."),
+        "ru": ("⏸ <b>Бесплатный лимит AI на этот месяц исчерпан.</b>\n\n"
+               "Откроется снова в начале месяца ({date}). Отчёты, долги "
+               "и Mini App продолжают работать.\n\n"
+               "В PRO этого ограничения нет."),
+    },
+
+    # ---- To'lov cheki yoki xarid cheki ----
+    "proof_ask": {
+        "uz": ("🤔 Sizda <b>{plan}</b> tarifi bo'yicha to'lov kutilmoqda.\n\n"
+               "Bu rasm nima?"),
+        "ru": ("🤔 У вас ожидается оплата по тарифу <b>{plan}</b>.\n\n"
+               "Что это за изображение?"),
+    },
+    "proof_btn_pay": {"uz": "💳 To'lov cheki", "ru": "💳 Чек об оплате"},
+    "proof_btn_buy": {"uz": "🧾 Xarid cheki (xarajat)", "ru": "🧾 Чек покупки (расход)"},
+    "proof_choice_expired": {
+        "uz": "Bu so'rov eskirdi. Rasmni qaytadan yuboring.",
+        "ru": "Запрос устарел. Отправьте изображение ещё раз.",
+    },
+    "receipt_parts_max": {
+        "uz": ("Bitta chek uchun ko'pi bilan {limit} ta qism. «✅ Tayyor» ni "
+               "bosing — yuborilganlari o'qiladi."),
+        "ru": ("Не больше {limit} частей на один чек. Нажмите «✅ Готово» — "
+               "отправленные части будут распознаны."),
+    },
 
     # ---- Adolatli foydalanish chegarasi — muloyim, qachon yangilanishi bilan ----
     "fair_limit": {

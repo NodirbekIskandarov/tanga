@@ -1416,7 +1416,7 @@
   async function main() {
     if (!INIT_DATA) {
       document.getElementById("app").innerHTML =
-        '<div class="empty-state" style="padding-top:60px">⚠️ Bu sahifa faqat Telegram ichida ishlaydi.<br>Botdagi «📊 Boshqaruv paneli» tugmasini bosing.</div>';
+        '<div class="empty-state" style="padding-top:60px">⚠️ Bu sahifa faqat Telegram ichida ishlaydi.<br>Botdagi «📱 Panel» tugmasini bosing.</div>';
       return;
     }
     try {

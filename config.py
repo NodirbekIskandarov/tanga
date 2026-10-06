@@ -42,6 +42,10 @@ PARSE_MODEL = os.getenv("PARSE_MODEL", "claude-haiku-4-5-20251001").strip()
 CHAT_MODEL = os.getenv("CHAT_MODEL", "claude-sonnet-5").strip()
 # Chek rasmlarini o'qish uchun — eng aniq model. Arzonroq variant: claude-sonnet-5.
 VISION_MODEL = os.getenv("VISION_MODEL", "claude-opus-5").strip()
+# Chek o'qishdagi o'ylash chuqurligi: low | medium | high. «high» ancha
+# qimmat (o'ylash tokenlari chiqish narxida); chekda Python baribir jamini
+# tekshiradi va farq chiqsa qayta o'qitadi. Aniqlik pasaysa — «high».
+VISION_EFFORT = os.getenv("VISION_EFFORT", "medium").strip().lower()
 
 # Model narxlari ($ / 1M token): (kirish, chiqish). Keshdan o'qish kirish
 # narxining ~0.1 barobari, keshga yozish ~1.25 barobari (5 daqiqalik TTL).
@@ -49,22 +53,38 @@ VISION_MODEL = os.getenv("VISION_MODEL", "claude-opus-5").strip()
 MODEL_PRICES = {
     "claude-haiku-4-5-20251001": (1.00, 5.00),
     "claude-haiku-4-5": (1.00, 5.00),
-    "claude-sonnet-5": (3.00, 15.00),
+    # Sonnet 5 ilgari $3/$15 deb yozilgan edi — chek va savol sarfi 1.5
+    # barobar oshirib hisoblanardi (admin «Moliya» va AI limiti ham).
+    "claude-sonnet-5": (2.00, 10.00),
+    "claude-sonnet-5-5": (2.00, 10.00),
     "claude-opus-5": (5.00, 25.00),
+    "claude-opus-5-5": (4.00, 20.00),
     "claude-opus-4-8": (5.00, 25.00),
 }
 CACHE_READ_MULTIPLIER = 0.10
 CACHE_WRITE_MULTIPLIER = 1.25
 
+# Jadvalda yo'q model uchun — eng qimmat ma'lum narx. Ilgari 0 qaytardi:
+# .env da yangi model nomi yozilsa AI limiti ham, admin «Moliya» si ham
+# jimgina ishlamay qolardi (sarf $0 bo'lib ko'rinardi).
+_FALLBACK_PRICE = max(MODEL_PRICES.values(), key=lambda p: p[0] + p[1])
+_warned_models: set[str] = set()
+
 
 def cost_usd(model: str, input_tokens: int, output_tokens: int,
              cache_read: int = 0, cache_write: int = 0) -> float:
-    """Bitta API chaqiruvining narxi. Noma'lum model uchun 0 qaytaradi —
-    hisob past ko'rsatilishi jimgina xato ko'rsatishdan yaxshiroq emas,
-    shuning uchun noma'lum model loglarda ko'rinadi."""
+    """Bitta API chaqiruvining narxi. Noma'lum model eng qimmat narxda
+    hisoblanadi va logda bir marta ogohlantiriladi — kam hisoblab limitni
+    chetlab o'tgandan ko'ra, ko'p hisoblab erta to'xtagan yaxshi."""
     price = MODEL_PRICES.get(model)
     if not price:
-        return 0.0
+        if model not in _warned_models:
+            _warned_models.add(model)
+            import logging
+            logging.getLogger("tanga.config").warning(
+                "Model narxi noma'lum: %s — eng qimmat narx olindi. "
+                "config.MODEL_PRICES ni yangilang.", model)
+        price = _FALLBACK_PRICE
     pin, pout = price
     return (
         input_tokens / 1e6 * pin
@@ -253,6 +273,25 @@ def monthly_budget_usd() -> float:
     except (TypeError, ValueError):
         return MONTHLY_BUDGET_USD
 
+
+# Kishi boshiga oylik AI chegarasi ($) — faqat SINOV va BEPUL daraja uchun.
+# Umumiy chegara (yuqorida) butun botni to'xtatadi; bu esa bitta odamni:
+# kimdir bepul darajada ko'p ishlatsa, faqat u to'xtaydi va qolganlar
+# ishlayveradi. Obunachi (to'lagan) bu chegaraga ham, umumiy chegaraga ham
+# urilmaydi — u kunlik «adolatli foydalanish» limitlari bilan cheklangan.
+# 0 — kishi boshiga chegara yo'q.
+USER_MONTHLY_BUDGET_USD = float(os.getenv("USER_MONTHLY_BUDGET_USD", "0.5"))
+
+
+def user_monthly_budget_usd() -> float:
+    """Admin panel «Sozlamalar» dagi qiymat ustun, bo'lmasa .env."""
+    raw = str(runtime_settings().get("ai_user_monthly_budget_usd", "")).strip()
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return USER_MONTHLY_BUDGET_USD
+    return value if value >= 0 else USER_MONTHLY_BUDGET_USD
+
 # Obuna bo'lish uchun murojaat manzili (masalan @username).
 SUPPORT_CONTACT = os.getenv("SUPPORT_CONTACT", "").strip()
 
@@ -440,8 +479,14 @@ FREE_QA_PER_DAY = int(os.getenv("FREE_QA_PER_DAY", "3"))
 # bermaydi, lekin skript bilan cheksiz AI chaqiruvini to'xtatadi.
 # --------------------------------------------------------------------------- #
 LIMIT_TEXT_PER_DAY = int(os.getenv("LIMIT_TEXT_PER_DAY", "120"))
-LIMIT_RECEIPT_PER_DAY = int(os.getenv("LIMIT_RECEIPT_PER_DAY", "25"))
+# PRO: kuniga shuncha chek. Bitta chek ~$0.05 turadi va yillik PRO oyiga
+# ~$1 olib keladi — 25 ta chek bitta odamni zararga aylantirardi.
+LIMIT_RECEIPT_PER_DAY = int(os.getenv("LIMIT_RECEIPT_PER_DAY", "10"))
 LIMIT_QA_PER_DAY = int(os.getenv("LIMIT_QA_PER_DAY", "30"))
+# Sinov (7 kunlik PRO) davomida JAMI shuncha chek. Sinov — to'liq PRO,
+# lekin chek eng qimmat amal va sinovni yangi akkaunt bilan qayta olish
+# mumkin.
+TRIAL_RECEIPTS_TOTAL = int(os.getenv("TRIAL_RECEIPTS_TOTAL", "10"))
 
 # Bir vaqtda qayta ishlanadigan yangilanishlar soni. AI chaqiruvi sekin
 # bo'lgani uchun foydalanuvchilar bir-birini kutmasligi kerak.

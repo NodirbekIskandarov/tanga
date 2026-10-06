@@ -25,7 +25,8 @@ Bot egasi akkauntidan bajariladi. Taxminan 10 daqiqa.
 | 7 | 📱 Panel → «Yil» yorlig'i yoki o'tgan oyga «‹» | «💎 Tanga PRO» oynasi, «PRO ga o'tish» botga qaytaradi |
 | 8 | «💎 PRO ga o'tish» | Tariflar: ⭐ Yillik 149 000 (oyiga 12 400, 35% tejash), Oylik 19 000, 🎁 Asoschilar taklifi 99 000 (qolgan joylar: N/100) |
 | 9 | «🎁 Asoschilar taklifi» | Karta rekvizitlari, «To'lov summasi: 99 000» |
-| 10 | Istalgan rasmni (yoki PDF) yuboring | «Chek qabul qilindi», sizga (egaga) chek nusxasi keladi |
+| 10 | Istalgan rasmni (yoki PDF) yuboring | «Bu rasm nima?» va ikki tugma: «💳 To'lov cheki» / «🧾 Xarid cheki» |
+| 10a | «💳 To'lov cheki» | «Chek qabul qilindi», sizga (egaga) chek nusxasi keladi |
 | 11 | Admin panel → So'rovlar | `f12` so'rovi «tekshiruvda», chek rasmi ko'rinadi |
 | 12 | **Tasdiqlash** (yoki Rad etish) | Botda «🎉 Obunangiz faollashtirildi» (yoki «To'lov tasdiqlanmadi») |
 | 13 | `/holat` | Tasdiqlangan bo'lsa — «✅ Obuna faol» |

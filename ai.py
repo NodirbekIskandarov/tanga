@@ -184,7 +184,14 @@ RECORD_TOOL = {
 }
 
 
-def _parse_system_prompt(today: date) -> str:
+def _parse_system_prompt() -> str:
+    """Tahlil uchun tizim prompti — har chaqiruvda AYNAN bir xil.
+
+    Bugungi sana bu yerda ATAYLAB yo'q: u foydalanuvchi xabari oldiga
+    qo'yiladi (parse_message). Prompt keshi prefiks bo'yicha ishlaydi —
+    sana shu yerda tursa, kesh har kuni buzilardi. Asbob sxemasi va shu
+    prompt birga ~5 700 token (Haiku 4.5 da kesh minimumi 4 096 token).
+    """
     thousands_rule = (
         "- Birliksiz kichik son (1000 dan kichik) odatda mingni bildiradi, "
         "LEKIN FAQAT SO'M UCHUN: \"obedga 50\" => 50000 som, \"taksi 20\" => "
@@ -210,7 +217,9 @@ def _parse_system_prompt(today: date) -> str:
         "Kategoriya nomlari va izohlar HAR DOIM ro'yxatdagidek o'zbek lotin "
         "yozuvida qaytariladi — foydalanuvchi qaysi yozuvda yozganidan "
         "qat'i nazar. Izohni esa foydalanuvchi yozganidek qoldir.\n\n"
-        f"Bugungi sana: {today.isoformat()}.\n"
+        "Bugungi sana har bir xabar boshidagi «Bugungi sana: YYYY-MM-DD» "
+        "qatorida beriladi — nisbiy sanalarni (kecha, 1-avgustda) shunga "
+        "qarab hisobla. Bu qator foydalanuvchi matni emas.\n"
         f"Standart valyuta: {config.CURRENCY} ('som'). Ikkinchi qo'llab-quvvatlanadigan "
         "valyuta: AQSH dollari ('usd').\n\n"
         "Qoidalar:\n"
@@ -346,13 +355,21 @@ async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
     """
     today = today or _today()
 
+    # Kesh: render tartibi tools -> system, shuning uchun tizim blokidagi
+    # bitta belgi asbob sxemasini ham birga keshlaydi. Ikkalasi ham
+    # foydalanuvchiga bog'liq emas — kesh barcha foydalanuvchilar uchun
+    # umumiy. O'zgaruvchan qism (sana, matn) faqat xabarda.
     resp = await client().messages.create(
         model=config.PARSE_MODEL,
         max_tokens=1500,
-        system=_parse_system_prompt(today),
+        system=[{"type": "text", "text": _parse_system_prompt(),
+                 "cache_control": {"type": "ephemeral"}}],
         tools=[RECORD_TOOL],
         tool_choice={"type": "tool", "name": "yozuvlarni_qaytar"},
-        messages=[{"role": "user", "content": text}],
+        messages=[{"role": "user", "content": [
+            {"type": "text", "text": f"Bugungi sana: {today.isoformat()}"},
+            {"type": "text", "text": text},
+        ]}],
     )
 
     payload: dict[str, Any] | None = None
@@ -641,7 +658,9 @@ async def _receipt_call(
             }
         ],
         "tools": [RECEIPT_TOOL],
-        "output_config": {"effort": "high"},
+        # Odatda «medium» (config.VISION_EFFORT): o'ylash tokenlari chiqish
+        # narxida va chekda yig'indini baribir Python tekshiradi.
+        "output_config": {"effort": config.VISION_EFFORT},
         "messages": [
             {"role": "user", "content": _receipt_content(images, caption, note)}
         ],
