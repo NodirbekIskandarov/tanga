@@ -172,7 +172,10 @@ def private_key_pragma() -> str:
 # App ham shu qiymatni tekshiradi.
 # 2026-10-1: maxfiylik matni haqiqatga moslandi (kalit qayerda, Anthropic
 # 30 kun, Telegram'dagi zaxiralar), /csv bepul, qisqa rozilik ekrani.
-CONSENT_VERSION = "2026-10-1"
+# 2026-10-2: shartlar — obuna to'lovi qaytarilmaydi (avval «3 kunda
+# qaytariladi» deyilgan edi). Foydalanuvchi huquqi kamaygani uchun
+# roziligi qayta so'raladi.
+CONSENT_VERSION = "2026-10-2"
 
 CURRENCY = os.getenv("CURRENCY", "so'm")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))

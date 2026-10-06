@@ -178,3 +178,24 @@ def test_first_entry_nudge_targets_and_runs_once():
 
     asyncio.run(bot.job_first_entry_nudge(_ctx(tg)))      # ikkinchi marta — yo'q
     assert len(tg.messages) == 1
+
+
+# ------------------------------------------------- To'lov qaytarilmaydi --
+
+def test_terms_say_payment_is_not_refunded():
+    """Obuna sotib olingach pul qaytarilmaydi: shartlar, to'lov sahifasi va
+    rozilik yangilanishi buni ochiq aytadi; hech bir joyda «qaytariladi»
+    va'dasi yo'q."""
+    uz = i18n.t("uz", "terms", trial=7, contact="@x", version="v")
+    ru = i18n.t("ru", "terms", trial=7, contact="@x", version="v")
+    assert "qaytarilmaydi" in uz and "не возвращается" in ru
+    for text in (uz, ru):
+        assert "3 kun ichida" not in text and "3 дней" not in text
+        assert "qolgan obuna kunlari qaytariladi" not in text
+        assert "Оставшиеся дни подписки при этом возвращаются" not in text
+    for lang, word in (("uz", "qaytarilmaydi"), ("ru", "не возвращается")):
+        assert word in i18n.t(lang, "pay_body", plan="x", price="1", card="1", holder="h",
+                              bank="", contact="@x")
+        assert "qaytarilma" in i18n.t("uz", "consent_updated")
+        assert "не возвращается" in i18n.t("ru", "consent_updated")
+    assert config.CONSENT_VERSION >= "2026-10-2"
