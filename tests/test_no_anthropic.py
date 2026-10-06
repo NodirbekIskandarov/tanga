@@ -2,7 +2,7 @@
 
 Istisnolar (o'zgartirilmaydi): .git tarixi; bazadagi eski `usage_log`
 qatorlari (kodda emas); `docs/` dagi tarixiy audit hisobotlari; DEPLOY.md
-dagi «O'tish kuni» bo'limi (u eski kalitni o'chirishni aynan shu nom bilan
+dagi «O'tish kuni» bo'limi va deploy/gemini-otish.sh (u eski kalitni o'chirishni aynan shu nom bilan
 tushuntiradi).
 """
 
@@ -75,7 +75,10 @@ def test_repository_text_has_no_anthropic_words():
     offenders = []
     for path in _tracked_files():
         rel = path.relative_to(ROOT).as_posix()
-        if rel.startswith("docs/") or rel == "tests/test_no_anthropic.py":
+        # gemini-otish.sh eski kalit va modellarni serverdan olib tashlaydi —
+        # ularni aynan nomi bilan aytishi kerak.
+        if rel.startswith("docs/") or rel in ("tests/test_no_anthropic.py",
+                                              "deploy/gemini-otish.sh"):
             continue
         if path.suffix.lower() in (".png", ".ico", ".jpg", ".jpeg", ".gif", ".webp",
                                    ".woff", ".woff2", ".ttf", ".db", ".ogg", ".pdf"):

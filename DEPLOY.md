@@ -76,9 +76,14 @@ bajarilmaydi.**
 
 1. Bazaning zaxira nusxasi: `tanga-backup --local`.
 2. Git tegi: `git tag oxirgi-claude` (allaqachon bor; qaytish nuqtasi).
-3. `.env` da `GEMINI_API_KEY` va yangi model kalitlarini qo'ying
-   (`.env.example` ga qarang), `ANTHROPIC_API_KEY` qatorini **o'chiring**.
-   Avval `VOICE_ENABLED=false`.
+3. `.env` ni tayyorlang — bitta buyruq (zaxira nusxa oladi, `GEMINI_API_KEY`
+   ni qo'yadi, eski `claude-*` model qatorlarini va `ANTHROPIC_API_KEY` ni
+   olib tashlaydi; qiymatlarni chop etmaydi):
+   ```bash
+   read -rs NEW_GEMINI_KEY && export NEW_GEMINI_KEY
+   bash /opt/tanga/deploy/gemini-otish.sh && unset NEW_GEMINI_KEY
+   ```
+   Ovoz avval yopiq qoladi (`VOICE_ENABLED=false` — standart).
 4. `pip install -r requirements.txt`; eski paketni olib tashlang:
    `.venv/bin/pip uninstall -y anthropic`.
 5. `systemctl restart tanga tanga-webapp`; loglarni kuzating.
