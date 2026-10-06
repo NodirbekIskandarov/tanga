@@ -2030,6 +2030,19 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return
 
     db.usage_finish(usage_id, parsed.get("_usage"))
+    await _dispatch_parsed(update, context, parsed, text, message)
+
+
+async def _dispatch_parsed(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                           parsed: dict, raw_text: str, message,
+                           prefix_html: str = "") -> None:
+    """AI natijasiga qarab javob beradi: kurs, savol, tushunarsiz yoki yozuv.
+
+    Matn ham, ovoz ham shu yerdan o'tadi. `raw_text` — bazaga yoziladigan
+    asl matn (ovozda «🎤 transkripsiya»), `prefix_html` — javob boshiga
+    qo'yiladigan tayyor HTML (ovozda «🎤 «eshitilgan gap»»).
+    """
+    user_id = update.effective_user.id
     niyat = parsed["niyat"]
 
     if niyat == "kurs" and parsed.get("kurs"):
@@ -2037,41 +2050,77 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
         # boshqa foydalanuvchilarni kutdirmasin.
         answer = await asyncio.to_thread(fx_answer_text, parsed["kurs"],
                                          lang_of(user_id, context))
-        await message.reply_text(answer, parse_mode=ParseMode.HTML)
+        await message.reply_text(_with_prefix(prefix_html, answer),
+                                 parse_mode=ParseMode.HTML)
         return
 
     if niyat == "savol":
-        # Savol alohida (qimmatroq) amal — o'z limiti va o'z hisobi bor.
-        qa_id = await check_quota(update, context, "savol")
-        if qa_id is None:
-            return
-        try:
-            today = reports.today()
-            rows = db.rows_for_ai(user_id, config.QA_MAX_ROWS)
-            # Jamlanma to'liq davr bo'yicha: o'tgan oy boshidan bugungacha
-            # barcha yozuvlar va 12 oylik jamlar — xom ro'yxat cheklangan.
-            prev_start = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
-            summary_rows = db.list_range(user_id, prev_start, today)
-            monthly = db.monthly_totals(user_id)
-            answer, qa_usage = await ai.answer_question(
-                text, rows, today=today, summary_rows=summary_rows,
-                monthly=monthly)
-        except Exception:
-            log.exception("AI javobida xatolik")
-            db.usage_cancel(qa_id)
-            await message.reply_text(tr("answer_error"))
-            return
-        if qa_usage:
-            db.usage_finish(qa_id, qa_usage)
-        else:
-            db.usage_cancel(qa_id)  # yozuv yo'q edi, API chaqirilmadi
-        await message.reply_text(answer)
+        await _answer_question_flow(update, context, parsed.get("_question") or raw_text,
+                                    message, prefix_html)
         return
 
     if niyat != "yozuv" or not parsed["yozuvlar"]:
         hint = _ai_hint(parsed.get("izoh_matni"), "not_understood")
-        await message.reply_text(f"🤔 {hint}", parse_mode=ParseMode.HTML)
+        await message.reply_text(_with_prefix(prefix_html, f"🤔 {hint}"),
+                                 parse_mode=ParseMode.HTML)
         return
+
+    await _save_parsed(update, context, parsed, raw_text, message, prefix_html)
+
+
+def _with_prefix(prefix_html: str, body_html: str) -> str:
+    return f"{prefix_html}\n\n{body_html}" if prefix_html else body_html
+
+
+async def _answer_question_flow(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                question: str, message, prefix_html: str = "") -> None:
+    """Moliyaviy savolga javob (matn va ovoz uchun umumiy).
+
+    Savol alohida (qimmatroq) amal — o'z limiti va o'z hisobi bor.
+    """
+    user_id = update.effective_user.id
+    qa_id = await check_quota(update, context, "savol")
+    if qa_id is None:
+        return
+    try:
+        today = reports.today()
+        rows = db.rows_for_ai(user_id, config.QA_MAX_ROWS)
+        # Jamlanma to'liq davr bo'yicha: o'tgan oy boshidan bugungacha
+        # barcha yozuvlar va 12 oylik jamlar — xom ro'yxat cheklangan.
+        prev_start = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+        summary_rows = db.list_range(user_id, prev_start, today)
+        monthly = db.monthly_totals(user_id)
+        answer, qa_usage = await ai.answer_question(
+            question, rows, today=today, summary_rows=summary_rows,
+            monthly=monthly)
+    except Exception:
+        log.exception("AI javobida xatolik")
+        db.usage_cancel(qa_id)
+        await message.reply_text(tr("answer_error"))
+        return
+    if qa_usage:
+        db.usage_finish(qa_id, qa_usage)
+    else:
+        db.usage_cancel(qa_id)  # yozuv yo'q edi, API chaqirilmadi
+    if prefix_html:
+        # Javob oddiy matn; prefiks HTML bo'lgani uchun javobni qochiramiz.
+        await message.reply_text(_with_prefix(prefix_html, reports.esc(answer)),
+                                 parse_mode=ParseMode.HTML)
+    else:
+        await message.reply_text(answer)
+
+
+async def _save_parsed(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                       parsed: dict, raw_text: str, message,
+                       prefix_html: str = "") -> list[int]:
+    """AI ajratgan yozuvlarni saqlaydi va tasdiq xabarini yuboradi.
+
+    Matn ham, ovoz ham (tasdiq tugmasidan keyin ham) shu funksiyadan
+    foydalanadi: o'rganilgan qoidalar, maqsad, saqlash, tasdiq matni,
+    «bugungi chiqim», tugmalar, byudjet ogohlantirishi, jamg'arma taklifi
+    va nishonlash. Qaytaradi: saqlangan yozuvlar id'lari.
+    """
+    user_id = update.effective_user.id
 
     # Foydalanuvchining o'z tuzatishlaridan o'rganilgan qoidalar AI
     # javobidan ustun turadi.
@@ -2094,7 +2143,7 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
             note=item["izoh"],
             person=item["shaxs"],
             occurred_on=item["sana"],
-            raw_text=text,
+            raw_text=raw_text,
             currency=item["valyuta"],
             goal_id=goal_id,
             due_on=item.get("muddat"),
@@ -2111,7 +2160,7 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     single_kind = parsed["yozuvlar"][0]["turi"] if len(saved_ids) == 1 else None
     await message.reply_text(
-        body, parse_mode=ParseMode.HTML,
+        _with_prefix(prefix_html, body), parse_mode=ParseMode.HTML,
         reply_markup=entry_keyboard(saved_ids, single_kind, parsed["yozuvlar"]),
     )
 
@@ -2133,6 +2182,7 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
                                   parsed["yozuvlar"])
 
     await _celebrate(update, context, message, len(saved_ids))
+    return saved_ids
 
 
 # Nishonlanadigan bosqichlar. Har kuni emas — kamdan-kam bo'lgani uchun
