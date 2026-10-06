@@ -198,6 +198,71 @@ TEXTS = {
         "ru": "<i>Изменить: /byudjet &lt;категория&gt; &lt;сумма&gt;</i>",
     },
 
+    # ---- Ovozli kiritish ----
+    "voice_heard": {"uz": "🎤 <i>«{text}»</i>", "ru": "🎤 <i>«{text}»</i>"},
+    "voice_too_long": {
+        "uz": ("Ovoz {sec} soniyadan oshmasin. Bir nechta xarajatni bitta "
+               "qisqa xabarda aytsangiz bo'ladi."),
+        "ru": ("Голосовое сообщение не должно быть длиннее {sec} секунд. "
+               "Несколько расходов можно сказать в одном коротком сообщении."),
+    },
+    "voice_disabled": {
+        "uz": "Ovozli kiritish tez orada. Hozircha matn bilan yozing.",
+        "ru": "Голосовой ввод скоро появится. Пока пишите текстом.",
+    },
+    "voice_not_understood": {
+        "uz": "Ovozni tushunib bo'lmadi. Aniqroq ayting yoki yozing: «obedga 45 ming»",
+        "ru": "Не удалось понять голос. Скажите чётче или напишите: «обед 45 тысяч»",
+    },
+    "voice_bad_format": {
+        "uz": "Bu audio formati qo'llab-quvvatlanmaydi. Ovozli xabar yuboring.",
+        "ru": "Этот формат аудио не поддерживается. Отправьте голосовое сообщение.",
+    },
+    "voice_confirm_title": {
+        "uz": "🎤 <i>«{text}»</i>\n\nShunday tushundim:",
+        "ru": "🎤 <i>«{text}»</i>\n\nЯ понял так:",
+    },
+    "voice_btn_save": {"uz": "✅ Saqlash", "ru": "✅ Сохранить"},
+    "voice_btn_cancel": {"uz": "❌ Bekor", "ru": "❌ Отмена"},
+    "voice_btn_text": {"uz": "✏️ Matn bilan yozaman", "ru": "✏️ Напишу текстом"},
+    "voice_saved": {"uz": "✅ Saqlandi", "ru": "✅ Сохранено"},
+    "voice_cancelled": {"uz": "Bekor qilindi. Hech narsa saqlanmadi.",
+                        "ru": "Отменено. Ничего не сохранено."},
+    "voice_expired": {
+        "uz": "Bu taklif eskirdi, qaytadan ayting yoki yozing.",
+        "ru": "Это предложение устарело — скажите или напишите ещё раз.",
+    },
+    "voice_text_prompt": {"uz": "Yozib yuboring, masalan «obedga 45 ming»",
+                          "ru": "Напишите, например: «обед 45 тысяч»"},
+    "voice_in_collect_mode": {
+        "uz": ("Uzun chek rejimida ovoz qabul qilinmaydi. «✅ Tayyor» yoki "
+               "«❌ Bekor» bosing."),
+        "ru": ("В режиме длинного чека голос не принимается. Нажмите "
+               "«✅ Готово» или «❌ Отмена»."),
+    },
+    "voice_in_erase_mode": {
+        "uz": ("Tasdiq so'zini yozib yuboring — hisobni o'chirish ovoz bilan "
+               "tasdiqlanmaydi."),
+        "ru": ("Напишите слово подтверждения текстом — удаление аккаунта "
+               "голосом не подтверждается."),
+    },
+    "voice_video_note": {"uz": "Hozircha faqat ovozli xabar qabul qilinadi.",
+                         "ru": "Пока принимаются только голосовые сообщения."},
+    "welcome_voice": {"uz": "🎤 Ovozli xabar ham yuborishingiz mumkin.\n",
+                      "ru": "🎤 Можно отправить и голосовое сообщение.\n"},
+    "what_ovoz": {"uz": "ovozli xabar yuborildi", "ru": "голосовых сообщений"},
+    "feature_voice": {"uz": "Ovozli xabarlar (bugungi limit tugadi)",
+                      "ru": "Голосовые сообщения (дневной лимит исчерпан)"},
+    "paywall_voice": {
+        "uz": ("🎤 <b>Bugungi {limit} ta bepul ovozli xabar ishlatildi.</b>\n\n"
+               "Ertaga yana {limit} ta ochiladi. Hozircha xarajatni matn bilan "
+               "yozishingiz mumkin — bu cheksiz. PRO'da kuniga ancha ko'p "
+               "ovozli xabar."),
+        "ru": ("🎤 <b>{limit} бесплатных голосовых на сегодня использованы.</b>\n\n"
+               "Завтра откроются ещё {limit}. Пока можно писать расходы "
+               "текстом — это без ограничений. В PRO голосовых намного больше."),
+    },
+
     # ---- Mini App (webapp.py) xatolari ----
     "wa_blocked": {"uz": "Hisobingiz bloklangan.", "ru": "Ваш аккаунт заблокирован."},
     "wa_closed": {"uz": "Bot hozircha yopiq sinovda.",

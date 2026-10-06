@@ -672,7 +672,8 @@ async def check_quota(update: Update, context: ContextTypes.DEFAULT_TYPE,
         await show_paywall(update, context, verdict["feature"],
                            limit=verdict["limit"], date=date_text)
     else:
-        what = {"matn": "what_matn", "chek": "what_chek", "qa": "what_qa"}[verdict["feature"]]
+        what = {"matn": "what_matn", "chek": "what_chek", "qa": "what_qa",
+                "voice": "what_ovoz"}[verdict["feature"]]
         await update.effective_message.reply_text(
             i18n.t(lang, "fair_limit", limit=verdict["limit"], what=i18n.t(lang, what)))
     return None
@@ -951,6 +952,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db.log_event(user.id, "start")
         trial = (i18n.t(lang, "trial_active", days=config.trial_days()) + "\n"
                  if access["status"] == "trial" else "")
+        if voice_available(user.id):
+            trial += i18n.t(lang, "welcome_voice")
         await update.effective_message.reply_text(
             i18n.t(lang, "welcome", name=name, trial=trial),
             parse_mode=ParseMode.HTML,
@@ -1945,6 +1948,221 @@ async def _on_text_gated(update: Update, context: ContextTypes.DEFAULT_TYPE,
     await _process_text(update, context, text, message)
 
 
+# --------------------------------------------------------------------------- #
+# Ovozli kiritish
+#
+# Foydalanuvchi matn bilan nima yoza olsa, ovoz bilan ham ayta oladi. Bitta
+# API chaqiruvi ham transkripsiya, ham ajratish qiladi (ai.parse_voice).
+# Ovoz fayli FAQAT xotirada turadi: diskka yozilmaydi, bazaga tushmaydi,
+# logga chiqmaydi — bazaga faqat transkripsiya matni (raw_text) yoziladi.
+# --------------------------------------------------------------------------- #
+
+# Telegram/brauzer MIME turlari -> Gemini qabul qiladigan turlar.
+VOICE_MIME = {
+    "audio/ogg": "audio/ogg", "audio/opus": "audio/ogg", "application/ogg": "audio/ogg",
+    "audio/mpeg": "audio/mpeg", "audio/mp3": "audio/mp3",
+    "audio/mp4": "audio/m4a", "audio/m4a": "audio/m4a", "audio/x-m4a": "audio/m4a",
+    "audio/wav": "audio/wav", "audio/x-wav": "audio/wav", "audio/wave": "audio/wav",
+    "audio/aac": "audio/aac", "audio/flac": "audio/flac", "audio/webm": "audio/webm",
+}
+
+# Past ishonchli natija tasdiq kutadi: token -> {user_id, parsed, raw_text, transcript}.
+_voice_pending = TTLStore(ttl_seconds=900, max_items=500)
+
+
+def voice_available(user_id: int) -> bool:
+    """Funksiya bayrog'i: avval yopiq, keyin beta ro'yxat, keyin hammaga."""
+    if not config.VOICE_ENABLED:
+        return False
+    beta = config.VOICE_BETA_USER_IDS
+    return not beta or user_id in beta or user_id in config.OWNER_IDS
+
+
+@private_only
+async def on_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ovozli xabar yoki audio fayl -> yozuv, savol yoki tasdiq so'rovi."""
+    message = update.effective_message
+    user = update.effective_user
+    if message is None or user is None:
+        return
+    user_id = user.id
+    lang = lang_of(user_id, context)
+
+    # Kirish va rozilik private_only da. Hisobni o'chirish ovoz bilan
+    # tasdiqlanmaydi — qaytarib bo'lmaydigan amal faqat yozilgan so'z bilan.
+    if _erase_typed.get(user_id):
+        await message.reply_text(i18n.t(lang, "voice_in_erase_mode"))
+        return
+    if user_id in _collect:
+        await message.reply_text(i18n.t(lang, "voice_in_collect_mode"),
+                                 reply_markup=collect_menu(lang))
+        return
+
+    media = message.voice or message.audio
+    if media is None:
+        return
+
+    # Hajm va davomiylik YUKLAB OLISHDAN OLDIN tekshiriladi.
+    duration = int(getattr(media, "duration", 0) or 0)
+    size = int(getattr(media, "file_size", 0) or 0)
+    if duration > config.VOICE_MAX_SECONDS or size > config.VOICE_MAX_BYTES:
+        db.log_event(user_id, "ovoz_rad", "uzun")
+        await message.reply_text(
+            i18n.t(lang, "voice_too_long", sec=config.VOICE_MAX_SECONDS))
+        return
+    mime = VOICE_MIME.get((getattr(media, "mime_type", None) or "audio/ogg").lower())
+    if mime is None:
+        db.log_event(user_id, "ovoz_rad", "format")
+        await message.reply_text(i18n.t(lang, "voice_bad_format"))
+        return
+
+    if not voice_available(user_id):
+        db.log_event(user_id, "ovoz_rad", "yopiq")
+        await message.reply_text(i18n.t(lang, "voice_disabled"))
+        return
+
+    usage_id = await check_quota(update, context, "ovoz")
+    if usage_id is None:
+        return
+    await context.bot.send_chat_action(message.chat_id, ChatAction.TYPING)
+
+    try:
+        tg_file = await context.bot.get_file(media.file_id)
+        audio = bytes(await tg_file.download_as_bytearray())
+        if len(audio) > config.VOICE_MAX_BYTES:
+            raise ImageError(i18n.t(lang, "voice_too_long", sec=config.VOICE_MAX_SECONDS))
+    except ImageError as exc:
+        db.usage_cancel(usage_id)
+        await message.reply_text(f"⚠️ {exc}")
+        return
+    except Exception:
+        log.exception("Ovozni yuklab olishda xatolik")
+        db.usage_cancel(usage_id)
+        await message.reply_text(i18n.t(lang, "err_download"))
+        return
+
+    try:
+        parsed = await ai.parse_voice(audio, mime, today=reports.today())
+    except Exception:
+        log.exception("Ovoz tahlilida xatolik")
+        db.usage_cancel(usage_id)
+        await message.reply_text(i18n.t(lang, "ai_error"))
+        return
+    finally:
+        del audio                    # ovoz xotiradan ham tezroq ketsin
+
+    db.usage_finish(usage_id, parsed.get("_usage"))
+    db.log_event(user_id, "ovoz_yuborildi", parsed.get("niyat", ""))
+    await _handle_voice_result(update, context, parsed, message)
+
+
+async def _handle_voice_result(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                               parsed: dict, message) -> None:
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    transcript = (parsed.get("transkripsiya") or "").strip()
+    raw_text = f"🎤 {transcript}"
+    prefix = (i18n.t(lang, "voice_heard", text=reports.esc(transcript))
+              if transcript else "")
+
+    # «➕ Yangi maqsad» / «💸 Qisman to'lash» dan keyin aytilgan gap —
+    # matn bilan yozilgandek ishlanadi.
+    if transcript:
+        if context.user_data.pop("await_goal", False):
+            await create_goal_from_text(update, context, transcript)
+            return
+        debt_id = context.user_data.pop("await_debt_pay", None)
+        if debt_id:
+            await _debt_payment_from_text(update, context, debt_id, transcript, message)
+            return
+
+    if parsed["niyat"] == "yozuv" and parsed["yozuvlar"] \
+            and parsed.get("ishonch") != "yuqori":
+        await _ask_voice_confirmation(update, context, parsed, transcript, raw_text,
+                                      message)
+        return
+
+    parsed["_question"] = transcript            # savol bo'lsa — transkripsiyaning o'zi
+    if parsed["niyat"] not in ("yozuv", "savol", "kurs") or (
+            parsed["niyat"] == "yozuv" and not parsed["yozuvlar"]):
+        hint = _ai_hint(parsed.get("izoh_matni"), "voice_not_understood")
+        body = f"🤔 {hint}"
+        await message.reply_text(_with_prefix(prefix, body), parse_mode=ParseMode.HTML)
+        return
+    await _dispatch_parsed(update, context, parsed, raw_text, message, prefix)
+
+
+async def _ask_voice_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                  parsed: dict, transcript: str, raw_text: str,
+                                  message) -> None:
+    """Ishonch past: hech narsa saqlanmaydi — eshitilgani va tushunilgani
+    ko'rsatiladi, foydalanuvchi tasdiqlaydi."""
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    token = uuid.uuid4().hex[:10]
+    _voice_pending.set(token, {"user_id": user_id, "parsed": parsed,
+                               "raw_text": raw_text, "transcript": transcript})
+    db.log_event(user_id, "ovoz_tasdiq_soraldi")
+
+    lines = [i18n.t(lang, "voice_confirm_title", text=reports.esc(transcript)), ""]
+    lines += [reports.saved_line(r, lang) for r in parsed["yozuvlar"]]
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton(i18n.t(lang, "voice_btn_save"), callback_data=f"vs:ok:{token}"),
+         InlineKeyboardButton(i18n.t(lang, "voice_btn_cancel"), callback_data=f"vs:no:{token}")],
+        [InlineKeyboardButton(i18n.t(lang, "voice_btn_text"), callback_data=f"vs:txt:{token}")],
+    ])
+    await message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML,
+                             reply_markup=markup)
+
+
+async def on_voice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """vs:ok|no|txt:<token> — past ishonchli ovozni tasdiqlash. Kirish va
+    rozilik on_callback darvozasidan o'tgan."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    parts = (query.data or "").split(":", 2)
+    if len(parts) != 3:
+        await query.answer()
+        return
+    _, action, token = parts
+    pending = _voice_pending.get(token)
+    if not pending or pending["user_id"] != user_id:
+        await query.answer(i18n.t(lang, "voice_expired"), show_alert=True)
+        try:
+            await query.edit_message_reply_markup(None)
+        except Exception:
+            pass
+        return
+
+    _voice_pending.pop(token, None)
+    prefix = i18n.t(lang, "voice_heard", text=reports.esc(pending["transcript"]))
+    try:
+        await query.edit_message_reply_markup(None)
+    except Exception:
+        pass
+
+    if action == "ok":
+        await query.answer(i18n.t(lang, "voice_saved"))
+        await _save_parsed(update, context, pending["parsed"], pending["raw_text"],
+                           query.message, prefix_html=prefix)
+    elif action == "no":
+        await query.answer()
+        await query.message.reply_text(i18n.t(lang, "voice_cancelled"))
+    else:                                           # txt
+        await query.answer()
+        await query.message.reply_text(i18n.t(lang, "voice_text_prompt"))
+
+
+@private_only
+async def on_video_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Dumaloq video hozircha qabul qilinmaydi."""
+    message = update.effective_message
+    if message is not None:
+        await message.reply_text(
+            i18n.t(lang_of(update.effective_user.id, context), "voice_video_note"))
+
+
 GREETINGS = {
     "salom", "assalomu alaykum", "assalomu aleykum", "assalom", "salom alaykum",
     "salomlar", "hayrli kun", "xayrli kun", "hi", "hello", "hey", "start",
@@ -2319,6 +2537,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data.startswith("try:"):
         await on_try_callback(update, context)
+        return
+    if data.startswith("vs:"):
+        await on_voice_callback(update, context)
         return
 
     if data.startswith("d:"):
@@ -4956,6 +5177,10 @@ def register_handlers(app) -> None:
     app.add_handler(MessageHandler(
         filters.PHOTO | filters.Document.IMAGE | filters.Document.PDF
         | filters.Document.FileExtension("pdf"), on_photo))
+    app.add_handler(MessageHandler(
+        (filters.VOICE | filters.AUDIO) & filters.ChatType.PRIVATE, on_voice))
+    app.add_handler(MessageHandler(
+        filters.VIDEO_NOTE & filters.ChatType.PRIVATE, on_video_note))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
     schedule_jobs(app)

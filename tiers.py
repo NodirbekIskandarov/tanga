@@ -9,6 +9,7 @@
 | Mini App               | joriy oy            | to'liq                     |
 | Byudjet                | —                   | ha                         |
 | AI savol-javob         | kuniga 3 ta         | cheksiz*                   |
+| Ovozli xabar           | kuniga 5 ta         | kuniga 40 ta*              |
 | CSV eksport            | ha**                | ha                         |
 
  *  «adolatli foydalanish» kunlik chegarasi bilan (config.LIMIT_*):
@@ -103,6 +104,13 @@ def check(user_id: int, access: dict | None, operation: str) -> dict | None:
         limit = config.LIMIT_QA_PER_DAY if pro else config.FREE_QA_PER_DAY
         if db.count_today(user_id, "savol") >= limit:
             return {"type": "limit" if pro else "paywall", "feature": "qa",
+                    "limit": limit, "resets": "tomorrow"}
+        return None
+
+    if operation == "ovoz":
+        limit = config.LIMIT_VOICE_PER_DAY if pro else config.FREE_VOICE_PER_DAY
+        if db.count_today(user_id, "ovoz") >= limit:
+            return {"type": "limit" if pro else "paywall", "feature": "voice",
                     "limit": limit, "resets": "tomorrow"}
         return None
 

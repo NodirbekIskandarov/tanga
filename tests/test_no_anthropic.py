@@ -16,7 +16,8 @@ import pytest
 import config
 
 ROOT = Path(__file__).resolve().parents[1]
-PATTERN = re.compile(r"anthropic|claude|haiku|sonnet|opus|sk-ant", re.I)
+# «opus» faqat model nomi sifatida (Opus 5): audio/opus — Telegram ovozining kodek nomi.
+PATTERN = re.compile(r"anthropic|claude|haiku|sonnet|sk-ant|\bopus[- ]?\d", re.I)
 
 
 def _tracked_files() -> list[Path]:
