@@ -106,6 +106,12 @@ TEXTS = {
         "uz": "Fayl juda katta ({size} MB, chegara {limit} MB).",
         "ru": "Файл слишком большой ({size} МБ, лимит {limit} МБ).",
     },
+    "err_total_big": {
+        "uz": ("Chek fayllari jami hajmi juda katta (chegara {mb} MB). "
+               "Kamroq yoki kichikroq rasm yuboring."),
+        "ru": ("Общий размер файлов чека слишком большой (лимит {mb} МБ). "
+               "Отправьте меньше или более лёгких фото."),
+    },
     "err_download": {
         "uz": "⚠️ Faylni yuklab olishda xatolik yuz berdi.",
         "ru": "⚠️ Не удалось загрузить файл.",

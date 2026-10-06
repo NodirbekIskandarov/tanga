@@ -47,7 +47,7 @@ if [[ ! -f "$APP_DIR/.env" ]]; then
   echo
   echo "  ⚠️  $APP_DIR/.env yaratildi, lekin TO'LDIRILMAGAN."
   echo "     Quyidagilarni yozing va keyin xizmatni qayta ishga tushiring:"
-  echo "       TELEGRAM_TOKEN, ANTHROPIC_API_KEY, ALLOWED_USER_IDS"
+  echo "       TELEGRAM_TOKEN, GEMINI_API_KEY, ALLOWED_USER_IDS"
   echo
   NEEDS_ENV=1
 else

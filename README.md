@@ -1,7 +1,7 @@
 # Shaxsiy tanga bot
 
-Telegram bot: oddiy tilda yozasiz yoki chek rasmini yuborasiz — Claude (Anthropic API)
-matnni/rasmni o'qib, undan summa, turi va kategoriyani ajratib oladi va SQLite bazaga yozadi.
+Telegram bot: oddiy tilda yozasiz, ovozli xabar yuborasiz yoki chek rasmini yuborasiz —
+Google Gemini matnni/ovozni/rasmni o'qib, undan summa, turi va kategoriyani ajratib oladi va SQLite bazaga yozadi.
 
 ```
 Siz:  obedga 45 ming, taksi 20k
@@ -54,7 +54,7 @@ Bot:  🧾 MAXSULOT SAVDO MARKAZI
 
 ## Chek qanday o'qiladi
 
-1. Rasm(lar) Claude'ga yuboriladi. Model **faqat o'qiydi va kategoriyalaydi** — qo'shish
+1. Rasm(lar) Gemini'ga yuboriladi. Model **faqat o'qiydi va kategoriyalaydi** — qo'shish
    vazifasi unga berilmaydi.
 2. Mahsulotlar yig'indisini **Python hisoblaydi** va chekdagi "JAMI" bilan solishtiradi.
    Chekning o'zida yakuniy summa borligi — tekshiruv summasi vazifasini bajaradi.
@@ -75,7 +75,9 @@ Eng aniq natija uchun rasmni **Fayl** sifatida yuboring — Telegram uni siqmayd
 | Fayl | Vazifasi |
 |---|---|
 | `bot.py` | Telegram handlerlari, ishga tushirish nuqtasi |
-| `ai.py` | Anthropic API: matnni tahlil qilish + savolga javob |
+| `ai.py` | AI qatlami: matn, ovoz, chek, savol (normallashtirish va chek tekshiruvi Python'da) |
+| `gemini.py` | Google Gemini mijozi: Interactions API, vaqt chegarasi, qayta urinish, token sarfi |
+| `ai_prompts.py`, `ai_schemas.py` | Tizim promptlari va JSON sxemalar |
 | `db.py` | SQLite bilan ishlash |
 | `reports.py` | Hisobotlarni matnga aylantirish |
 | `config.py` | Sozlamalar va kategoriyalar ro'yxati |
@@ -86,7 +88,7 @@ Eng aniq natija uchun rasmni **Fayl** sifatida yuboring — Telegram uni siqmayd
 
 ## O'rnatish
 
-Kerak bo'ladi: **Python 3.10+**, Telegram akkaunt, Anthropic API kaliti.
+Kerak bo'ladi: **Python 3.10+**, Telegram akkaunt, Google Gemini API kaliti (**billing yoqilgan**).
 
 ### 1. Telegram bot tokenini olish
 
@@ -96,10 +98,16 @@ Telegramda [@BotFather](https://t.me/BotFather) ga yozing:
 ```
 Nom va username so'raydi. Oxirida `123456789:AAH...` ko'rinishidagi token beradi — saqlab qo'ying.
 
-### 2. Anthropic API kalitini olish
+### 2. Gemini API kalitini olish
 
-[console.anthropic.com](https://console.anthropic.com) → ro'yxatdan o'ting → **API Keys** → **Create Key**.
-Balansga oz miqdorda pul qo'shishingiz kerak bo'ladi (kredit kartasi orqali).
+[Google AI Studio](https://aistudio.google.com/apikey) → **Create API key**, so'ng
+loyihada **billing yoqing**. ⚠️ Faqat pullik darajadagi kalit ishlatiladi: bepul
+daraja yuborilgan kontentni Google mahsulotlarini yaxshilashga ishlatadi.
+
+**Nega Interactions API:** Google hujjatiga ko'ra 2026-iyundan standart interfeys
+`interactions` (`client.aio.interactions.create`), `generateContent` esa eski
+(legacy, lekin qo'llab-quvvatlanadi). O'rnatilgan SDK (`google-genai` 2.28)da asinxron
+varianti, JSON sxemali javob, audio va PDF ishlaydi — shuning uchun shu tanlandi.
 
 ### 3. Loyihani tayyorlash
 
@@ -118,7 +126,7 @@ cp .env.example .env
 
 ```env
 TELEGRAM_TOKEN=123456789:AAH...
-ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=...
 ALLOWED_USER_IDS=
 ```
 
@@ -180,16 +188,27 @@ Migratsiya skriptlari va chiqarish tartibi — `DEPLOY.md` da.
 
 | O'zgaruvchi | Standart | Izoh |
 |---|---|---|
-| `PARSE_MODEL` | `claude-haiku-4-5-20251001` | Matn yozuvlarini ajratuvchi model — arzon va tez |
-| `CHAT_MODEL` | `claude-sonnet-5` | Savollarga javob beruvchi model |
-| `VISION_MODEL` | `claude-opus-5` | Chek rasmlarini o'qiydigan model — eng aniq |
+| `GEMINI_API_KEY` | — | Gemini kaliti (majburiy, billing yoqilgan) |
+| `PARSE_MODEL` | `gemini-3.5-flash-lite` | Matn yozuvlarini ajratuvchi model — arzon va tez |
+| `VOICE_MODEL` | `gemini-3.5-flash-lite` | Ovozli xabar (transkripsiya + ajratish bitta chaqiruvda) |
+| `CHAT_MODEL` | `gemini-3.8-flash` | Savollarga javob beruvchi model |
+| `VISION_MODEL` | `gemini-3.8-flash` | Chek rasmlarini o'qiydigan model — aniqlik muhim |
+| `PARSE_THINKING`, `VOICE_THINKING` | `minimal` | «O'ylash» darajasi: `minimal` / `low` / `medium` / `high` |
+| `VISION_THINKING`, `CHAT_THINKING` | `medium` | O'ylash tokenlari chiqish narxida hisoblanadi |
+| `VOICE_ENABLED` | `false` | Ovozli kiritish bayrog'i |
+| `VOICE_BETA_USER_IDS` | bo'sh | Bo'sh bo'lmasa — ovoz faqat shu ID'lar va egalar uchun |
+| `VOICE_MAX_SECONDS` / `VOICE_MAX_BYTES` | `60` / `2000000` | Ovoz davomiyligi va hajmi chegarasi |
+| `VOICE_CONFIRM_ABOVE_SOM` / `_USD` | `5000000` / `500` | Shundan katta summa ovozdan aniqlansa — tasdiq so'raladi |
+| `LIMIT_VOICE_PER_DAY` / `FREE_VOICE_PER_DAY` | `40` / `5` | Kunlik ovoz limiti: PRO / Bepul (biznes qarori) |
 | `CURRENCY` | `so'm` | Valyuta nomi |
 | `TIMEZONE` | `Asia/Tashkent` | Vaqt mintaqasi |
 | `SMALL_NUMBERS_ARE_THOUSANDS` | `true` | `obedga 50` → 50 000 so'm deb tushunilsinmi |
 | `DB_PATH` | `tanga.db` | Baza fayli joyi |
 | `QA_MAX_ROWS` | `500` | Savolga javob berishda AI ko'radigan yozuvlar soni |
 | `MAX_RECEIPT_PARTS` | `8` | Bitta chek uchun maksimal rasm soni |
-| `MAX_IMAGE_BYTES` | `4500000` | Bitta rasm uchun maksimal hajm |
+| `MAX_IMAGE_BYTES` | `8000000` | Bitta rasm uchun maksimal hajm (xom bayt) |
+| `MAX_PDF_BYTES` | `12000000` | Bitta PDF uchun maksimal hajm |
+| `MAX_RECEIPT_TOTAL_BYTES` | `13000000` | Bitta chek barcha qismlarining yig'indisi (Gemini so'rovi jami 20 MB) |
 
 ### Kategoriyalarni o'zgartirish
 
@@ -199,24 +218,30 @@ AI ro'yxatni avtomatik ravishda o'z sxemasidan oladi.
 
 ## Xarajat haqida
 
-| Amal | Model | Taxminiy sarf |
+> ⚠️ Quyidagi sonlar **hisob-kitob** (token soni × hujjatdagi narx), jonli
+> o'lchov emas. Jonli baholash (`docs/gemini-baholash.md`) o'tgach haqiqiy
+> o'rtacha qiymatlar shu yerga yoziladi.
+
+| Amal | Model | Taxminiy sarf (bir amal) |
 |---|---|---|
-| Matnli yozuv | Haiku 4.5 | ~700–900 kirish, 100–200 chiqish tokeni — juda arzon |
-| Savolga javob | Sonnet 5 | yozuvlar soniga bog'liq |
-| **Chek rasmi** | **Opus 5** | rasm bir necha ming token, eng qimmat amal |
+| Matnli yozuv | `gemini-3.5-flash-lite` | ~4 000 kirish (prompt + sxema; keshdan ~10 baravar arzon), ~150–250 chiqish: **~$0.001–0.002** |
+| Ovozli yozuv (10 s) | `gemini-3.5-flash-lite` | + ~320 audio token (32 tok/s): **~$0.001–0.002** |
+| Savolga javob | `gemini-3.8-flash` | yozuvlar soniga bog'liq: **~$0.01–0.02** |
+| **Chek rasmi** | `gemini-3.8-flash` | rasm bir necha ming token + o'ylash: **~$0.015** (2027-01-01 dan **~$0.03**) |
 
-Chek o'qish eng qimmat amal, chunki rasm ko'p token oladi va aniqlik uchun
-kuchli model ishlatiladi. Tekshiruvda farq chiqsa chek ikkinchi marta o'qiladi —
-bu holda sarf ikki barobar bo'ladi.
+Narxlar (pullik daraja, 1M token, [hujjat](https://ai.google.dev/gemini-api/docs/pricing)):
+`gemini-3.5-flash-lite` — kirish $0.30 (matn, rasm, audio), chiqish $2.50, keshdan o'qish
+$0.03. `gemini-3.8-flash` — kirish $0.75, chiqish $3.75, kesh $0.075 **2026-12-31 gacha**;
+**2027-01-01 dan** $1.50 / $7.50 / $0.15 (ikki barobar). «O'ylash» tokenlari chiqish
+narxida hisoblanadi. Hisob-kitob `config.cost_usd` da, narx sanaga bog'langan.
 
-Aniq narxlarni [anthropic.com/pricing](https://www.anthropic.com/pricing) dan
-tekshiring — narxlar o'zgarib turadi.
+Tekshiruvda farq chiqsa chek ikkinchi marta o'qiladi — bu holda chek sarfi ikki barobar.
 
 **Tejash uchun** `.env` da:
 
 ```env
-VISION_MODEL=claude-sonnet-5   # chek o'qish arzonroq, aniqlik biroz pastroq
-CHAT_MODEL=claude-haiku-4-5    # savol-javob arzonroq
+VISION_THINKING=low            # chek o'qish arzonroq, aniqlik biroz pastroq
+CHAT_MODEL=gemini-3.5-flash-lite   # savol-javob arzonroq
 ```
 
 ## 24/7 ishlashi uchun (serverda)

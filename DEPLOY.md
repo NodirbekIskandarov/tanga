@@ -27,7 +27,7 @@ Skript quyidagilarni bajaradi:
 Keyin `.env` ni to'ldirasiz va xizmatni ishga tushirasiz:
 
 ```bash
-nano /opt/tanga/.env      # TELEGRAM_TOKEN, ANTHROPIC_API_KEY, ALLOWED_USER_IDS
+nano /opt/tanga/.env      # TELEGRAM_TOKEN, GEMINI_API_KEY, ALLOWED_USER_IDS
 systemctl start tanga
 journalctl -u tanga -f    # loglarni kuzatish
 ```
@@ -50,6 +50,59 @@ systemctl restart tanga
 
 Yoki shunchaki `setup.sh` ni qayta ishga tushiring — u mavjud `.env` va
 bazaga tegmaydi.
+
+## Gemini kaliti va AI xizmati
+
+Bot AI uchun **Google Gemini API** dan foydalanadi (`gemini.py`).
+
+- Kalit: [Google AI Studio](https://aistudio.google.com/apikey) yoki Google
+  Cloud Console → **Gemini API** → API kaliti. Kalit faqat `.env` da
+  (`GEMINI_API_KEY`), hech qachon gitga yoki chatga yozilmaydi.
+- ⚠️ **Majburiy: billing yoqilgan (pullik) loyiha.** Bepul daraja kaliti
+  yuborilgan kontentni Google mahsulotlarini yaxshilashga ishlatadi va
+  odamlar uni ko'rib chiqishi mumkin; pullik darajada ishlatilmaydi. Bu
+  maxfiylik siyosatidagi va'daning sharti — **bepul kalitni production'da
+  ishlatmang.**
+- Narx va modellar `config.py` da (`MODEL_PRICES`, sanaga bog'langan:
+  `gemini-3.8-flash` 2027-01-01 dan ikki barobar qimmat).
+- Xatolar: `journalctl -u tanga` da `Gemini xatosi [model]: <tur> (status N)`.
+  `status 400/403` — kalit noto'g'ri yoki billing yoqilmagan; `429` — limit
+  (bot o'zi 3 marta qayta uriladi); `5xx` — Google tomonida nosozlik.
+
+## O'tish kuni: Claude → Gemini
+
+Bir martalik tartib. **Baholash (`docs/gemini-baholash.md`) o'tmaguncha
+bajarilmaydi.**
+
+1. Bazaning zaxira nusxasi: `tanga-backup --local`.
+2. Git tegi: `git tag oxirgi-claude` (allaqachon bor; qaytish nuqtasi).
+3. `.env` da `GEMINI_API_KEY` va yangi model kalitlarini qo'ying
+   (`.env.example` ga qarang), `ANTHROPIC_API_KEY` qatorini **o'chiring**.
+   Avval `VOICE_ENABLED=false`.
+4. `pip install -r requirements.txt`; eski paketni olib tashlang:
+   `.venv/bin/pip uninstall -y anthropic`.
+5. `systemctl restart tanga tanga-webapp`; loglarni kuzating.
+6. Hamma foydalanuvchidan qayta rozilik so'raladi (`CONSENT_VERSION` oshgan:
+   AI xizmat ko'rsatuvchisi almashdi).
+
+Keyingi bosqichlar (ovoz): 2–3 kun kuzatish → `VOICE_ENABLED=true` va
+`VOICE_BETA_USER_IDS=<ega va 5–10 sinovchi>` bir hafta → hammaga ochish
+(`VOICE_BETA_USER_IDS` bo'sh, `/xabar_yubor` bilan o'zbek va rus tilida
+e'lon). Muammosiz 2 hafta o'tgach Anthropic konsolida eski kalitni **ega
+qo'lda bekor qiladi**.
+
+### Qaytish yo'li (faqat git orqali)
+
+```bash
+cd /opt/tanga
+git checkout oxirgi-claude
+cp /root/env.claude-zaxira /opt/tanga/.env     # eski .env (ANTHROPIC_API_KEY bilan)
+.venv/bin/pip install -q -r requirements.txt
+systemctl restart tanga tanga-webapp
+```
+
+Eski `.env` nusxasini 3-qadamdan OLDIN saqlab qo'ying. Ikki provayderli
+rejim va almashtirgich ATAYLAB yo'q.
 
 ## Mini App xizmati
 
@@ -221,7 +274,8 @@ journalctl -u tanga -n 50 --no-pager
 
 - `.env faylida quyidagilar yo'q: ...` → `.env` to'ldirilmagan
 - `Conflict: terminated by other getUpdates` → bot boshqa joyda ham ishlayapti
-- `authentication_error` → `ANTHROPIC_API_KEY` noto'g'ri yoki bekor qilingan
+- `Gemini xatosi ... (status 400/403)` → `GEMINI_API_KEY` noto'g'ri yoki billing yoqilmagan
+- `GEMINI_API_KEY o'rnatilmagan` → `.env` da kalit yo'q
 
 **Vaqt mintaqasi noto'g'ri**
 

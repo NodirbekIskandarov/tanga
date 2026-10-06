@@ -160,7 +160,7 @@
   }
 
   // ----------------------------------------------------------------------- //
-  // Ranglar — Anthropic dataviz skill'ining tasdiqlangan palitrasi.
+  // Ranglar — tasdiqlangan palitra (kontrasti tekshirilgan).
   // Status ranglar (kirim/chiqim/qarz) mode-invariant, faqat "chiqim" light/
   // dark uchun ikki xil qadam. Kategoriya ranglari — 8 xil hue, adjacent
   // pairlist (donut/bar) uchun validatsiya qilingan, light/dark alohida.

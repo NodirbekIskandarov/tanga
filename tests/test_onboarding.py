@@ -100,7 +100,8 @@ def test_returning_user_sees_what_changed():
 def test_privacy_has_no_false_promises():
     for lang in ("uz", "ru"):
         text = i18n.t(lang, "privacy", contact="@x")
-        assert "30" in text                          # Anthropic: 30 kungacha
+        assert "Google" in text                      # AI xizmati ochiq aytilgan
+        assert "30" not in text                      # eskirgan «30 kun» da'vosi yo'q
         assert "Telegram" in text                    # zaxira Telegram'da ham
         assert "Contabo" in text
     uz = i18n.t("uz", "privacy", contact="@x")

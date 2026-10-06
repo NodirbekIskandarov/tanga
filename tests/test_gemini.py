@@ -239,3 +239,35 @@ def test_logs_never_contain_key_or_request_text(sdk, caplog):
     logged = caplog.text + str(info.value)
     assert "MAXFIY" not in logged and SECRET not in logged
     assert "HttpError" in logged and "status 500" in logged       # tashxis uchun yetarli
+
+
+# --------------------------------------------------------- chek hajmi chegarasi --
+
+def test_receipt_total_size_is_limited(monkeypatch):
+    """Gemini'ga jami so'rov 20 MB: chek qismlari yig'indisi chegaradan oshsa
+    API'ga murojaat qilinmaydi va limit sarflanmaydi."""
+    import base64
+    from types import SimpleNamespace
+
+    import bot
+    import db
+
+    monkeypatch.setattr(config, "MAX_RECEIPT_TOTAL_BYTES", 1000)
+    db.get_or_create_user(77, "T", None)
+    db.set_consent(77, config.CONSENT_VERSION)
+    big = base64.b64encode(b"x" * 800).decode()
+
+    class Msg:
+        chat_id = 77
+        replies = []
+
+        async def reply_text(self, text, **kw):
+            self.replies.append(text)
+
+    msg = Msg()
+    update = SimpleNamespace(effective_message=msg,
+                             effective_user=SimpleNamespace(id=77, first_name="T", username=None))
+    ctx = SimpleNamespace(bot=None, user_data={}, bot_data={}, args=[])
+    asyncio.run(bot._process_receipt(update, ctx, [(big, "image/jpeg")] * 2, ""))
+    assert len(msg.replies) == 1 and "juda katta" in msg.replies[0]
+    assert db.count_today(77, "chek") == 0

@@ -2603,7 +2603,7 @@ def event_count(user_id: int, name: str) -> int:
 def month_cost() -> float:
     """Shu oyning boshidan beri butun tizim bo'yicha AI sarfi ($).
 
-    Kalendar oy bo'yicha — Anthropic hisobi ham shunday hisoblanadi,
+    Kalendar oy bo'yicha — Google Cloud billing ham shunday hisoblanadi,
     shuning uchun panel va konsoldagi son bir-biriga mos keladi.
     """
     start = _now().date().replace(day=1).isoformat()

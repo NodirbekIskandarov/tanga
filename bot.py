@@ -1,4 +1,4 @@
-"""Shaxsiy moliya boti — Telegram + Anthropic Claude.
+"""Shaxsiy moliya boti — Telegram + Google Gemini.
 
 Ishga tushirish:  python bot.py
 """
@@ -62,8 +62,9 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("tanga")
 
-# Anthropic API qo'llaydigan rasm turlari.
-SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+# Gemini qo'llaydigan rasm turlari (chek rasmi fayl sifatida kelganda).
+SUPPORTED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif",
+                         "image/heic", "image/heif", "image/bmp", "image/tiff"}
 PDF_TYPE = "application/pdf"
 
 # Albom (bir vaqtda yuborilgan bir nechta rasm) to'planishini kutish vaqti.
@@ -1670,6 +1671,13 @@ async def _process_receipt(update: Update, context, images: list, caption: str,
     if len(images) > config.MAX_RECEIPT_PARTS:
         await message.reply_text(tr("err_parts_max", max=config.MAX_RECEIPT_PARTS,
                                     n=len(images)))
+        return
+
+    # Gemini'ga fayllar so'rov ichida yuboriladi: jami so'rov 20 MB dan oshmasin.
+    total_bytes = sum(len(data) * 3 // 4 for data, _ in images)
+    if total_bytes > config.MAX_RECEIPT_TOTAL_BYTES:
+        await message.reply_text(tr("err_total_big",
+                                    mb=config.MAX_RECEIPT_TOTAL_BYTES // 1_000_000))
         return
 
     usage_id = await check_quota(update, context, "chek")

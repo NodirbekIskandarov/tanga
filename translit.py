@@ -36,7 +36,7 @@ SINGLE = {
 # O'girilmaydigan lotincha so'zlar — atamalar va qisqartmalar.
 KEEP = {
     "csv", "ai", "usd", "uzs", "pdf", "png", "html", "id", "ok", "sms",
-    "telegram", "anthropic", "claude", "payme", "click", "visa", "humo",
+    "telegram", "google", "gemini", "payme", "click", "visa", "humo",
     "uzcard", "mastercard", "excel", "instagram",
 }
 
