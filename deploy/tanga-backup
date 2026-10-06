@@ -53,12 +53,55 @@ def env(name):
     return ""
 
 
-def send_to_telegram(enc, caption):
+# Telegram bot fayl yuklash chegarasi — 50 MB. Undan katta nusxa jimgina
+# yuborilmay qolardi (urinish xato bilan tugaydi, zaxira esa «tayyor»
+# deb yozilardi) va disk buzilgan kuni serverdan tashqarida nusxa
+# bo'lmasdi. Shuning uchun: oldindan ogohlantiramiz, chegaradan oshsa —
+# egaga ochiq xabar.
+TELEGRAM_LIMIT = 49_000_000
+TELEGRAM_WARN = 35_000_000
+
+
+def _owners_and_token():
     token = env("TELEGRAM_TOKEN")
     owners = [o for o in env("OWNER_IDS").replace(",", " ").split() if o.isdigit()]
+    return token, owners
+
+
+def send_text_to_owners(text):
+    token, owners = _owners_and_token()
+    if not token or not owners:
+        return
+    import json
+    import urllib.request
+    for owner in owners:
+        try:
+            req = urllib.request.Request(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                data=json.dumps({"chat_id": owner, "text": text}).encode(),
+                headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=30).read()
+        except Exception as exc:
+            log(f"Egaga xabar yuborilmadi ({owner}): {exc}")
+
+
+def send_to_telegram(enc, caption):
+    token, owners = _owners_and_token()
     if not token or not owners:
         log("TELEGRAM_TOKEN yoki OWNER_IDS yo'q — tashqariga yuborilmadi")
         return
+    size = enc.stat().st_size
+    if size > TELEGRAM_LIMIT:
+        log(f"{enc.name}: {size / 1e6:.1f} MB — Telegram chegarasidan katta, yuborilmadi")
+        send_text_to_owners(
+            f"⚠️ Zaxira nusxa {enc.name} hajmi {size / 1e6:.1f} MB — Telegram "
+            f"chegarasidan (50 MB) katta, YUBORILMADI. Nusxa faqat serverda: "
+            f"{OUT}. Serverdan tashqariga saqlash uchun boshqa joyga "
+            f"(S3 / Backblaze) o'ting.")
+        return
+    if size > TELEGRAM_WARN:
+        caption += (f"\n\n⚠️ Hajm {size / 1e6:.1f} MB — Telegram chegarasi 50 MB. "
+                    f"Tez orada boshqa joyga (S3 / Backblaze) o'tish kerak.")
     import urllib.request
     for owner in owners:
         try:

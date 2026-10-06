@@ -139,7 +139,8 @@ def test_full_flow_sim_mode_to_pro(monkeypatch):
     # 4. Asoschilar taklifi -> karta rekvizitlari, egaga bildirishnoma.
     u = _update(data="sub:f12")
     run(b.on_callback(u, _ctx(tg)))
-    assert u.callback_query.edits and "99 000" in u.callback_query.edits[-1]
+    # Rekvizitlar yangi xabar bo'lib chiqadi (tariflar xabari o'zgarmaydi).
+    assert "99 000" in u.message.last and not u.callback_query.edits
     req = db.open_request_for(OWNER)
     assert req["plan_code"] == "f12" and req["status"] == "kutilmoqda"
     assert any("Yangi obuna so'rovi" in t for _, t in tg.messages)

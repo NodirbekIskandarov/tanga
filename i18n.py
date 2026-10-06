@@ -187,6 +187,12 @@ T = {
         "uz": "Bot hozircha yopiq sinovda.\nSizning ID: {id}",
         "ru": "Бот пока в закрытом тестировании.\nВаш ID: {id}",
     },
+    # Xabar maydonidagi yordamchi matn: ruscha foydalanuvchiga ham o'zbekcha
+    # chiqardi.
+    "input_placeholder": {
+        "uz": "Xarajat yozing yoki chek rasmini yuboring…",
+        "ru": "Напишите расход или пришлите фото чека…",
+    },
     "error_generic": {
         "uz": "⚠️ Xatolik yuz berdi. Birozdan keyin qayta urinib ko'ring.",
         "ru": "⚠️ Произошла ошибка. Попробуйте ещё раз чуть позже.",

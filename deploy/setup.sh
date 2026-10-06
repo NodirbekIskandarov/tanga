@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Tanga botni Ubuntu/Debian serverga o'rnatadi.
 # Serverda root sifatida ishga tushiring:
-#   bash setup.sh https://github.com/NodirbekIskandarov/tangam.git
+#   bash setup.sh https://github.com/NodirbekIskandarov/tanga.git
 #
 # Qayta-qayta ishga tushirish xavfsiz — mavjud .env va bazaga tegmaydi.
 
 set -euo pipefail
 
-REPO="${1:-https://github.com/NodirbekIskandarov/tangam.git}"
+REPO="${1:-https://github.com/NodirbekIskandarov/tanga.git}"
 APP_DIR=/opt/tanga
 APP_USER=tanga
 

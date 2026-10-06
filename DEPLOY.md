@@ -10,9 +10,9 @@ Serverga SSH orqali kiring va bitta buyruq bilan o'rnating:
 ```bash
 ssh root@SERVER_IP
 
-curl -fsSL https://raw.githubusercontent.com/NodirbekIskandarov/tangam/main/deploy/setup.sh \
+curl -fsSL https://raw.githubusercontent.com/NodirbekIskandarov/tanga/main/deploy/setup.sh \
   -o setup.sh
-bash setup.sh https://github.com/NodirbekIskandarov/tangam.git
+bash setup.sh https://github.com/NodirbekIskandarov/tanga.git
 ```
 
 Skript quyidagilarni bajaradi:

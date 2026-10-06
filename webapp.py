@@ -673,7 +673,9 @@ def api_settle_debt(tx_id: int, user: dict = Depends(current_user)):
 
 class TxCreate(BaseModel):
     kind: str
-    amount: float = Field(gt=0)
+    # Yuqori chegara: xato yoki zararli kiritish (1e300) hisobotlarni
+    # buzmasin. 10 mlrd — so'mda ham, dollarda ham real chegaradan yuqori.
+    amount: float = Field(gt=0, le=10_000_000_000)
     currency: str = "som"
     category: str
     note: str = ""

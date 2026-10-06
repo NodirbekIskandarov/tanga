@@ -550,7 +550,11 @@ def saved_text(rows: list[dict]) -> str:
             f"💵 {fmt_money(r['summa'], cur)}",
             f"{cat_icon} {esc(config.category_label(r['kategoriya']))}",
         ]
-        if r.get("izoh"):
+        # Izoh kategoriyaning o'zi bo'lsa takrorlanmaydi: qarz yozuvida
+        # «qarz | qarz» ikki marta chiqardi.
+        shown = {r["kategoriya"].casefold(),
+                 config.category_label(r["kategoriya"]).casefold()}
+        if r.get("izoh") and r["izoh"].strip().casefold() not in shown:
             body.append(f"📝 {esc(r['izoh'])}")
         if r.get("shaxs"):
             body.append(f"👤 {esc(r['shaxs'])}")

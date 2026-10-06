@@ -702,7 +702,7 @@ def main_menu(lang: str = "uz") -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard,
         resize_keyboard=True,
-        input_field_placeholder="Xarajat yozing yoki chek rasmini yuboring…",
+        input_field_placeholder=i18n.t(lang, "input_placeholder"),
     )
 
 # «⚙️ Yana» — kamroq ishlatiladigan bo'limlar, xabar ichidagi tugmalar.
@@ -2469,8 +2469,12 @@ def plans_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def plans_text(access: dict | None = None, lang: str = "uz") -> str:
-    """Tariflar sahifasi (4.5): foyda bilan boshlanadi, keyin narxlar."""
+def plans_text(access: dict | None = None, lang: str = "uz",
+               with_pick: bool = True) -> str:
+    """Tariflar sahifasi (4.5): foyda bilan boshlanadi, keyin narxlar.
+
+    `with_pick=False` — «Tarifni tanlang» qatorisiz: ega uchun sahifada
+    tugma yo'q, shu qator esa tugma bordek yo'naltirardi."""
     lines = [i18n.t(lang, "pro_title"), "", i18n.t(lang, "pro_pitch"), "",
              i18n.t(lang, "pro_features"), ""]
 
@@ -2495,7 +2499,8 @@ def plans_text(access: dict | None = None, lang: str = "uz") -> str:
         lines += ["", i18n.t(lang, "pro_status_trial", days=access["days_left"])]
     elif status == "subscribed":
         lines += ["", i18n.t(lang, "pro_status_sub", days=access["days_left"])]
-    lines += ["", i18n.t(lang, "pro_pick")]
+    if with_pick:
+        lines += ["", i18n.t(lang, "pro_pick")]
     return "\n".join(lines)
 
 
@@ -2507,7 +2512,8 @@ async def send_plans(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if access["status"] == "owner":
         await update.effective_message.reply_text(
-            i18n.t(lang, "owner_no_sub") + "\n\n" + plans_text(lang=lang),
+            i18n.t(lang, "owner_no_sub") + "\n\n"
+            + plans_text(lang=lang, with_pick=False),
             parse_mode=ParseMode.HTML,
         )
         return
@@ -2582,7 +2588,10 @@ async def on_subscription_callback(update: Update, context: ContextTypes.DEFAULT
     db.add_subscription_request(user.id, plan["code"], plan["price"])
 
     await query.answer("💳")
-    await query.edit_message_text(
+    # Rekvizitlar YANGI xabar bo'lib chiqadi, tariflar xabari o'zgarmaydi:
+    # ilgari /holat dagi tugmadan kirilsa, holat va limitlar matni to'lov
+    # matni bilan almashib, yo'qolib qolardi.
+    await query.message.reply_text(
         payment_text(plan, lang),
         parse_mode=ParseMode.HTML,
         reply_markup=InlineKeyboardMarkup([[

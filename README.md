@@ -32,7 +32,7 @@ Bot:  🧾 MAXSULOT SAVDO MARKAZI
 ## Nima qila oladi
 
 - **Erkin matnni tushunadi** — `obedga 45 ming`, `1.5 mln kompyuterga`, `kecha dorixonaga 90 ming`
-- **Ikki valyutani qo'llab-quvvatlaydi** — so'm (standart) va AQSH dollari (`$100`, `50 dollar`); hisobotlarda alohida-alohida ko'rsatiladi, kurs orqali qo'shilmaydi
+- **Ikki valyutani qo'llab-quvvatlaydi** — so'm (standart) va AQSH dollari (`$100`, `50 dollar`); har bir yozuv o'sha kundagi Markaziy bank kursi bilan so'mga o'giriladi va umumiy hisobotga qo'shiladi (chet el ulushi alohida ko'rsatiladi)
 - **Chek rasmini o'qiydi** — chek bitta yozuv (do'kon, jami), mahsulotlar uning ichida kategoriyaga ajratilgan; chegirma kategoriyalar o'rtasida taqsimlanadi, saqlangan summa doim chekdagi jamiga teng
 - **Uzun chekni qismlab qabul qiladi** — chek kadrga sig'masa, bir nechta rasm qilib yuborasiz; ustma-ust tushgan qatorlar bir marta hisoblanadi
 - **Chekni tekshiradi** — mahsulotlar yig'indisini Python hisoblab, chekdagi "JAMI" bilan solishtiradi; farq chiqsa chekni avtomatik qayta o'qiydi
@@ -79,6 +79,10 @@ Eng aniq natija uchun rasmni **Fayl** sifatida yuboring — Telegram uni siqmayd
 | `db.py` | SQLite bilan ishlash |
 | `reports.py` | Hisobotlarni matnga aylantirish |
 | `config.py` | Sozlamalar va kategoriyalar ro'yxati |
+| `tiers.py` | Bepul va PRO chegaralari |
+| `webapp.py` + `static/` | Telegram Mini App (grafikli panel) |
+| `i18n.py`, `guide_ru.py` | Matnlar: o'zbek (lotin/kirill) va rus |
+| `scripts/` | Ma'lumot migratsiyalari (dry-run / `--apply` / `--rollback`) |
 
 ## O'rnatish
 
@@ -151,7 +155,7 @@ Tayyor. Endi botga xarajatlaringizni yozavering.
 | `/foiz` | «Avval o'zingizga to'lang» ulushi (PRO) |
 | `/byudjet` | Kategoriyaga oylik chegara qo'yish |
 | `/eslatma 21` | Kunlik eslatmani soat 21:00 ga sozlash |
-| `/kurs` | Dollar kursi (`/kurs 12800` — qo'lda o'rnatish) |
+| `/kurs` | Bugungi dollar kursi (Markaziy bank; qo'lda o'zgartirib bo'lmaydi) |
 | `/taklif` | Do'st taklif qilib bepul kun olish |
 | `/til` | Interfeys tili: o'zbek lotin / kirill / rus |
 | `/maxfiylik` | Maxfiylik siyosati |
@@ -260,6 +264,7 @@ sudo journalctl -u tanga -f     # loglarni ko'rish
 - Chek qismlari yig'ilayotgan paytdagi rasmlar xotirada saqlanadi; bot qayta ishga
   tushsa yig'ilgan qismlar yo'qoladi.
 - Ovozli xabar qo'shilmagan. Kerak bo'lsa transkripsiya xizmati orqali qo'shsa bo'ladi.
-- Faqat matnli yozuvlarda ikki valyuta (so'm, dollar) qo'llab-quvvatlanadi; kurs
-  orqali birlashtirilmaydi — hisobotlarda alohida-alohida ko'rsatiladi. Chek
-  rasmidan o'qilgan yozuvlar hozircha har doim so'mda deb qabul qilinadi.
+- Ikki valyuta (so'm, dollar) qo'llab-quvvatlanadi; dollar yozuvi kiritilgan
+  kundagi Markaziy bank kursi bilan so'mga o'giriladi (kurs tarmoqdan olinmasa —
+  oxirgi ma'lum kurs, u ham bo'lmasa `USD_RATE_FALLBACK`). Qarz va kategoriya
+  kesimlari valyutalar bo'yicha alohida saqlanadi.
