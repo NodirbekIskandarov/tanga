@@ -17,7 +17,9 @@ import translit
 LANGS = {
     "uz": "🇺🇿 O'zbekcha (lotin)",
     "uzc": "🇺🇿 Ўзбекча (кирилл)",
-    "ru": "🇷🇺 Русский",
+    # Ruscha tarjima hali to'liq emas (hisobotlar, Mini App va ba'zi xabarlar
+    # o'zbekcha chiqadi) — foydalanuvchi buni tanlashdan oldin bilsin.
+    "ru": "🇷🇺 Русский (beta)",
 }
 DEFAULT = "uz"
 
@@ -192,6 +194,14 @@ T = {
     "input_placeholder": {
         "uz": "Xarajat yozing yoki chek rasmini yuboring…",
         "ru": "Напишите расход или пришлите фото чека…",
+    },
+    "album_late": {
+        "uz": ("Bu rasm albomning davomi, lekin albom allaqachon o'qilib bo'ldi. "
+               "Chek ikkiga bo'linmasin: avval «🧾 Uzun chek» ni bosib, "
+               "hamma qismlarni qayta yuboring."),
+        "ru": ("Это фото — продолжение альбома, но альбом уже распознан. "
+               "Чтобы чек не разделился, нажмите «🧾 Длинный чек» и "
+               "отправьте все части заново."),
     },
     "error_generic": {
         "uz": "⚠️ Xatolik yuz berdi. Birozdan keyin qayta urinib ko'ring.",

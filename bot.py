@@ -1547,6 +1547,9 @@ class TTLStore:
 
 # Albom bo'lib kelayotgan rasmlar: media_group_id -> {"images", "caption", "task"}
 _albums = TTLStore(ttl_seconds=300, max_items=200)
+# Allaqachon qayta ishlangan albomlar (1 daqiqa): ularga KECH kelgan rasm
+# alohida chek bo'lib o'qilmasin (pul sarflanadi va chek ikkiga bo'linadi).
+_done_albums = TTLStore(ttl_seconds=60, max_items=200)
 # «Uzun chek» rejimi: user_id -> {"images": [...], "caption": str}
 _collect = TTLStore(ttl_seconds=1800, max_items=200)
 # Oxirgi chek — «davomi bor» tugmasi uchun: user_id -> {"receipt_id", "images", "caption"}
@@ -1728,6 +1731,7 @@ async def _flush_album(key: str, update: Update, context):
     bucket = _albums.pop(key, None)
     if not bucket or not bucket["images"]:
         return
+    _done_albums.set(key, True)
     if bucket.get("too_many"):
         # Albom chegaradan katta: yarim chekni o'qib noto'g'ri jami
         # chiqargandan ko'ra, ochiq aytamiz.
@@ -1771,6 +1775,11 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=collect_menu(lang_of(user_id, context)))
         return
     if message.media_group_id and user_id not in _collect:
+        if str(message.media_group_id) in _done_albums:
+            # Albom allaqachon o'qilgan, bu rasm kech keldi. Alohida chek
+            # qilib o'qimaymiz: noto'g'ri jami chiqadi va AI sarflanadi.
+            await message.reply_text(i18n.t(lang_of(user_id, context), "album_late"))
+            return
         album = _albums.get(str(message.media_group_id))
         if album and len(album["images"]) >= limit:
             album["too_many"] = True        # _flush_album bir marta aytadi

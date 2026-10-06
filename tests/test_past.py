@@ -133,3 +133,59 @@ def test_oversized_backup_is_not_silently_dropped(backup):
     backup.send_to_telegram(_Enc(60_000_000), "Zaxira")
     assert backup.uploads == []                                  # yuborishga urinilmaydi
     assert len(backup.texts) == 1 and "YUBORILMADI" in backup.texts[0]
+
+
+# ------------------------------------------------ albomning kech rasmi --
+
+class _Msg:
+    def __init__(self, group):
+        self.text, self.photo, self.document = "", [SimpleNamespace(file_id="LATE")], None
+        self.caption, self.media_group_id, self.chat_id = None, group, 77
+        self.replies = []
+
+    async def reply_text(self, text, **kw):
+        self.replies.append(text)
+        return self
+
+
+def _album_update(group):
+    msg = _Msg(group)
+    user = SimpleNamespace(id=77, first_name="T", username=None)
+    return SimpleNamespace(effective_user=user, effective_message=msg, message=msg,
+                           effective_chat=SimpleNamespace(id=77, type="private"),
+                           callback_query=None)
+
+
+def test_late_album_photo_is_not_read_as_separate_receipt(monkeypatch):
+    import bot
+    db.get_or_create_user(77, "T", None)
+    db.set_consent(77, config.CONSENT_VERSION)
+
+    async def must_not_download(context, message):
+        raise AssertionError("kech rasm yuklab olinmasligi / o'qilmasligi kerak")
+
+    monkeypatch.setattr(bot, "_download_receipt_file", must_not_download)
+    bot._done_albums.set("G9", True)
+    u = _album_update("G9")
+    ctx = SimpleNamespace(bot=None, user_data={}, args=[], bot_data={})
+    asyncio.run(bot.on_photo(u, ctx))
+    assert u.message.replies and "Uzun chek" in u.message.replies[0]
+
+
+def test_flushed_album_is_remembered(monkeypatch):
+    import ai
+    import bot
+
+    async def fake_process(update, context, images, caption, replaces=None):
+        return None
+
+    monkeypatch.setattr(bot, "_process_receipt", fake_process)
+    monkeypatch.setattr(bot, "ALBUM_WAIT_SECONDS", 0)
+    bot._albums.set("G10", {"images": [("x", "image/jpeg")], "caption": "", "task": None})
+    asyncio.run(bot._flush_album("G10", _album_update("G10"), SimpleNamespace()))
+    assert "G10" in bot._done_albums
+
+
+def test_russian_is_marked_beta():
+    assert "beta" in i18n.LANGS["ru"].lower()
+    assert "beta" not in i18n.LANGS["uz"].lower()
