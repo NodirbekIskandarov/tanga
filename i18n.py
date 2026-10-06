@@ -187,6 +187,24 @@ T = {
         "uz": "Bot hozircha yopiq sinovda.\nSizning ID: {id}",
         "ru": "Бот пока в закрытом тестировании.\nВаш ID: {id}",
     },
+    "error_generic": {
+        "uz": "⚠️ Xatolik yuz berdi. Birozdan keyin qayta urinib ko'ring.",
+        "ru": "⚠️ Произошла ошибка. Попробуйте ещё раз чуть позже.",
+    },
+    # Salomlashish (M15) — AI'siz, tayyor javob.
+    "greeting": {
+        "uz": ("👋 Salom! Xarajat yoki kirimni oddiy tilda yozing — masalan "
+               "<i>«taksi 20 ming»</i> yoki <i>«oylik 8 mln tushdi»</i>.\n"
+               "Imkoniyatlar: /yordam"),
+        "ru": ("👋 Здравствуйте! Пишите расходы и доходы обычным текстом — "
+               "например <i>«такси 20 тысяч»</i> или <i>«зарплата 8 млн»</i>.\n"
+               "Возможности: /yordam"),
+    },
+    # Valyuta savoli (M14): «400$ so'mda qancha?» — Markaziy bank kursi bilan.
+    "fx_answer": {
+        "uz": "💱 {src} = <b>{dst}</b>\n<i>Markaziy bank kursi: 1 $ = {rate}</i>",
+        "ru": "💱 {src} = <b>{dst}</b>\n<i>Курс ЦБ: 1 $ = {rate}</i>",
+    },
     "ai_error": {
         "uz": "⚠️ AI bilan bog'lanishda xatolik. Birozdan keyin urinib ko'ring.",
         "ru": "⚠️ Ошибка связи с AI. Попробуйте чуть позже.",
@@ -402,14 +420,16 @@ T = {
     # ---- Referal ----
     "referral": {
         "uz": ("🎁 <b>Do'stingizni taklif qiling</b>\n\n"
-               "Havolangiz orqali kelgan har bir do'st uchun "
-               "<b>ikkalangizga {bonus} kundan</b> bepul foydalanish qo'shiladi.\n\n"
+               "Havolangiz orqali kelgan do'stingiz birinchi {days} kunda "
+               "{n} ta yozuv qilsa, <b>ikkalangizga {bonus} kundan</b> PRO "
+               "qo'shiladi (yiliga {cap} kungacha).\n\n"
                "<b>Sizning havolangiz:</b>\n<code>{link}</code>\n\n"
                "📊 Taklif qilganingiz: <b>{invited} ta</b>\n"
                "🎁 Yig'ilgan bonus: <b>{bonus_days} kun</b>"),
         "ru": ("🎁 <b>Пригласите друга</b>\n\n"
-               "За каждого друга по вашей ссылке <b>вам обоим по {bonus} дней</b> "
-               "бесплатного доступа.\n\n"
+               "Если друг по вашей ссылке сделает {n} записи за первые {days} дн., "
+               "<b>вам обоим добавится по {bonus} дней</b> PRO (до {cap} дней "
+               "в год).\n\n"
                "<b>Ваша ссылка:</b>\n<code>{link}</code>\n\n"
                "📊 Приглашено: <b>{invited}</b>\n"
                "🎁 Накоплено бонусов: <b>{bonus_days} дн.</b>"),
@@ -422,14 +442,22 @@ T = {
                "раскладывает по категориям. И чеки по фото распознаёт."),
     },
     "referral_welcome": {
-        "uz": "🎁 Taklif havolasi orqali kirdingiz — bepul muddatingizga <b>{bonus} kun</b> qo'shildi!",
-        "ru": "🎁 Вы пришли по приглашению — к бесплатному периоду добавлено <b>{bonus} дн.</b>!",
+        "uz": ("🎁 Taklif havolasi orqali kirdingiz! Birinchi {days} kunda "
+               "{n} ta yozuv qilsangiz, sizga va do'stingizga <b>{bonus} kundan</b> "
+               "PRO qo'shiladi."),
+        "ru": ("🎁 Вы пришли по приглашению! Сделайте {n} записи за первые "
+               "{days} дн. — и вам, и другу добавится по <b>{bonus} дн.</b> PRO."),
+    },
+    "referral_rewarded": {
+        "uz": "🎁 Shart bajarildi — PRO muddatingizga <b>{bonus} kun</b> qo'shildi!",
+        "ru": "🎁 Условие выполнено — к PRO добавлено <b>{bonus} дн.</b>!",
     },
     "referral_thanks": {
-        "uz": ("🎉 <b>{name}</b> sizning havolangiz orqali qo'shildi!\n\n"
-               "Sizga <b>{bonus} kun</b> bepul foydalanish qo'shildi. Rahmat!"),
-        "ru": ("🎉 <b>{name}</b> присоединился по вашей ссылке!\n\n"
-               "Вам добавлено <b>{bonus} дн.</b> бесплатного доступа. Спасибо!"),
+        "uz": ("🎉 <b>{name}</b> sizning havolangiz orqali qo'shildi va "
+               "botdan foydalanyapti!\n\n"
+               "Sizga <b>{bonus} kun</b> PRO qo'shildi. Rahmat!"),
+        "ru": ("🎉 <b>{name}</b> пришёл по вашей ссылке и пользуется ботом!\n\n"
+               "Вам добавлено <b>{bonus} дн.</b> PRO. Спасибо!"),
     },
 
     # ---- Hisobni o'chirish ----
@@ -1162,9 +1190,13 @@ T.update({
     },
     "plan_line": {"uz": "   {label} — {price}", "ru": "   {label} — {price}"},
     "plan_founders_line": {
-        "uz": "🎁 <b>{label}: birinchi yil {price}</b> (qolgan joylar: {left}/{total})",
-        "ru": "🎁 <b>{label}: первый год {price}</b> (осталось мест: {left}/{total})",
+        "uz": "🎁 <b>{label}: birinchi yil {price}</b> ({places})",
+        "ru": "🎁 <b>{label}: первый год {price}</b> ({places})",
     },
+    # «100/100 qoldi» hech kim olmaganini ko'rsatardi (M16): joylar
+    # kamaymaguncha faqat chegara aytiladi.
+    "founders_places_all": {"uz": "faqat {total} ta joy", "ru": "всего {total} мест"},
+    "founders_places_left": {"uz": "{left} ta joy qoldi", "ru": "осталось мест: {left}"},
     "plan_label_12m": {"uz": "Yillik", "ru": "Годовой"},
     "plan_label_1m": {"uz": "Oylik", "ru": "Месячный"},
     "plan_label_f12": {"uz": "Asoschilar taklifi", "ru": "Предложение основателям"},

@@ -321,6 +321,8 @@ TABLE_MIGRATIONS = [
     # Reklama manbasi (/start src_<kanal> yoki «ref»). Faqat birinchi
     # kelganda yoziladi; bo'sh — to'g'ridan-to'g'ri kelgan.
     ("users", "source", "ALTER TABLE users ADD COLUMN source TEXT"),
+    # Referal bonusi berilgan vaqt (do'st shartni bajargach) — bir marta.
+    ("users", "ref_rewarded_at", "ALTER TABLE users ADD COLUMN ref_rewarded_at TEXT"),
     ("transactions", "rate", "ALTER TABLE transactions ADD COLUMN rate REAL NOT NULL DEFAULT 1"),
     ("transactions", "amount_base", "ALTER TABLE transactions ADD COLUMN amount_base REAL"),
 ]
@@ -1590,6 +1592,52 @@ def set_referrer(user_id: int, referrer_id: int) -> bool:
         conn.execute("UPDATE users SET referred_by = ? WHERE user_id = ?",
                      (referrer_id, user_id))
         return True
+
+
+def referral_due(user_id: int) -> int | None:
+    """Do'st sharti bajarildimi — bajarilgan bo'lsa taklif qiluvchi ID si.
+
+    Shart: taklif bilan kelgan, bonus hali berilmagan, kelganidan keyin
+    REFERRAL_WINDOW_DAYS ichida kamida REFERRAL_MIN_ENTRIES ta yozuv.
+    `created_at` — SQLite datetime('now'), ya'ni UTC.
+    """
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT referred_by, ref_rewarded_at, created_at FROM users WHERE user_id = ?",
+            (user_id,)).fetchone()
+        if not row or not row["referred_by"] or row["ref_rewarded_at"]:
+            return None
+        try:
+            joined = datetime.fromisoformat(str(row["created_at"]))
+        except ValueError:
+            return None
+        if joined.tzinfo is None:
+            joined = joined.replace(tzinfo=timezone.utc)
+        window_end = joined + timedelta(days=config.REFERRAL_WINDOW_DAYS)
+        if _now() > window_end:
+            return None
+        n = int(conn.execute("SELECT COUNT(*) FROM transactions WHERE user_id = ?",
+                             (user_id,)).fetchone()[0])
+    return int(row["referred_by"]) if n >= config.REFERRAL_MIN_ENTRIES else None
+
+
+def referral_days_this_year(referrer_id: int) -> int:
+    """Oxirgi 365 kunda referaldan olingan bonus kunlar (yillik chegara uchun)."""
+    since = (_now().date() - timedelta(days=365)).isoformat()
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT detail FROM events WHERE user_id = ? AND name = 'referral_bonus' "
+            "AND day >= ?", (referrer_id, since)).fetchall()
+    return sum(int(r["detail"]) for r in rows if str(r["detail"]).isdigit())
+
+
+def mark_referral_rewarded(user_id: int) -> bool:
+    """Bonusni bir marta berish uchun belgilaydi. Qaytaradi: hozir belgilandimi
+    (parallel chaqiruvda ikkinchisi False oladi)."""
+    with get_conn() as conn:
+        return conn.execute(
+            "UPDATE users SET ref_rewarded_at = ? WHERE user_id = ? "
+            "AND ref_rewarded_at IS NULL", (_now_local(), user_id)).rowcount > 0
 
 
 def add_bonus_days(user_id: int, days: int) -> datetime:

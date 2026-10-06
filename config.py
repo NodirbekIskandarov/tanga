@@ -248,6 +248,13 @@ def trial_days() -> int:
         return TRIAL_DAYS
 # Do'st taklif qilgan uchun ikkala tomonga qo'shiladigan bepul kunlar
 REFERRAL_BONUS_DAYS = int(os.getenv("REFERRAL_BONUS_DAYS", "7"))
+# Bonus faqat do'st botdan haqiqatan foydalansa: kelganidan keyin shuncha
+# kun ichida kamida shuncha yozuv. Ilgari /start ning o'zi yetardi — 30 ta
+# soxta akkaunt bir odamga +209 kun bergan.
+REFERRAL_MIN_ENTRIES = int(os.getenv("REFERRAL_MIN_ENTRIES", "3"))
+REFERRAL_WINDOW_DAYS = int(os.getenv("REFERRAL_WINDOW_DAYS", "2"))
+# Bitta taklif qiluvchi oxirgi 365 kunda referaldan ko'pi bilan shuncha kun oladi.
+REFERRAL_YEARLY_CAP_DAYS = int(os.getenv("REFERRAL_YEARLY_CAP_DAYS", "90"))
 
 # Bepul darajada kunlik eslatma standart holatda shu soatda (Toshkent).
 # /eslatma bilan soat o'zgartiriladi yoki o'chiriladi.

@@ -81,12 +81,31 @@ RECORD_TOOL = {
         "properties": {
             "niyat": {
                 "type": "string",
-                "enum": ["yozuv", "savol", "tushunarsiz"],
+                "enum": ["yozuv", "savol", "kurs", "tushunarsiz"],
                 "description": (
                     "'yozuv' — xabarda kirim/chiqim/qarz qayd etilgan. "
                     "'savol' — foydalanuvchi o'z moliyasi haqida so'ramoqda "
                     "(masalan: bu oy qancha sarfladim). "
+                    "'kurs' — valyuta kursi yoki konvertatsiya so'ralmoqda "
+                    "(«400$ so'mda qancha», «1 mln so'm necha dollar», "
+                    "«dollar kursi qancha»). "
                     "'tushunarsiz' — moliyaga aloqasi yo'q yoki summa aniqlanmadi."
+                ),
+            },
+            "kurs_summa": {
+                "type": "number",
+                "description": (
+                    "Faqat niyat='kurs' uchun: o'giriladigan summa, aytilmagan "
+                    "bo'lsa 1. «400$» => 400, «1 mln so'm» => 1000000."
+                ),
+            },
+            "kurs_valyuta": {
+                "type": "string",
+                "enum": config.SUPPORTED_CURRENCIES,
+                "description": (
+                    "Faqat niyat='kurs' uchun: QAYSI valyutadan o'giriladi. "
+                    "«400$ so'mda» => 'usd'; «1 mln so'm necha dollar» => 'som'; "
+                    "«dollar kursi» => 'usd'."
                 ),
             },
             "yozuvlar": {
@@ -174,8 +193,10 @@ RECORD_TOOL = {
             "izoh_matni": {
                 "type": "string",
                 "description": (
-                    "Agar niyat 'tushunarsiz' bo'lsa — foydalanuvchiga o'zbekcha qisqa "
-                    "tushuntirish. Aks holda bo'sh."
+                    "Agar niyat 'tushunarsiz' bo'lsa — foydalanuvchiga o'zbekcha qisqa, "
+                    "do'stona maslahat: nimani qanday yozish mumkin (masalan "
+                    "«Summani yozing: taksi 20 ming»). O'zing haqingda («tahlil "
+                    "qismi», «model», «bot qismi») HECH QACHON gapirma. Aks holda bo'sh."
                 ),
             },
         },
@@ -334,6 +355,11 @@ def _parse_system_prompt() -> str:
         "yaqin kategoriyani tanla. \"boshqa kirim\" ham xuddi shunday.\n"
         "- Agar xabar savol bo'lsa (masalan \"bu oy qancha sarfladim?\", "
         "\"eng ko'p nimaga ketdi?\") — niyat=\"savol\", yozuvlar bo'sh massiv.\n"
+        "- Valyuta kursi yoki konvertatsiya so'ralsa (\"400$ so'mda qancha\", "
+        "\"1 mln so'm necha dollar\", \"dollar kursi qancha\", \"сколько 100 "
+        "долларов в сумах\") — niyat=\"kurs\", kurs_summa va kurs_valyuta "
+        "(qaysi valyutadan), yozuvlar bo'sh. Bu yozuv EMAS va tushunarsiz ham "
+        "emas — kursni bot o'zi hisoblaydi.\n"
         "- Agar summa umuman yo'q yoki matn moliyaga aloqador bo'lmasa — "
         "niyat=\"tushunarsiz\" va izoh_matni'da qisqa tushuntirish yoz.\n"
     )
@@ -432,12 +458,21 @@ async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
     elif niyat == "yozuv":
         niyat = "tushunarsiz"
 
-    return {
+    result = {
         "niyat": niyat,
         "yozuvlar": cleaned,
         "izoh_matni": (payload.get("izoh_matni") or "").strip(),
         "_usage": usage,
     }
+    if niyat == "kurs":
+        # Hisoblashni AI emas, bot qiladi (Markaziy bank kursi bilan).
+        try:
+            amount = float(payload.get("kurs_summa") or 1)
+        except (TypeError, ValueError):
+            amount = 1.0
+        result["kurs"] = {"summa": amount if amount > 0 else 1.0,
+                          "valyuta": config.normalize_currency(payload.get("kurs_valyuta"))}
+    return result
 
 
 # --------------------------------------------------------------------------- #

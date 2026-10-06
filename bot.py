@@ -9,6 +9,7 @@ import asyncio
 import base64
 import io
 import logging
+import os
 import time
 import uuid
 from datetime import date, datetime, timedelta
@@ -29,10 +30,12 @@ from telegram import (
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
+    ApplicationHandlerStop,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    TypeHandler,
     filters,
 )
 
@@ -358,9 +361,9 @@ suratini yuborasiz, admin tasdiqlaydi.
 /holat \u2014 darajangiz, PRO qachon tugashi va
 qolgan limitlar.
 
-/taklif \u2014 do'stingizni taklif qiling. U bot bilan
-ishlashni boshlasa, <b>ikkalangizga ham +7 kun PRO</b>
-qo'shiladi.
+/taklif \u2014 do'stingizni taklif qiling. U birinchi 2 kunda
+3 ta yozuv qilsa, <b>ikkalangizga ham +7 kun PRO</b>
+qo'shiladi (yiliga 90 kungacha).
 
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
 \U0001F514 <b>12. BOT O'ZI YUBORADIGAN XABARLAR</b>
@@ -1620,8 +1623,13 @@ async def _download_receipt_file(context, message) -> tuple[str, str]:
     return base64.standard_b64encode(raw).decode(), media_type
 
 
-async def _process_receipt(update: Update, context, images: list, caption: str):
-    """Chek rasm(lar)ini o'qib, mahsulotlarni bazaga yozadi va tahlil qaytaradi."""
+async def _process_receipt(update: Update, context, images: list, caption: str,
+                           replaces: str | None = None):
+    """Chek rasm(lar)ini o'qib, mahsulotlarni bazaga yozadi va tahlil qaytaradi.
+
+    `replaces` — «➕ Chek davomi bor»: yangi chek saqlangach shu eski chek
+    o'chiriladi (o'qish muvaffaqiyatsiz bo'lsa eskisi qoladi).
+    """
     message = update.effective_message
     user_id = update.effective_user.id
 
@@ -1683,6 +1691,9 @@ async def _process_receipt(update: Update, context, images: list, caption: str):
             }
             for item in data["mahsulotlar"]
         ])
+    if replaces:
+        # Yangi chek saqlandi — endi eski (qisman) chekni olib tashlasa bo'ladi.
+        db.delete_receipt(user_id, replaces)
 
     start, end, _ = reports.period_range("bugun")
     day_total = db.totals_unified(user_id, start, end)["totals"][config.KIND_CHIQIM]
@@ -1829,7 +1840,8 @@ async def cmd_collect_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(
         f"📥 {len(bucket['images'])} ta qism qabul qilindi.", reply_markup=main_menu(lang_of(update.effective_user.id, context))
     )
-    await _process_receipt(update, context, bucket["images"], bucket["caption"])
+    await _process_receipt(update, context, bucket["images"], bucket["caption"],
+                           replaces=bucket.get("replaces"))
 
 
 @private_only
@@ -1898,6 +1910,34 @@ async def _on_text_gated(update: Update, context: ContextTypes.DEFAULT_TYPE,
     await _process_text(update, context, text, message)
 
 
+GREETINGS = {
+    "salom", "assalomu alaykum", "assalomu aleykum", "assalom", "salom alaykum",
+    "salomlar", "hayrli kun", "xayrli kun", "hi", "hello", "hey", "start",
+    "привет", "здравствуйте", "здрасте", "добрый день", "салом",
+    "ассалому алайкум", "ассалом",
+}
+
+
+def is_greeting(text: str) -> bool:
+    """Faqat salomlashishmi (summasiz). «salom, taksi 20k» — salom emas."""
+    raw = (text or "").casefold()
+    for ch in "!.?,)👋🙂😊":
+        raw = raw.replace(ch, " ")
+    return " ".join(raw.replace("ʻ", "").replace("'", "").split()) in GREETINGS
+
+
+def fx_answer_text(kurs: dict, lang: str) -> str:
+    """«400 $ = 5 040 000 so'm» — Markaziy bank kursi bilan (M14)."""
+    rate = rates.get("usd", reports.today())
+    amount, src = kurs["summa"], kurs["valyuta"]
+    if src == "usd":
+        dst = reports.fmt_money(amount * rate, "som")
+    else:
+        dst = reports.fmt_money(amount / rate, "usd")
+    return i18n.t(lang, "fx_answer", src=reports.fmt_money(amount, src), dst=dst,
+                  rate=reports.fmt_money(rate, "som"))
+
+
 async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
                         text: str, message=None) -> None:
     """Matnli yozuvni tahlil qilib saqlaydi.
@@ -1932,6 +1972,14 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
         )
         return
 
+    # Salomlashish — AI'siz, tayyor javob (M15). Ilgari «salom» AI'ga
+    # ketar va «Men shaxsiy moliya botining tahlil qismiman» degan g'alati
+    # javob qaytardi; bunga pul ham, limit ham sarflanmasin.
+    if is_greeting(text):
+        await message.reply_text(i18n.t(lang_of(user_id, context), "greeting"),
+                                 parse_mode=ParseMode.HTML)
+        return
+
     usage_id = await check_quota(update, context, "matn")
     if usage_id is None:
         return
@@ -1948,6 +1996,14 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
     db.usage_finish(usage_id, parsed.get("_usage"))
     niyat = parsed["niyat"]
+
+    if niyat == "kurs" and parsed.get("kurs"):
+        # Kurs bazada bo'lmasa Markaziy bankdan olinadi (tarmoq) — bot
+        # boshqa foydalanuvchilarni kutdirmasin.
+        answer = await asyncio.to_thread(fx_answer_text, parsed["kurs"],
+                                         lang_of(user_id, context))
+        await message.reply_text(answer, parse_mode=ParseMode.HTML)
+        return
 
     if niyat == "savol":
         # Savol alohida (qimmatroq) amal — o'z limiti va o'z hisobi bor.
@@ -2090,6 +2146,8 @@ async def _celebrate(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
         if lines:
             await message.reply_text("\n\n".join(lines), parse_mode=ParseMode.HTML)
+        await maybe_reward_referral(context, user_id, message,
+                                    update.effective_user.first_name or "")
     except Exception:
         log.exception("Zanjir/bosqich xabarida xatolik")
 
@@ -2236,9 +2294,12 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 show_alert=True,
             )
             return
-        # Eski yozuvlar olib tashlanadi — chek to'liq holda qayta o'qiladi.
-        db.delete_receipt(user_id, receipt_id)
-        _collect.set(user_id, {"images": list(last["images"]), "caption": last["caption"]})
+        # Eski chek HOZIR o'chirilmaydi: yangi o'qish muvaffaqiyatli
+        # saqlangandagina almashtiriladi (`replaces`). Ilgari darhol
+        # o'chirilardi — odam «Bekor» bossa yoki o'qish xato bersa, chek
+        # butunlay yo'qolardi.
+        _collect.set(user_id, {"images": list(last["images"]), "caption": last["caption"],
+                               "replaces": receipt_id})
         await query.answer()
         await query.edit_message_text(
             f"➕ Chekning qolgan qismlarini yuboring "
@@ -2251,6 +2312,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if data.startswith("bset:"):
+        await on_budget_callback(update, context)
+        return
     if data.startswith(("dq:", "dz:", "dzf:", "dzs:", "dzx:", "dl:")):
         await on_debt_callback(update, context)
         return
@@ -2418,8 +2482,11 @@ def plans_text(access: dict | None = None, lang: str = "uz") -> str:
                                 monthly=_fmt_price(config.plan_monthly_price(p)),
                                 pct=config.plan_discount_percent(p)))
         elif p.get("founders"):
+            places = (i18n.t(lang, "founders_places_all", total=config.FOUNDERS_LIMIT)
+                      if p["left"] >= config.FOUNDERS_LIMIT
+                      else i18n.t(lang, "founders_places_left", left=p["left"]))
             lines.append(i18n.t(lang, "plan_founders_line", label=label, price=price,
-                                left=p["left"], total=config.FOUNDERS_LIMIT))
+                                places=places))
         else:
             lines.append(i18n.t(lang, "plan_line", label=label, price=price))
 
@@ -2872,7 +2939,9 @@ async def cmd_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.effective_message.reply_text(
         i18n.t(lang, "referral", bonus=config.REFERRAL_BONUS_DAYS, link=link,
-               invited=stats["invited"], bonus_days=stats["bonus_days"]),
+               invited=stats["invited"], bonus_days=stats["bonus_days"],
+               n=config.REFERRAL_MIN_ENTRIES, days=config.REFERRAL_WINDOW_DAYS,
+               cap=config.REFERRAL_YEARLY_CAP_DAYS),
         parse_mode=ParseMode.HTML,
         disable_web_page_preview=True,
         reply_markup=InlineKeyboardMarkup([[
@@ -2883,7 +2952,8 @@ async def cmd_referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def _apply_referral(update: Update, context: ContextTypes.DEFAULT_TYPE,
                           payload: str) -> None:
-    """/start ref<id> — taklif qilganni qayd etadi va ikkalasiga bonus beradi."""
+    """/start ref<id> — taklif qilganni qayd etadi. Bonus HOZIR berilmaydi:
+    do'st birinchi kunlarda bir necha yozuv qilgach (maybe_reward_referral)."""
     user = update.effective_user
     if not payload.startswith("ref"):
         return
@@ -2893,20 +2963,45 @@ async def _apply_referral(update: Update, context: ContextTypes.DEFAULT_TYPE,
     referrer_id = int(raw)
     if not db.set_referrer(user.id, referrer_id):
         return
-
-    bonus = config.REFERRAL_BONUS_DAYS
-    db.add_bonus_days(user.id, bonus)
-    db.add_bonus_days(referrer_id, bonus)
-    log.info("Referal: %s -> %s (+%s kun)", referrer_id, user.id, bonus)
-
+    log.info("Referal: %s -> %s (bonus shart bajarilgach)", referrer_id, user.id)
     await update.effective_message.reply_text(
-        i18n.t(lang_of(user.id, context), "referral_welcome", bonus=bonus),
+        i18n.t(lang_of(user.id, context), "referral_welcome",
+               bonus=config.REFERRAL_BONUS_DAYS, n=config.REFERRAL_MIN_ENTRIES,
+               days=config.REFERRAL_WINDOW_DAYS),
         parse_mode=ParseMode.HTML)
+
+
+async def maybe_reward_referral(context: ContextTypes.DEFAULT_TYPE, user_id: int,
+                                message, name: str = "") -> None:
+    """Do'st sharti bajarilgan bo'lsa ikkalasiga bonus (M8).
+
+    Shart: kelganidan keyin REFERRAL_WINDOW_DAYS kun ichida
+    REFERRAL_MIN_ENTRIES ta yozuv — soxta akkaunt bilan bonus yig'ish
+    endi har biriga haqiqiy yozuv (va AI sarfi) talab qiladi. Taklif
+    qiluvchi oxirgi 365 kunda REFERRAL_YEARLY_CAP_DAYS dan ko'p olmaydi.
+    """
+    referrer_id = db.referral_due(user_id)
+    if referrer_id is None or not db.mark_referral_rewarded(user_id):
+        return
+    bonus = config.REFERRAL_BONUS_DAYS
+    db.add_bonus_days(user_id, bonus)
+    left = max(0, config.REFERRAL_YEARLY_CAP_DAYS - db.referral_days_this_year(referrer_id))
+    ref_bonus = min(bonus, left)
+    if ref_bonus:
+        db.add_bonus_days(referrer_id, ref_bonus)
+        db.log_event(referrer_id, "referral_bonus", str(ref_bonus))
+    log.info("Referal bonusi: %s -> %s (+%s / +%s kun)", referrer_id, user_id,
+             ref_bonus, bonus)
+    lang = lang_of(user_id, context)
+    await message.reply_text(i18n.t(lang, "referral_rewarded", bonus=bonus),
+                             parse_mode=ParseMode.HTML)
+    if not ref_bonus:
+        return
     try:
         await context.bot.send_message(
             referrer_id,
             i18n.t(lang_of(referrer_id), "referral_thanks",
-                   name=reports.esc(user.first_name or "?"), bonus=bonus),
+                   name=reports.esc(name or "?"), bonus=ref_bonus),
             parse_mode=ParseMode.HTML)
     except Exception:
         log.info("Referal xabari yuborilmadi: %s", referrer_id)
@@ -2965,6 +3060,87 @@ def _parse_amount_uz(text: str, small_is_thousands: bool | None = None) -> float
     return value
 
 
+def split_budget_args(args: list[str]) -> tuple[str, float | None]:
+    """(kategoriya so'zlari, summa). Summa oxirgi bir yoki ikki so'zda:
+    «… 2000000», «… 2mln», «… 2 mln». Ilgari faqat oxirgi so'z olinardi
+    va botning o'zi ko'rsatgan «/byudjet oziq-ovqat 2 mln» misoli
+    «Summani tushunmadim» berardi."""
+    if len(args) >= 2 and args[-1].lower().strip(".,") in _MULTIPLIERS:
+        amount = _parse_amount_uz(" ".join(args[-2:]))
+        if amount:
+            return " ".join(args[:-2]), amount
+    if len(args) >= 2:
+        return " ".join(args[:-1]), _parse_amount_uz(args[-1])
+    return "", _parse_amount_uz(args[-1]) if args else None
+
+
+def _cat_norm(text: str) -> str:
+    raw = (text or "").casefold()
+    for ch in "ʻʼ‘’`'":
+        raw = raw.replace(ch, "")
+    return " ".join(raw.replace("-", " ").split())
+
+
+def match_expense_category(text: str) -> str | None:
+    """Foydalanuvchi yozgan nomdan chiqim kategoriyasi: aniq mos, yoki
+    yagona boshlanish/qism mos («oziq» -> oziq-ovqat, «gigiyena» ->
+    uy-ro'zg'or va gigiyena). Topilmasa yoki bir nechtasiga mos kelsa None."""
+    want = _cat_norm(text)
+    if not want:
+        return None
+    by_norm = {_cat_norm(c): c for c in config.EXPENSE_CATEGORIES}
+    by_norm.update({_cat_norm(config.category_label(c)): c
+                    for c in config.EXPENSE_CATEGORIES})
+    if want in by_norm:
+        return by_norm[want]
+    hits = {c for n, c in by_norm.items() if n.startswith(want) or want in n}
+    return hits.pop() if len(hits) == 1 else None
+
+
+def budget_category_keyboard(amount: float) -> InlineKeyboardMarkup:
+    rows, row = [], []
+    for name in config.EXPENSE_CATEGORIES:
+        idx = config.CATEGORY_REGISTRY.index(name)
+        row.append(InlineKeyboardButton(
+            f"{config.CATEGORY_ICONS.get(name, '•')} {config.category_label(name)}",
+            callback_data=f"bset:{idx}:{int(amount)}"))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return InlineKeyboardMarkup(rows)
+
+
+async def _confirm_budget(msg, user_id: int, category: str, amount: float,
+                          edit: bool = False) -> None:
+    db.set_budget(user_id, category, amount)
+    text = (f"✅ <b>{category}</b> uchun oylik byudjet: "
+            f"<b>{reports.fmt_money(amount, 'som')}</b>\n\n"
+            f"80% va 100% ga yetganda ogohlantiraman.")
+    if edit:
+        await msg.edit_text(text, parse_mode=ParseMode.HTML)
+    else:
+        await msg.reply_text(text, parse_mode=ParseMode.HTML)
+
+
+async def on_budget_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """bset:<kategoriya raqami>:<summa> — kategoriyani tugmadan tanlash."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    if not tiers.allows(db.access_status(user_id), "budget"):
+        await show_paywall(update, context, "budget")
+        return
+    _, raw_idx, raw_amount = (query.data or "bset:0:0").split(":")
+    idx, amount = int(raw_idx), int(raw_amount)
+    name = config.CATEGORY_REGISTRY[idx] if 0 <= idx < len(config.CATEGORY_REGISTRY) else None
+    if name not in config.EXPENSE_CATEGORIES or amount <= 0:
+        await query.answer("Noto'g'ri tanlov", show_alert=True)
+        return
+    await query.answer("✅")
+    await _confirm_budget(query.message, user_id, name, amount, edit=True)
+
+
 @private_only
 async def cmd_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/byudjet — ro'yxat; /byudjet <kategoriya> <summa> — o'rnatish."""
@@ -2977,28 +3153,36 @@ async def cmd_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if args:
         if args[-1].lower() in ("o'chir", "ochir", "0"):
-            category = config.normalize_category(
-                config.KIND_CHIQIM, " ".join(args[:-1]))
+            category = match_expense_category(" ".join(args[:-1]))
+            if category is None:
+                await msg.reply_text(
+                    "Qaysi kategoriya? Masalan: <code>/byudjet transport o'chir</code>",
+                    parse_mode=ParseMode.HTML)
+                return
             ok = db.delete_budget(user_id, category)
             await msg.reply_text(
                 f"🗑 «{category}» byudjeti o'chirildi." if ok
                 else f"«{category}» uchun byudjet yo'q edi.")
             return
 
-        amount = _parse_amount_uz(args[-1])
-        category = config.normalize_category(config.KIND_CHIQIM, " ".join(args[:-1]))
+        words, amount = split_budget_args(args)
         if not amount or amount <= 0:
             await msg.reply_text(
                 "Summani tushunmadim.\n\n"
                 "Masalan: <code>/byudjet oziq-ovqat 2 mln</code>",
                 parse_mode=ParseMode.HTML)
             return
-        db.set_budget(user_id, category, amount)
-        await msg.reply_text(
-            f"✅ <b>{category}</b> uchun oylik byudjet: "
-            f"<b>{reports.fmt_money(amount, 'som')}</b>\n\n"
-            f"80% va 100% ga yetganda ogohlantiraman.",
-            parse_mode=ParseMode.HTML)
+        category = match_expense_category(words)
+        if category is None:
+            # Topilmagan kategoriya jimgina «boshqa chiqim» ga yozilmasin —
+            # tanlatamiz (summa tugmada saqlanadi).
+            await msg.reply_text(
+                f"Qaysi kategoriyaga <b>{reports.fmt_money(amount, 'som')}</b> "
+                f"oylik byudjet qo'yamiz?",
+                parse_mode=ParseMode.HTML,
+                reply_markup=budget_category_keyboard(amount))
+            return
+        await _confirm_budget(msg, user_id, category, amount)
         return
 
     rows = db.budget_status(user_id)
@@ -3815,8 +3999,68 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # boshqarish noqulay va xatoga moyil edi.
 
 
+# Egaga xato haqida xabar: bir xil xato turi 10 daqiqada bir martadan
+# ko'p yuborilmaydi (xato bir necha foydalanuvchida takrorlansa chat to'lmasin).
+_error_notified: dict[str, float] = {}
+ERROR_NOTIFY_EVERY = 600
+
+
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Kutilmagan xato (M11): log, foydalanuvchiga javob, egaga xabar.
+
+    Ilgari faqat logga yozilardi: odam hech qanday javob olmasdi (bot
+    «qotib qolgandek»), ega esa bilmasdi. Egaga ketadigan xabarda
+    foydalanuvchi ma'lumoti YO'Q — faqat xato turi va joyi.
+    """
     log.exception("Handler xatoligi", exc_info=context.error)
+    message = getattr(update, "effective_message", None)
+    user = getattr(update, "effective_user", None)
+    if message is not None and user is not None:
+        try:
+            await message.reply_text(i18n.t(lang_of(user.id), "error_generic"))
+        except Exception:
+            pass
+
+    err = context.error
+    kind = type(err).__name__ if err else "Xato"
+    where = ""
+    tb = getattr(err, "__traceback__", None)
+    while tb is not None and tb.tb_next is not None:
+        tb = tb.tb_next
+    if tb is not None:
+        where = f"{os.path.basename(tb.tb_frame.f_code.co_filename)}:{tb.tb_lineno}"
+    key = f"{kind}@{where}"
+    now = time.monotonic()
+    if now - _error_notified.get(key, -ERROR_NOTIFY_EVERY) < ERROR_NOTIFY_EVERY:
+        return
+    _error_notified[key] = now
+    text = (f"⚠️ <b>Botda xato</b>\n<code>{reports.esc(kind)}</code> · "
+            f"<code>{reports.esc(where)}</code>\n"
+            f"{reports.esc(str(err))[:300]}\n\n<i>To'liq: journalctl -u tanga</i>")
+    for owner in config.OWNER_IDS:
+        try:
+            await context.bot.send_message(owner, text, parse_mode=ParseMode.HTML)
+        except Exception:
+            pass
+
+
+async def _private_chat_guard(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Bot faqat shaxsiy chatda ishlaydi (M13).
+
+    Guruhda /oy yoki /qarz yozilsa shaxsiy moliyaviy hisobot hamma
+    a'zolarga ko'rinib qolardi. Shaxsiy bo'lmagan chatdagi har qanday
+    yangilanish shu yerda to'xtatiladi; botni guruhga qo'shishsa — o'zi
+    chiqib ketadi.
+    """
+    chat = getattr(update, "effective_chat", None)
+    if chat is None or chat.type == "private":
+        return
+    if getattr(update, "my_chat_member", None) is not None:
+        try:
+            await context.bot.leave_chat(chat.id)
+        except Exception:
+            pass
+    raise ApplicationHandlerStop
 
 
 # --------------------------------------------------------------------------- #
@@ -4568,6 +4812,8 @@ def register_handlers(app) -> None:
     faqat SHU bosqichda ValueError beradi. Bir marta shunday xato
     jonli serverga chiqib, bot umuman ishga tushmay qolgan.
     """
+    # Eng birinchi (group -1): shaxsiy bo'lmagan chat — to'xtatiladi.
+    app.add_handler(TypeHandler(Update, _private_chat_guard), group=-1)
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler(["yordam", "help", "qollanma", "guide"], cmd_guide))
     app.add_handler(CommandHandler(["buyruqlar", "commands"], cmd_commands))

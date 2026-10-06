@@ -230,5 +230,6 @@ def test_plans_page_leads_with_benefit():
     text = bot.plans_text(lang="uz")
     assert text.index("Pulingiz qayerga") < text.index("149 000")
     assert "⭐" in text and "12 400" in text and "35% tejash" in text
-    assert "qolgan joylar: 100/100" in text
+    # M16: hech kim olmagan bo'lsa «100/100» emas, faqat chegara.
+    assert "faqat 100 ta joy" in text and "100/100" not in text
     assert "3 oylik" not in text
