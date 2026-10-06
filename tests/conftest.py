@@ -78,7 +78,20 @@ def pytest_terminal_summary(terminalreporter):
     tr.write_line("|---|---|---|---|---|")
     for i, (group, text, want, got, ok) in enumerate(live_results.RESULTS, 1):
         mark = "✅" if ok else "❌"
-        tag = "" if group == "jadval" else " *(qo'shimcha)*"
+        tag = "" if group == "jadval" else f" *({group})*"
         tr.write_line(f"| {i} | {text}{tag} | {want} | {got} | {mark} |")
     passed = sum(1 for r in live_results.RESULTS if r[4])
     tr.write_line(f"\n{passed}/{len(live_results.RESULTS)} to'g'ri")
+    # Guruhlar bo'yicha qisqa hisob (matn jadvali / qo'shimcha / ovoz / chek).
+    groups: dict[str, list[bool]] = {}
+    for group, _, _, _, ok in live_results.RESULTS:
+        groups.setdefault(group, []).append(ok)
+    for group, oks in groups.items():
+        tr.write_line(f"  {group}: {sum(oks)}/{len(oks)}")
+    # Baholash hujjati uchun mashina o'qiydigan nusxa (ixtiyoriy).
+    out = os.environ.get("LIVE_RESULTS_JSON")
+    if out:
+        import json
+        with open(out, "w", encoding="utf-8") as fh:
+            json.dump({"groups": {g: [sum(o), len(o)] for g, o in groups.items()},
+                       "summary": live_results.SUMMARY}, fh, ensure_ascii=False, indent=1)
