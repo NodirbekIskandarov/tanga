@@ -1,7 +1,7 @@
 # Gemini baholash hisoboti
 
 **Holat: JONLI BAHOLASH O'TKAZILMAGAN → production'ga CHIQARILMAYDI.**
-Kod va oflayn testlar tayyor (317 ta o'tadi), lekin quyidagi qabul mezonlari
+Kod va oflayn testlar tayyor (321 ta o'tadi), lekin quyidagi qabul mezonlari
 hali o'lchanmagan. Jadvalda bo'sh joylar — haqiqatan o'lchanmagan
 ko'rsatkichlar; ular to'qib yozilmagan.
 
@@ -12,30 +12,46 @@ ko'rsatkichlar; ular to'qib yozilmagan.
 | `gemini.py` (Interactions API, qayta urinish, timeout, usage), sxemalar, promptlar | ✅ yozilgan, SDK turlariga qarshi tekshirilgan, oflayn testlar yashil |
 | Narx jadvali (sanaga bog'langan), `cost_usd` | ✅ hujjatdan (2026-10-06) tasdiqlangan, testlangan |
 | Ovozli kiritish (handler, tasdiq, limit, bayroq) | ✅ oflayn testlar yashil |
-| **Jonli SDK/API chaqiruvi** | ❌ bajarilmagan (pastdagi 1-bo'lim) |
+| Jonli SDK/API chaqiruvi | ✅ 2026-10-06 bajarildi (1-bo'lim; `audio/ogg`, PDF, kesh ochiq) |
 | **Claude bazasi** (`docs/ai-baseline-claude.md`) | ❌ Claude kaliti va chek namunalari yo'q |
 | **30+ ovoz namunasi, 20 chek** | ❌ yig'ilmagan (`tests/live_voice/`, `tests/live_receipts/`) |
 
-## 1. Birinchi jonli tekshiruv (har qanday baholashdan oldin)
+## 1. Birinchi jonli tekshiruv (2026-10-06, haqiqiy kalit, pullik daraja)
 
-Kod hujjat va SDK turlariga tayanib yozilgan, lekin quyidagilar **haqiqiy
-chaqiruvda tasdiqlanmagan** — bittadan sinab ko'ring
-(`GEMINI_API_KEY` — faqat billing yoqilgan kalit):
+Natijalar (yengil sinov: `pytest -m live tests/test_live_ai.py` va qo'lda tekshiruv):
 
-- [ ] `pytest -m live tests/test_live_ai.py` ishlaydi: so'rov shakli
-      (`response_format`, `generation_config.thinking_level`, `input` bo'laklari)
-      qabul qilinadi.
-- [ ] `thinking_level="minimal"` ikkala modelda (`gemini-3.5-flash-lite`,
-      `gemini-3.8-flash`) rad etilmaydi. Rad etilsa — `PARSE_THINKING=low`.
-- [ ] **Usage ma'nosi:** `total_output_tokens` «o'ylash» tokenlarini o'z ichiga
-      oladimi? Kod xavfsiz tomonga og'adi (`max(chiqish + o'ylash, jami − kirish)`),
-      ya'ni narxni bir oz KO'P hisoblashi mumkin. Haqiqiy javobdagi sonlarni
-      Google Cloud billing bilan solishtiring va `gemini.usage_of` ni aniqlang.
-- [ ] `VOICE_SCHEMA` (~4.4 KB) rad etilmaydi (juda chuqur sxema xatosi bo'lsa —
-      sxemani soddalashtiring).
-- [ ] Telegram ovozi (`audio/ogg`, Opus) qabul qilinadi.
-- [ ] Kesh ishlaydi: ikkinchi bir xil so'rovda `total_cached_tokens > 0`.
-- [ ] PDF (`document` bo'lagi) va rasm (`image/jpeg`) o'qiladi.
+- [x] **So'rov shakli qabul qilinadi** (`response_format`, `generation_config`,
+      `input` bo'laklari, `system_instruction`): matn jadvali **18/18 to'g'ri**
+      (12 jadval + 6 qo'shimcha; Claude bazasi bilan solishtirish hali yo'q).
+- [x] **`thinking_level`:** `gemini-3.5-flash-lite` — `minimal/low/medium/high`
+      hammasi ishlaydi. **`gemini-3.8-flash` `minimal` ni RAD ETADI** (400,
+      «THINKING_LEVEL_MINIMAL is not supported»), `low` dan boshlanadi. Kod
+      buni hal qiladi: bu model uchun `minimal` avtomatik `low` ga tushadi,
+      noma'lum model 400 bersa — bir marta `low` bilan qayta uriniladi.
+- [x] **Usage ma'nosi tasdiqlandi:** `total_tokens = kirish + chiqish + o'ylash`
+      (masalan 22 + 104 + 638 = 764); `total_output_tokens` o'ylashni O'Z ICHIGA
+      OLMAYDI, shuning uchun narx (chiqish + o'ylash) to'g'ri, ortiqcha
+      hisoblanmaydi.
+- [x] **`RECORD_SCHEMA`, `RECEIPT_SCHEMA`, `VOICE_SCHEMA` rad etilmadi.**
+- [x] **Audio qabul qilinadi** (sintez qilingan WAV, `audio/wav`): transkripsiya
+      va ikkita yozuv ajratildi, audio tokenlar alohida hisoblandi.
+- [x] **Rasm o'qiladi** (sintetik chek, `image/jpeg`).
+- [ ] **Telegram ovozi `audio/ogg` (Opus)** — alohida tekshirilmagan: OGG namuna
+      yo'q (SDK turida `audio/ogg` bor). Birinchi haqiqiy ovozli xabarda tekshiring.
+- [ ] **PDF** (`document` bo'lagi) — tekshirilmagan.
+- [ ] **Kesh:** ikki bir xil matn so'rovida `total_cached_tokens` = 0 chiqdi
+      (prompt ~3 460 token). Yashirin kesh ishlamadi yoki minimal hajm/vaqt
+      shartiga yetmadi — tasdiqlanmagan. Narx kesh HISOBGA OLINMAGAN holda
+      yozilgan (ehtiyotkor).
+
+Birinchi o'lchangan narxlar (sintetik, kichik namunalar — haqiqiy cheklar
+kattaroq):
+
+| Amal | Model | Sarf |
+|---|---|---|
+| Matnli yozuv («obedga 45 ming») | flash-lite, minimal | ~$0.0013 (3 455 kirish, ~120 chiqish) |
+| Ovozli yozuv (~7 s sintez) | flash-lite, minimal | ~$0.0019 (4 489 kirish, shundan 125 audio) |
+| Chek (4 qatorli sintetik rasm) | 3.8-flash, medium | ~$0.0036 (1 986 kirish, 573 chiqish+o'ylash) |
 
 ## 2. Qabul mezonlari (7-bo'lim)
 

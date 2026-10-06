@@ -271,3 +271,56 @@ def test_receipt_total_size_is_limited(monkeypatch):
     asyncio.run(bot._process_receipt(update, ctx, [(big, "image/jpeg")] * 2, ""))
     assert len(msg.replies) == 1 and "juda katta" in msg.replies[0]
     assert db.count_today(77, "chek") == 0
+
+
+# ------------------------------------------- «minimal» o'ylash darajasi (jonli topilma) --
+
+MINIMAL_ERROR_BODY = ("{'error': {'message': 'Thinking level THINKING_LEVEL_MINIMAL is "
+                      "not supported for this model.', 'code': 'invalid_request'}}")
+
+
+def test_models_without_minimal_thinking_are_clamped_to_low(sdk):
+    """Jonli sinov: gemini-3.8-flash «minimal» ni rad etadi (400). Oldindan «low»."""
+    fake = sdk(interaction())
+    run(gemini.generate_json("gemini-3.8-flash", "t", [gemini.text_part("x")],
+                             SCHEMA, "minimal", 20))
+    assert fake.calls[0]["generation_config"] == {"thinking_level": "low"}
+    # Boshqa darajalar o'zgarmaydi.
+    fake = sdk(interaction())
+    run(gemini.generate_json("gemini-3.8-flash", "t", [gemini.text_part("x")],
+                             SCHEMA, "medium", 20))
+    assert fake.calls[0]["generation_config"] == {"thinking_level": "medium"}
+
+
+def test_unknown_model_rejecting_minimal_is_retried_with_low_and_remembered(sdk):
+    err = HttpError(400)
+    err.body = MINIMAL_ERROR_BODY
+    gemini._NO_MINIMAL.discard("gemini-yangi-9")
+    try:
+        fake = sdk(err, interaction())
+        payload, _ = run(gemini.generate_json("gemini-yangi-9", "t", [gemini.text_part("x")],
+                                              SCHEMA, "minimal", 20))
+        assert payload is not None and len(fake.calls) == 2
+        assert fake.calls[0]["generation_config"] == {"thinking_level": "minimal"}
+        assert fake.calls[1]["generation_config"] == {"thinking_level": "low"}
+        assert fake.sleeps == []                              # kutmasdan qayta urindi
+        # Keyingi chaqiruv birdaniga «low» bilan ketadi.
+        fake = sdk(interaction())
+        run(gemini.generate_json("gemini-yangi-9", "t", [gemini.text_part("x")],
+                                 SCHEMA, "minimal", 20))
+        assert fake.calls[0]["generation_config"] == {"thinking_level": "low"}
+    finally:
+        gemini._NO_MINIMAL.discard("gemini-yangi-9")
+
+
+def test_other_400_errors_are_not_mistaken_for_minimal(sdk):
+    fake = sdk(HttpError(400))
+    with pytest.raises(gemini.GeminiError):
+        run(gemini.generate_json(MODEL, "t", [gemini.text_part("x")], SCHEMA, "minimal", 20))
+    assert len(fake.calls) == 1
+
+
+def test_usage_total_is_input_plus_output_plus_thought():
+    """Jonli sinovda tasdiqlangan: total = kirish + chiqish + o'ylash (22+104+638)."""
+    u = gemini.usage_of(interaction(inp=22, out=104, thought=638, total=764), MODEL)
+    assert u["output_tokens"] == 742

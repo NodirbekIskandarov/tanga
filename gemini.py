@@ -166,8 +166,22 @@ def _describe(exc: BaseException) -> str:
     return type(exc).__name__ + (f" (status {status})" if status is not None else "")
 
 
+# «minimal» o'ylash darajasini qabul qilmaydigan modellar (jonli sinovda
+# aniqlangan: gemini-3.8-flash 400 beradi, «low» dan boshlanadi). Ro'yxat
+# ish paytida ham to'ldiriladi: noma'lum model 400 bersa — bir marta «low»
+# bilan qayta uriniladi va eslab qolinadi.
+_NO_MINIMAL: set[str] = {"gemini-3.8-flash"}
+
+
+def _minimal_rejected(exc: BaseException) -> bool:
+    text = str(getattr(exc, "body", "") or "")
+    return _status_of(exc) == 400 and "THINKING_LEVEL_MINIMAL" in text
+
+
 async def _create(model: str, system: str, parts: list[dict[str, Any]],
                   schema: dict[str, Any] | None, thinking: str, timeout: float):
+    if thinking == "minimal" and model in _NO_MINIMAL:
+        thinking = "low"
     kwargs: dict[str, Any] = {
         "model": model,
         "system_instruction": system,
@@ -192,6 +206,12 @@ async def _create(model: str, system: str, parts: list[dict[str, Any]],
                 raise _Transient(f"interaction status: {status}")
             return interaction
         except Exception as exc:                          # noqa: BLE001
+            if kwargs["generation_config"]["thinking_level"] == "minimal"                     and _minimal_rejected(exc):
+                log.warning("Gemini [%s]: «minimal» o'ylash darajasi qabul qilinmadi — "
+                            "«low» ishlatiladi", model)
+                _NO_MINIMAL.add(model)
+                kwargs["generation_config"] = {"thinking_level": "low"}
+                continue
             retry = attempt < attempts - 1 and (
                 isinstance(exc, _Transient) or _retryable(exc))
             if not retry:

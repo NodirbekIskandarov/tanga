@@ -39,6 +39,16 @@ for name, value in {
 
 import pytest  # noqa: E402
 
+# Korporativ tarmoqda (TLS tekshiruvi) jonli testlar sertifikat xatosi beradi:
+# USE_SYSTEM_CA=1 bo'lsa operatsion tizim sertifikatlari ishlatiladi
+# (pip install truststore). Oddiy ishga tushirishga ta'sir qilmaydi.
+if os.environ.get("USE_SYSTEM_CA") == "1":
+    try:
+        import truststore
+        truststore.inject_into_ssl()
+    except ImportError:
+        pass
+
 import config  # noqa: E402
 import db  # noqa: E402
 

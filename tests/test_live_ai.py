@@ -81,8 +81,9 @@ EXTRA = [
 
 @pytest.fixture(autouse=True)
 def real_key(monkeypatch):
-    key = (os.environ.get("GEMINI_API_KEY")
-           or dotenv_values(".env").get("GEMINI_API_KEY") or "").strip()
+    key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    if not key or key == "gemini-test-key":          # conftest qo'ygan soxta qiymat
+        key = (dotenv_values(".env").get("GEMINI_API_KEY") or "").strip()
     if not key or key == "gemini-test-key":
         pytest.skip("haqiqiy GEMINI_API_KEY yo'q (muhit yoki .env)")
     monkeypatch.setattr(config, "GEMINI_API_KEY", key)
