@@ -100,6 +100,69 @@ T = {
         "uz": "Yoki shu misolni bir bosishda sinab ko'ring 👇",
         "ru": "Или попробуйте этот пример одним нажатием 👇",
     },
+    # ---- Qarzni qisman to'lash (2-bo'lim) ----
+    "debt_btn_partial": {"uz": "💸", "ru": "💸"},
+    "debt_pay_ask": {
+        "uz": ("💸 <b>{person}</b> qarzi bo'yicha qancha to'landi?\n"
+               "Qoldiq: <b>{remaining}</b>\n\n"
+               "Summani yozing, masalan: <i>500 ming</i>"),
+        "ru": ("💸 Сколько оплачено по долгу <b>{person}</b>?\n"
+               "Остаток: <b>{remaining}</b>\n\n"
+               "Напишите сумму, например: <i>500 тысяч</i>"),
+    },
+    "debt_pay_bad": {
+        "uz": "Summani tushunmadim. Qaytadan yozing, masalan: <i>500 ming</i>",
+        "ru": "Не понял сумму. Напишите ещё раз, например: <i>500 тысяч</i>",
+    },
+    "debt_paid": {
+        "uz": ("✅ <b>{amount}</b> to'landi — {person}\n"
+               "Qoldiq: <b>{remaining}</b> (asli {original})\n{bar}"),
+        "ru": ("✅ Оплачено <b>{amount}</b> — {person}\n"
+               "Остаток: <b>{remaining}</b> (было {original})\n{bar}"),
+    },
+    "debt_paid_full": {
+        "uz": "🎉 <b>{person}</b> qarzi to'liq yopildi ({original}).",
+        "ru": "🎉 Долг <b>{person}</b> полностью закрыт ({original}).",
+    },
+    "debt_pay_over": {
+        "uz": ("Qoldiq <b>{remaining}</b>, siz <b>{amount}</b> yozdingiz.\n"
+               "Qarzni to'liq yopaymi?"),
+        "ru": ("Остаток <b>{remaining}</b>, вы написали <b>{amount}</b>.\n"
+               "Закрыть долг полностью?"),
+    },
+    "debt_close_ask": {
+        "uz": ("✅ <b>{person}</b> qarzini yopish — qoldiq <b>{remaining}</b>.\n\n"
+               "Qoldiq to'landimi yoki qarz kechildimi?"),
+        "ru": ("✅ Закрыть долг <b>{person}</b> — остаток <b>{remaining}</b>.\n\n"
+               "Остаток оплачен или долг прощён?"),
+    },
+    "debt_btn_pay_rest": {"uz": "💸 Qoldiq to'landi — {remaining}",
+                          "ru": "💸 Остаток оплачен — {remaining}"},
+    "debt_btn_forgive": {"uz": "🤝 Pulsiz yopish (kechildi)",
+                         "ru": "🤝 Закрыть без оплаты (прощён)"},
+    "debt_btn_cancel": {"uz": "❌ Bekor", "ru": "❌ Отмена"},
+    "debt_forgiven": {
+        "uz": "🤝 <b>{person}</b> qarzi pulsiz yopildi.",
+        "ru": "🤝 Долг <b>{person}</b> закрыт без оплаты.",
+    },
+    "debt_not_found": {
+        "uz": "Qarz topilmadi (yopilgan yoki o'chirilgan bo'lishi mumkin).",
+        "ru": "Долг не найден (возможно, закрыт или удалён).",
+    },
+    "debt_link_ask": {
+        "uz": "↩️ <b>{amount}</b> — bu to'lov qaysi qarzga?",
+        "ru": "↩️ <b>{amount}</b> — к какому долгу этот платёж?",
+    },
+    "debt_link_none": {"uz": "🚫 Hech biriga (masalan bank krediti)",
+                       "ru": "🚫 Ни к какому (например, кредит банка)"},
+    "debt_linked": {
+        "uz": "↩️ Qarzga yozildi — {person}: qoldiq <b>{remaining}</b> (asli {original})",
+        "ru": "↩️ Записано в долг — {person}: остаток <b>{remaining}</b> (было {original})",
+    },
+    "debt_unlinked": {
+        "uz": "Yaxshi, bu to'lov hech qaysi qarzga yozilmadi.",
+        "ru": "Хорошо, платёж не привязан ни к одному долгу.",
+    },
     "first_entry_nudge": {
         "uz": ("👋 Birinchi yozuvingizni kutyapman.\n\n"
                "Bugun nimaga pul ketdi? Shunchaki yozing — masalan "

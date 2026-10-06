@@ -1020,6 +1020,21 @@
       </button>`;
     });
 
+    // Qisman to'lash va to'lovlar tarixi — botdagi «💸» bilan bir xil.
+    // Asli / to'langan / qoldiq serverdan keladi (to'lovlar ayirilgan).
+    if (canSettle && !tx.settled) {
+      html += `<div class="sheet-row" id="debtPayRow">
+        <div class="sheet-label">💸 Qisman to'lash</div>
+        <div class="tx-meta" id="debtSummary">Yuklanmoqda…</div>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <input id="debtPayAmount" class="field-input" type="number" inputmode="decimal"
+                 min="0" placeholder="Summa" style="flex:1" />
+          <button class="btn btn-good" id="debtPayBtn" style="width:auto">To'lash</button>
+        </div>
+        <div id="debtHistory"></div>
+      </div>`;
+    }
+
     // Qarzni qaytarish muddati — bir kun oldin va o'sha kuni eslatma (PRO).
     if (canSettle && !tx.settled) {
       const opts = [[1, "Ertaga"], [7, "1 hafta"], [14, "2 hafta"], [30, "1 oy"], [0, "Muddatsiz"]];
@@ -1057,6 +1072,11 @@
     });
     const settleBtn = body.querySelector("#settleBtn");
     if (settleBtn) settleBtn.onclick = () => confirmAction("Bu qarzni yopilgan deb belgilaysizmi?", () => settleDebt(tx.id));
+    const payBtn = body.querySelector("#debtPayBtn");
+    if (payBtn) {
+      payBtn.onclick = () => payDebt(tx.id, body.querySelector("#debtPayAmount").value);
+      loadDebtDetail(tx.id);
+    }
     body.querySelector("#deleteBtn").onclick = () =>
       confirmAction("Bu yozuvni o'chirasizmi?", () => deleteTx(tx.id));
     body.querySelector("#detailClose").onclick = () => closeSheet("detailBackdrop");
@@ -1112,6 +1132,42 @@
       if (e.paywall) { showPaywall(e.message); return; }
       haptic("error"); toast("Xatolik: " + e.message);
     }
+  }
+
+  async function loadDebtDetail(id) {
+    const row = document.getElementById("debtPayRow");
+    try {
+      const d = await api(`/api/debts/${id}`);
+      if (!row || !document.body.contains(row)) return;
+      const cur = d.currency;
+      row.querySelector("#debtSummary").innerHTML =
+        `Asli ${escapeHtml(fmtMoney(d.original, cur))} · to'langan ${escapeHtml(fmtMoney(d.paid, cur))}` +
+        ` · qoldiq <b>${escapeHtml(fmtMoney(d.remaining, cur))}</b>`;
+      if (d.payments.length) {
+        row.querySelector("#debtHistory").innerHTML =
+          `<div class="sheet-label" style="margin-top:10px">To'lovlar</div>` +
+          d.payments.map((p) =>
+            `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;color:var(--hint)">
+              <span>${fmtDate(p.date)}</span><span>${escapeHtml(fmtMoney(p.amount, cur))}</span>
+            </div>`).join("");
+      }
+    } catch (_) {
+      // Qarz qo'lda yopilgan yoki topilmadi — to'lash qatori kerak emas.
+      if (row) row.remove();
+    }
+  }
+
+  async function payDebt(id, raw) {
+    const amount = Number(String(raw || "").replace(/\s/g, "").replace(",", "."));
+    if (!(amount > 0)) { toast("Summani kiriting"); return; }
+    try {
+      const d = await api(`/api/debts/${id}/pay`, { method: "POST", body: { amount } });
+      haptic("success");
+      toast(d.remaining > 0 ? `To'landi ✅ Qoldiq: ${fmtMoney(d.remaining, d.currency)}` : "Qarz to'liq yopildi 🎉");
+      closeSheet("detailBackdrop");
+      await loadDebts();
+      refreshAll();
+    } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
   }
 
   async function settleDebt(id) {

@@ -390,46 +390,62 @@ def csv_bytes(user_id: int) -> tuple[bytes, int]:
     return buf.getvalue().encode("utf-8-sig"), len(rows)
 
 
+def _sum_by_currency(rows, key: str = "remaining") -> str:
+    """«1 500 000 so'm + $200» — valyutalar aralashtirilmaydi."""
+    by_currency: dict[str, float] = {}
+    for r in rows:
+        cur = r.get("currency") or "som"
+        by_currency[cur] = by_currency.get(cur, 0.0) + float(r[key])
+    return " + ".join(fmt_money(v, c) for c, v in
+                      sorted(by_currency.items(), key=lambda kv: kv[0] != "som"))
+
+
+def debt_progress_line(d: dict) -> str:
+    """«▓▓▓░░░░░░░ 30% · to'langan 300 000 / 1 000 000»."""
+    cur = d.get("currency") or "som"
+    amount = float(d["amount"]) or 1.0
+    share = max(0.0, min(1.0, float(d["paid"]) / amount))
+    return (f"<code>{_bar(share)}</code> {share * 100:.0f}% · to'langan "
+            f"{fmt_money(d['paid'], cur)} / {fmt_money(d['amount'], cur)}")
+
+
 def debts_text(user_id: int) -> str:
+    """Ochiq qarzlar: bir odamning qarzlari bitta guruhda, jami bilan.
+
+    Har bir qarzda qoldiq, sana, muddat va (qisman to'langan bo'lsa)
+    progress: asli / to'langan. Valyutalar aralashtirilmaydi.
+    """
     rows = db.open_debts(user_id)
     if not rows:
         return "🤝 Ochiq qarz yo'q."
 
-    berdim = [r for r in rows if r["kind"] == config.KIND_QARZ_BERDIM]
-    oldim = [r for r in rows if r["kind"] == config.KIND_QARZ_OLDIM]
-
     lines = ["🤝 <b>Qarzlar</b>", ""]
-    for title, group in (
-        ("📤 <b>Menga qarzdorlar</b>", berdim),
-        ("📥 <b>Men qarzdorman</b>", oldim),
-    ):
+    for kind, title in ((config.KIND_QARZ_BERDIM, "📤 <b>Menga qarzdorlar</b>"),
+                        (config.KIND_QARZ_OLDIM, "📥 <b>Men qarzdorman</b>")):
+        group = [r for r in rows if r["kind"] == kind]
         if not group:
             continue
-        # Valyutalar aralashtirilmaydi — har biri uchun alohida jami.
-        by_currency: dict[str, float] = {}
+        lines.append(f"{title} — {_sum_by_currency(group)}")
+        people: dict[str, list[dict]] = {}
         for r in group:
-            cur = r["currency"] if "currency" in r.keys() else "som"
-            by_currency[cur] = by_currency.get(cur, 0.0) + r["remaining"]
-        totals_str = " + ".join(
-            fmt_money(v, c) for c, v in sorted(by_currency.items(), key=lambda kv: kv[0] != "som")
-        )
-        lines.append(f"{title} — {totals_str}")
-        for r in group:
-            who = esc(r["person"] or "noma'lum")
-            cur = r["currency"] if "currency" in r.keys() else "som"
-            # Qisman qaytarilgan bo'lsa — qoldiq va asl summa ikkalasi.
-            paid = ""
-            if r["remaining"] < float(r["amount"]):
-                paid = f" <i>(qoldiq; asli {fmt_money(r['amount'], cur)})</i>"
-            if r.get("due_on"):
-                paid += f" ⏰ {fmt_date(r['due_on'])}"
-            lines.append(
-                f"   • {who}: {fmt_money(r['remaining'], cur)}{paid}"
-                f" ({fmt_date(r['occurred_on'])}) <code>#{r['id']}</code>"
-            )
+            people.setdefault(db.person_key(r["person"]), []).append(r)
+        for debts in people.values():
+            who = esc(debts[0]["person"] or "noma'lum")
+            head = f"👤 <b>{who}</b> — {_sum_by_currency(debts)}"
+            if len(debts) > 1:
+                head += f" <i>({len(debts)} ta qarz)</i>"
+            lines.append(head)
+            for r in debts:
+                cur = r.get("currency") or "som"
+                due = f" · ⏰ {fmt_date(r['due_on'])}" if r.get("due_on") else ""
+                note = f" · {esc(r['note'])}" if r.get("note") and r["note"] != "qarz" else ""
+                lines.append(f"   <code>#{r['id']}</code> {fmt_date(r['occurred_on'])}"
+                             f"{note}{due} · qoldiq <b>{fmt_money(r['remaining'], cur)}</b>")
+                if r.get("paid"):
+                    lines.append("   " + debt_progress_line(r))
         lines.append("")
 
-    lines.append("<i>Yopish uchun:</i> <code>/yopdim 12</code>")
+    lines.append("<i>Pastdagi tugmalar: 💸 qisman to'lash, ✅ to'liq yopish.</i>")
     return "\n".join(lines)
 
 

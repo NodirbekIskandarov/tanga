@@ -41,7 +41,10 @@ CREATE TABLE IF NOT EXISTS shaxsiy.transactions (
     -- Jamg'arma qaysi maqsadga (goals.id). Bo'sh — asosiy maqsadga.
     goal_id      INTEGER,
     -- Qarzni qaytarish muddati (YYYY-MM-DD) — eslatma uchun.
-    due_on       TEXT
+    due_on       TEXT,
+    -- Qaytarish yozuvi qaysi qarzni qaytaryapti (transactions.id).
+    -- Bo'sh — ism bo'yicha avtomatik taqsimlanadi (open_debts).
+    repays_id    INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS shaxsiy.idx_tx_user_date
@@ -166,6 +169,8 @@ PRIVATE_TABLE_MIGRATIONS = [
      "ALTER TABLE shaxsiy.savings_profile ADD COLUMN goals_imported INTEGER NOT NULL DEFAULT 0"),
     ("transactions", "goal_id",
      "ALTER TABLE shaxsiy.transactions ADD COLUMN goal_id INTEGER"),
+    ("transactions", "repays_id",
+     "ALTER TABLE shaxsiy.transactions ADD COLUMN repays_id INTEGER"),
     ("transactions", "due_on",
      "ALTER TABLE shaxsiy.transactions ADD COLUMN due_on TEXT"),
 ]
@@ -619,6 +624,7 @@ def add_transaction(
     currency: str = "som",
     goal_id: int | None = None,
     due_on: str | None = None,
+    repays_id: int | None = None,
 ) -> int:
     # Toshkent sanasi — server boshqa mintaqada bo'lishi mumkin.
     occurred_on = occurred_on or _now().date().isoformat()
@@ -627,11 +633,12 @@ def add_transaction(
         cur = conn.execute(
             """INSERT INTO transactions
                (user_id, kind, amount, category, note, person, occurred_on,
-                raw_text, receipt_id, currency, rate, amount_base, goal_id, due_on)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                raw_text, receipt_id, currency, rate, amount_base, goal_id, due_on,
+                repays_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, kind, float(amount), category, note, person,
              occurred_on, raw_text, receipt_id, currency, rate, amount_base,
-             goal_id, due_on),
+             goal_id, due_on, repays_id),
         )
         _bump_entries(conn, user_id, occurred_on, +1)
         return int(cur.lastrowid)
@@ -1018,25 +1025,29 @@ def person_key(name: str | None) -> str:
     return " ".join(raw.split())
 
 
-def open_debts(user_id: int) -> list[dict]:
-    """Ochiq qarzlar — har biri qaytarishlar ayirilgan QOLDIG'I bilan.
+def debt_ledger(user_id: int) -> list[dict]:
+    """Har bir (qo'lda yopilmagan) qarz: qoldig'i va unga tushgan to'lovlar.
 
-    Qaytarish (qarz_qaytdi / qarz_qaytardim) shaxs ismi bo'yicha shu
-    shaxsning eng eski ochiq qarziga, u yopilsa keyingisiga taqsimlanadi
-    (FIFO). Qoidalar:
-      * faqat bir xil yo'nalish: menga qaytarilgan pul men BERGAN qarzni
-        yopadi, men qaytargan pul men OLGAN qarzni;
-      * faqat bir xil valyuta (kurs orqali aralashtirilmaydi);
-      * faqat qaytarishdan OLDIN berilgan qarzga — keyin olingan yangi
-        qarzni eski to'lov yopib qo'ymasin;
-      * qo'lda yopilgan («settled») qarz taqsimotda qatnashmaydi.
+    Qaytarish (qarz_qaytdi / qarz_qaytardim) qarzga uch bosqichda
+    taqsimlanadi:
+      1. `repays_id` bilan aniq bog'langan to'lov — aynan o'sha qarzdan
+         («💸 Qisman to'lash» tugmasi yoki bot «qaysi qarz?» deb so'ragan).
+         Qoldiqdan ortig'i boshqa qarzga o'tmaydi.
+      2. Ismli to'lov — shu shaxsning eng eski ochiq qarziga, u yopilsa
+         keyingisiga (FIFO).
+      3. Ismsiz to'lov (kredit, «qarzimni qaytardim») — o'sha yo'nalish
+         va valyutada BITTA ochiq ismsiz qarz bo'lsa, unga. Ilgari ismsiz
+         to'lov hech qayerga tushmasdi va «noma'lum 10 mln» qarz hech
+         qachon kamaymasdi.
+    Umumiy qoidalar: yo'nalish mos (menga qaytarilgan pul men BERGAN
+    qarzni yopadi), valyuta bir xil, qarz to'lovdan OLDIN olingan
+    (2–3-bosqich), qo'lda yopilgan («settled») qarz qatnashmaydi.
 
-    Qoldiq saqlanmaydi, har safar hisoblanadi: qaytarish yozuvi
-    o'chirilsa yoki tahrirlansa qarz o'z-o'zidan qayta ochiladi.
-    Ismsiz qaytarish (masalan bank krediti) hech bir qarzga bog'lanmaydi.
+    Qoldiq saqlanmaydi, har safar hisoblanadi: to'lov o'chirilsa qarz
+    o'z-o'zidan qayta ochiladi.
 
-    Har bir element — `transactions` qatori + `remaining` (asl
-    valyutada) va `remaining_base` (asosiy valyutada).
+    Har element — `transactions` qatori + `remaining`, `paid` va
+    `payments` ([{id, date, amount}] — shu qarzga tushgan qism).
     """
     with get_conn() as conn:
         rows = conn.execute(
@@ -1048,29 +1059,67 @@ def open_debts(user_id: int) -> list[dict]:
 
     debts = [dict(r) for r in rows
              if r["kind"] in config.DEBT_OPEN_KINDS and not r["settled"]]
+    by_id = {d["id"]: d for d in debts}
     for d in debts:
         d["remaining"] = float(d["amount"])
+        d["payments"] = []
+    pays = [dict(r) for r in rows if r["kind"] in config.REPAYS]
 
-    for pay in rows:
-        target_kind = config.REPAYS.get(pay["kind"])
+    def apply(pay: dict, d: dict, left: float) -> float:
+        used = round(min(left, d["remaining"]), 2)
+        if used > 0:
+            d["remaining"] = round(d["remaining"] - used, 2)
+            d["payments"].append({"id": pay["id"], "date": pay["occurred_on"],
+                                  "amount": used})
+        return round(left - used, 2)
+
+    def fits(pay: dict, d: dict) -> bool:
+        return (d["kind"] == config.REPAYS[pay["kind"]]
+                and d["currency"] == pay["currency"] and d["remaining"] > 0)
+
+    # 1) Aniq bog'langanlar.
+    for pay in pays:
+        d = by_id.get(pay.get("repays_id") or 0)
+        if d is not None and fits(pay, d):
+            apply(pay, d, float(pay["amount"]))
+
+    unlinked = [p for p in pays if not p.get("repays_id")]
+    # 2) Ismli — FIFO.
+    for pay in unlinked:
         key = person_key(pay["person"])
-        if not target_kind or not key:
+        if not key:
             continue
         left = float(pay["amount"])
         for d in debts:
             if left <= 0:
                 break
-            if (d["kind"] != target_kind or d["remaining"] <= 0
-                    or person_key(d["person"]) != key
-                    or d["currency"] != pay["currency"]
-                    or d["occurred_on"] > pay["occurred_on"]):
-                continue
-            used = min(left, d["remaining"])
-            d["remaining"] = round(d["remaining"] - used, 2)
-            left -= used
+            if (fits(pay, d) and person_key(d["person"]) == key
+                    and d["occurred_on"] <= pay["occurred_on"]):
+                left = apply(pay, d, left)
 
-    result = []
+    # 3) Ismsiz — yagona ochiq ismsiz qarzga.
+    for pay in unlinked:
+        if person_key(pay["person"]):
+            continue
+        cands = [d for d in debts
+                 if fits(pay, d) and not person_key(d["person"])
+                 and d["occurred_on"] <= pay["occurred_on"]]
+        if len(cands) == 1:
+            apply(pay, cands[0], float(pay["amount"]))
+
     for d in debts:
+        d["paid"] = round(float(d["amount"]) - d["remaining"], 2)
+    return debts
+
+
+def open_debts(user_id: int) -> list[dict]:
+    """Ochiq qarzlar — qoldig'i bor, qaytarishlar ayirilgan (debt_ledger).
+
+    Har element — `transactions` qatori + `remaining` (asl valyutada),
+    `remaining_base` (asosiy valyutada), `paid` va `payments`.
+    """
+    result = []
+    for d in debt_ledger(user_id):
         if d["remaining"] <= 0:
             continue
         amount = float(d["amount"]) or 1.0
@@ -1083,6 +1132,63 @@ def open_debts(user_id: int) -> list[dict]:
         d["remaining_base"] = round(float(base) * d["remaining"] / amount, 2)
         result.append(d)
     return result
+
+
+def debt_detail(user_id: int, debt_id: int) -> dict | None:
+    """Bitta qarz: asli, to'langan, qoldiq va to'lovlar tarixi. Qo'lda
+    yopilgan yoki qarz bo'lmagan yozuv uchun None."""
+    return next((d for d in debt_ledger(user_id) if d["id"] == debt_id), None)
+
+
+def repay_kind_for(debt_kind: str) -> str:
+    """Qarzni qaytarish yozuvining turi: men olgan qarzni men qaytaraman,
+    men bergan qarzni menga qaytarishadi."""
+    return (config.KIND_QARZ_QAYTARDIM if debt_kind == config.KIND_QARZ_OLDIM
+            else config.KIND_QARZ_QAYTDI)
+
+
+def add_debt_payment(user_id: int, debt_id: int, amount: float,
+                     occurred_on: str | None = None) -> int | None:
+    """Qarzga to'lov yozadi («💸 Qisman to'lash»): qaytarish yozuvi qarz
+    bilan bir xil shaxs va valyutada, `repays_id` bilan aniq bog'langan.
+    Qarz topilmasa yoki qo'lda yopilgan bo'lsa None."""
+    debt = debt_detail(user_id, debt_id)
+    if debt is None or amount <= 0:
+        return None
+    return add_transaction(
+        user_id, repay_kind_for(debt["kind"]), round(float(amount), 2), "qarz",
+        note="qisman to'lov", person=debt["person"],
+        occurred_on=occurred_on or _now().date().isoformat(),
+        raw_text="[qarzni qisman to'lash]", currency=debt["currency"],
+        repays_id=debt_id)
+
+
+def set_repays(user_id: int, tx_id: int, debt_id: int | None) -> bool:
+    """Qaytarish yozuvini qarzga bog'laydi (None — bog'lanishni olib
+    tashlaydi, shunda ism bo'yicha avtomatik taqsimlanadi)."""
+    with get_conn() as conn:
+        return conn.execute(
+            "UPDATE transactions SET repays_id = ? WHERE id = ? AND user_id = ? "
+            "AND kind IN (?, ?)",
+            (debt_id, tx_id, user_id, config.KIND_QARZ_QAYTARDIM,
+             config.KIND_QARZ_QAYTDI)).rowcount > 0
+
+
+def debt_candidates(user_id: int, repay_kind: str, currency: str,
+                    on_date: str, tx_id: int | None = None) -> list[dict]:
+    """Shu to'lov qaytarishi mumkin bo'lgan qarzlar: yo'nalish va valyuta
+    mos, to'lovdan oldin olingan, ochiq. Eng eskisi birinchi.
+
+    `tx_id` — to'lovning o'zi allaqachon saqlangan bo'lsa: u qarzni to'liq
+    yopib qo'ygan bo'lishi mumkin (yagona ismsiz qarzga avtomatik
+    tushgan), shunda ham o'sha qarz nomzod bo'lib qoladi.
+    """
+    target = config.REPAYS.get(repay_kind)
+    return [d for d in debt_ledger(user_id)
+            if d["kind"] == target and d["currency"] == currency
+            and d["occurred_on"] <= on_date
+            and (d["remaining"] > 0
+                 or any(p["id"] == tx_id for p in d["payments"]))]
 
 
 def all_rows(user_id: int) -> list[sqlite3.Row]:

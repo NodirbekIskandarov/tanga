@@ -420,6 +420,7 @@ def api_debts(user: dict = Depends(current_user)):
             by_cur.setdefault(cur, []).append({
                 "id": r["id"], "person": r["person"] or "noma'lum",
                 "amount": r["remaining"], "original": r["amount"],
+                "paid": r.get("paid", 0),
                 "date": r["occurred_on"], "note": r["note"],
                 "due": r.get("due_on"),
             })
@@ -630,6 +631,36 @@ def api_debt_due(tx_id: int, body: DueBody, user: dict = Depends(current_user)):
     if not db.set_due(user["user_id"], tx_id, due):
         raise HTTPException(404, "Ochiq qarz topilmadi")
     return {"due": due.isoformat() if due else None}
+
+
+@app.get("/api/debts/{tx_id}")
+def api_debt_detail(tx_id: int, user: dict = Depends(current_user)):
+    """Qarz kartasi: asli, to'langan, qoldiq va to'lovlar tarixi."""
+    d = db.debt_detail(user["user_id"], tx_id)
+    if d is None:
+        raise HTTPException(404, "Qarz topilmadi")
+    return {"id": d["id"], "kind": d["kind"], "person": d["person"] or "noma'lum",
+            "currency": d["currency"], "original": d["amount"], "paid": d["paid"],
+            "remaining": d["remaining"], "date": d["occurred_on"],
+            "payments": d["payments"]}
+
+
+class DebtPayBody(BaseModel):
+    amount: float = Field(gt=0, le=1e12)
+
+
+@app.post("/api/debts/{tx_id}/pay")
+def api_debt_pay(tx_id: int, body: DebtPayBody, user: dict = Depends(current_user)):
+    """Qisman to'lash — botdagi «💸» bilan bir xil: qaytarish yozuvi shu
+    qarzga aniq bog'lanadi. Qoldiqdan ko'p summa qabul qilinmaydi (ortig'i
+    jimgina yo'qolmasin — interfeys «to'liq yopish» ni taklif qiladi)."""
+    d = db.debt_detail(user["user_id"], tx_id)
+    if d is None or d["remaining"] <= 0:
+        raise HTTPException(404, "Ochiq qarz topilmadi")
+    if body.amount > d["remaining"] + 0.005:
+        raise HTTPException(400, f"Qoldiqdan ko'p: qoldiq {d['remaining']:g}")
+    db.add_debt_payment(user["user_id"], tx_id, body.amount)
+    return api_debt_detail(tx_id, user)
 
 
 @app.post("/api/debts/{tx_id}/settle")

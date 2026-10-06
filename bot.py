@@ -255,14 +255,19 @@ va ochmagan bo'lsangiz eslatib turadi.
 \u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501
 \U0001F91D <b>7. QARZLAR</b>
 
-/qarz \u2014 ochiq qarzlar ro'yxati, kim kimga qarzdorligi
-<code>/yopdim 12</code> \u2014 qarzni yopilgan deb belgilash
+/qarz \u2014 ochiq qarzlar: har bir odam bo'yicha jami, asli,
+to'langan va qoldiq. Har bir qarz ostida tugmalar:
+\u2022 <b>\U0001F4B8 Qisman to'lash</b> \u2014 summani yozasiz, qoldiq kamayadi
+\u2022 <b>\u2705 To'liq yopish</b> \u2014 qoldiq to'landi yoki qarz kechildi
+<code>/yopdim 12</code> \u2014 qarzni pulsiz yopilgan deb belgilash
 
 Qaytarishni ham oddiy yozing \u2014 bot o'zi tushunadi:
 <i>"Akmal 200 mingni qaytardi"</i>, <i>"qarzimni qaytardim 1 mln"</i>,
 <i>"kreditga 2,5 mln to'ladim"</i>. Ism aytilsa, shu odamning qarzi
-kamayadi. Qarz harakati <b>xarajat ham, daromad ham emas</b> \u2014
-kunlik chiqim va kategoriya foizlariga kirmaydi.
+kamayadi. Ism aytilmasa va ismsiz qarz bitta bo'lsa \u2014 unga
+yoziladi; bir nechta bo'lsa bot \u00abqaysi qarz?\u00bb deb so'raydi.
+Qarz harakati <b>xarajat ham, daromad ham emas</b> \u2014 kunlik
+chiqim va kategoriya foizlariga kirmaydi.
 
 <b>\U0001F4C5 Qaytarish muddati</b> (PRO) \u2014 qarz yozuvi ostidagi tugma
 yoki matnda: <i>"Akmalga 200 ming berdim, 2 haftada qaytaradi"</i>.
@@ -1195,9 +1200,213 @@ async def cmd_recent(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @private_only
 async def cmd_debts(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     await update.effective_message.reply_text(
-        reports.debts_text(update.effective_user.id), parse_mode=ParseMode.HTML
-    )
+        reports.debts_text(user_id), parse_mode=ParseMode.HTML,
+        reply_markup=debts_keyboard(db.open_debts(user_id)))
+
+
+# Telegram klaviaturasi uzun bo'lib ketmasin: shundan ko'p qarzda qolganlari
+# Mini App'da (u yerda har bir qarz kartasida ham shu tugmalar bor).
+DEBT_BUTTONS_MAX = 10
+
+
+def debts_keyboard(debts: list[dict]) -> InlineKeyboardMarkup | None:
+    """Har bir ochiq qarz uchun: «💸 Ism · qoldiq» (qisman to'lash) va «✅»."""
+    rows = []
+    for d in debts[:DEBT_BUTTONS_MAX]:
+        who = (d["person"] or "noma'lum")[:18]
+        money = reports.fmt_money(d["remaining"], d.get("currency") or "som")
+        rows.append([InlineKeyboardButton(f"💸 {who} · {money}", callback_data=f"dq:{d['id']}"),
+                     InlineKeyboardButton("✅", callback_data=f"dz:{d['id']}")])
+    return InlineKeyboardMarkup(rows) if rows else None
+
+
+def _debt_money(d: dict, key: str) -> str:
+    return reports.fmt_money(d[key], d.get("currency") or "som")
+
+
+async def _reply_debt_paid(message, lang: str, debt_id: int, user_id: int,
+                           amount: float) -> None:
+    """To'lovdan keyingi javob: qoldiq, asli va progress (yoki «yopildi»)."""
+    d = db.debt_detail(user_id, debt_id)
+    if d is None:
+        return
+    person = reports.esc(d["person"] or "noma'lum")
+    if d["remaining"] <= 0:
+        await message.reply_text(
+            i18n.t(lang, "debt_paid_full", person=person, original=_debt_money(d, "amount")),
+            parse_mode=ParseMode.HTML)
+        return
+    await message.reply_text(
+        i18n.t(lang, "debt_paid", person=person,
+               amount=reports.fmt_money(amount, d.get("currency") or "som"),
+               remaining=_debt_money(d, "remaining"), original=_debt_money(d, "amount"),
+               bar=reports.debt_progress_line(d)),
+        parse_mode=ParseMode.HTML)
+
+
+async def _debt_payment_from_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                  debt_id: int, text: str, message) -> None:
+    """«💸 Qisman to'lash» dan keyin yozilgan summa."""
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    d = db.debt_detail(user_id, debt_id)
+    if d is None or d["remaining"] <= 0:
+        await message.reply_text(i18n.t(lang, "debt_not_found"))
+        return
+    amount = _parse_amount_uz(text, small_is_thousands=(d.get("currency") or "som") == "som")
+    if not amount or amount <= 0:
+        context.user_data["await_debt_pay"] = debt_id      # yana kutamiz
+        await message.reply_text(i18n.t(lang, "debt_pay_bad"), parse_mode=ParseMode.HTML)
+        return
+    if amount > d["remaining"] + 0.005:
+        # Qoldiqdan ko'p — ortiqchasi jimgina yo'qolmasin, so'raymiz.
+        await message.reply_text(
+            i18n.t(lang, "debt_pay_over", remaining=_debt_money(d, "remaining"),
+                   amount=reports.fmt_money(amount, d.get("currency") or "som")),
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(i18n.t(lang, "debt_btn_pay_rest",
+                                             remaining=_debt_money(d, "remaining")),
+                                      callback_data=f"dzf:{debt_id}")],
+                [InlineKeyboardButton(i18n.t(lang, "debt_btn_cancel"),
+                                      callback_data="dzx:0")]]))
+        return
+    db.add_debt_payment(user_id, debt_id, amount)
+    await _reply_debt_paid(message, lang, debt_id, user_id, amount)
+
+
+async def on_debt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """dq: qisman to'lash · dz: yopish menyusi · dzf: qoldiqni to'lash ·
+    dzs: pulsiz yopish · dzx: bekor · dl:<tx>:<qarz|0> — to'lovni bog'lash."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    action, _, rest = (query.data or "").partition(":")
+
+    if action == "dzx":
+        context.user_data.pop("await_debt_pay", None)
+        await query.answer("OK")
+        await query.edit_message_reply_markup(reply_markup=None)
+        return
+
+    if action == "dl":
+        tx_raw, _, debt_raw = rest.partition(":")
+        if not (tx_raw.isdigit() and debt_raw.isdigit()):
+            await query.answer()
+            return
+        tx_id, debt_id = int(tx_raw), int(debt_raw)
+        if debt_id == 0:
+            # -1: «hech biriga» — ism bo'yicha avtomatik taqsimotga ham
+            # tushmasin (masalan bank krediti to'lovi).
+            db.set_repays(user_id, tx_id, -1)
+            await query.answer()
+            await query.edit_message_text(i18n.t(lang, "debt_unlinked"))
+            return
+        d = db.debt_detail(user_id, debt_id)
+        if d is None or not db.set_repays(user_id, tx_id, debt_id):
+            await query.answer(i18n.t(lang, "debt_not_found"), show_alert=True)
+            return
+        d = db.debt_detail(user_id, debt_id)
+        await query.answer("↩️")
+        await query.edit_message_text(
+            i18n.t(lang, "debt_linked", person=reports.esc(d["person"] or "noma'lum"),
+                   remaining=_debt_money(d, "remaining"), original=_debt_money(d, "amount")),
+            parse_mode=ParseMode.HTML)
+        return
+
+    if not rest.isdigit():
+        await query.answer()
+        return
+    debt_id = int(rest)
+    d = db.debt_detail(user_id, debt_id)
+    if d is None or d["remaining"] <= 0:
+        await query.answer(i18n.t(lang, "debt_not_found"), show_alert=True)
+        return
+    person = reports.esc(d["person"] or "noma'lum")
+
+    if action == "dq":
+        context.user_data["await_debt_pay"] = debt_id
+        await query.answer()
+        await query.message.reply_text(
+            i18n.t(lang, "debt_pay_ask", person=person, remaining=_debt_money(d, "remaining")),
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(
+                i18n.t(lang, "debt_btn_cancel"), callback_data="dzx:0")]]))
+        return
+    if action == "dz":
+        await query.answer()
+        await query.message.reply_text(
+            i18n.t(lang, "debt_close_ask", person=person,
+                   remaining=_debt_money(d, "remaining")),
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton(i18n.t(lang, "debt_btn_pay_rest",
+                                             remaining=_debt_money(d, "remaining")),
+                                      callback_data=f"dzf:{debt_id}")],
+                [InlineKeyboardButton(i18n.t(lang, "debt_btn_forgive"),
+                                      callback_data=f"dzs:{debt_id}")],
+                [InlineKeyboardButton(i18n.t(lang, "debt_btn_cancel"),
+                                      callback_data="dzx:0")]]))
+        return
+    if action == "dzf":
+        context.user_data.pop("await_debt_pay", None)
+        amount = d["remaining"]
+        db.add_debt_payment(user_id, debt_id, amount)
+        await query.answer("✅")
+        await query.edit_message_reply_markup(reply_markup=None)
+        await _reply_debt_paid(query.message, lang, debt_id, user_id, amount)
+        return
+    if action == "dzs":
+        db.settle_debt(user_id, debt_id)
+        await query.answer("🤝")
+        await query.edit_message_text(i18n.t(lang, "debt_forgiven", person=person),
+                                      parse_mode=ParseMode.HTML)
+        return
+    await query.answer()
+
+
+async def link_repayments(context: ContextTypes.DEFAULT_TYPE, user_id: int, message,
+                          items: list[dict], tx_ids: list[int]) -> None:
+    """Matn bilan yozilgan ISMSIZ qarz to'lovini qarzga bog'laydi (2-bo'lim).
+
+    «kreditga 500 ming to'ladim», «qarzimdan 1 mln to'ladim»:
+      * mos ochiq qarz bitta va u ham ismsiz — o'zi bog'lanadi;
+      * aks holda (bir nechta yoki ismli) — bot tugmalar bilan so'raydi,
+        «🚫 Hech biriga» varianti bilan: yagona ismli qarz bo'lsa ham
+        bank krediti to'lovi o'sha odamning qarzini kamaytirib qo'ymasin.
+    Ismli to'lov so'ralmaydi — u ism bo'yicha o'zi taqsimlanadi.
+    """
+    lang = lang_of(user_id, context)
+    for item, tx_id in zip(items, tx_ids):
+        if item["turi"] not in config.REPAYS or item.get("shaxs"):
+            continue
+        cands = db.debt_candidates(user_id, item["turi"], item["valyuta"],
+                                   item["sana"], tx_id=tx_id)
+        if not cands:
+            continue
+        if len(cands) == 1 and not db.person_key(cands[0]["person"]):
+            db.set_repays(user_id, tx_id, cands[0]["id"])
+            d = db.debt_detail(user_id, cands[0]["id"])
+            await message.reply_text(
+                i18n.t(lang, "debt_linked", person=reports.esc(d["person"] or "noma'lum"),
+                       remaining=_debt_money(d, "remaining"),
+                       original=_debt_money(d, "amount")),
+                parse_mode=ParseMode.HTML)
+            continue
+        rows = []
+        for d in cands[:DEBT_BUTTONS_MAX]:
+            who = (d["person"] or "noma'lum")[:18]
+            label = (f"{who} · {_debt_money(d, 'remaining')} · "
+                     f"{reports.fmt_date(d['occurred_on'])}")
+            rows.append([InlineKeyboardButton(label, callback_data=f"dl:{tx_id}:{d['id']}")])
+        rows.append([InlineKeyboardButton(i18n.t(lang, "debt_link_none"),
+                                          callback_data=f"dl:{tx_id}:0")])
+        await message.reply_text(
+            i18n.t(lang, "debt_link_ask",
+                   amount=reports.fmt_money(item["summa"], item["valyuta"])),
+            parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(rows))
 
 
 @private_only
@@ -1702,6 +1911,13 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
     # Hisobni o'chirish so'zi bu yerga kelmaydi — on_text uni kirish
     # darvozasidan oldin ushlaydi (_finish_erase).
 
+    # «💸 Qisman to'lash» bosilgan bo'lsa — bu xabar to'lov summasi.
+    # AI'ga yuborilmaydi: summa oddiy ajratgich bilan, tekin va aniq.
+    debt_id = context.user_data.pop("await_debt_pay", None)
+    if debt_id:
+        await _debt_payment_from_text(update, context, debt_id, text, message)
+        return
+
     # «➕ Yangi maqsad» bosilgan bo'lsa — bu xabar maqsadning o'zi.
     if context.user_data.pop("await_goal", False):
         await create_goal_from_text(update, context, text)
@@ -1815,6 +2031,9 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
                if item["turi"] == config.KIND_CHIQIM}
     if touched:
         await check_budget_alerts(context, user_id, touched)
+
+    # Ismsiz qarz to'lovi («kreditga 500 ming to'ladim») — qaysi qarzga.
+    await link_repayments(context, user_id, message, parsed["yozuvlar"], saved_ids)
 
     # Jamg'arma yozilgan bo'lsa — maqsad va seriya haqida javob.
     if any(i["turi"] in config.SAVINGS_KINDS for i in parsed["yozuvlar"]):
@@ -2032,6 +2251,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if data.startswith(("dq:", "dz:", "dzf:", "dzs:", "dzx:", "dl:")):
+        await on_debt_callback(update, context)
+        return
     if data.startswith(("gl:", "glp:", "gla:")):
         await on_goal_callback(update, context)
         return
@@ -2698,15 +2920,20 @@ _MULTIPLIERS = {
     "ming": 1_000, "k": 1_000, "минг": 1_000,
     "mln": 1_000_000, "million": 1_000_000, "mil": 1_000_000,
     "lim": 1_000_000, "m": 1_000_000, "млн": 1_000_000,
+    "тысяч": 1_000, "тыс": 1_000,
     "mlrd": 1_000_000_000, "milliard": 1_000_000_000,
 }
 
 
-def _parse_amount_uz(text: str) -> float | None:
+def _parse_amount_uz(text: str, small_is_thousands: bool | None = None) -> float | None:
     """«2 mln», «500 ming», «1 200 000», «20k» → son.
 
     AI'ga murojaat qilmaydi — byudjet buyrug'i tez va tekin bo'lishi kerak.
+    `small_is_thousands` — birliksiz kichik son mingmi (None — config
+    bo'yicha). Dollar summasida False: «$50» qarzga «50» 50 000 emas.
     """
+    if small_is_thousands is None:
+        small_is_thousands = config.SMALL_NUMBERS_ARE_THOUSANDS
     raw = (text or "").lower().replace(" ", " ").strip()
     if not raw:
         return None
@@ -2733,7 +2960,7 @@ def _parse_amount_uz(text: str) -> float | None:
     if unit in _MULTIPLIERS:
         return value * _MULTIPLIERS[unit]
     # Birliksiz kichik son ming deb olinadi — matn yozuvlaridagi qoida bilan bir xil.
-    if config.SMALL_NUMBERS_ARE_THOUSANDS and value < 1000:
+    if small_is_thousands and value < 1000:
         return value * 1000
     return value
 

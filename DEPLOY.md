@@ -75,6 +75,8 @@ sudo -u tanga .venv/bin/python scripts/migrate_receipts.py           # dry-run
 sudo -u tanga .venv/bin/python scripts/migrate_receipts.py --apply
 sudo -u tanga .venv/bin/python scripts/migrate_debts.py              # dry-run
 sudo -u tanga .venv/bin/python scripts/migrate_debts.py --apply --ids 12,40
+sudo -u tanga .venv/bin/python scripts/link_debt_payments.py         # dry-run
+sudo -u tanga .venv/bin/python scripts/link_debt_payments.py --apply
 sudo -u tanga .venv/bin/python scripts/analyze_other.py              # faqat o'qiydi
 ```
 
@@ -101,6 +103,7 @@ dry-run qiladi. Yozuv raqamlari production bilan bir xil, shuning uchun
 |---|---|
 | `migrate_receipts.py` | eski cheklarga sarlavha (`receipts`); mahsulotlar o'zgarmaydi |
 | `migrate_debts.py` | kirim/chiqim bo'lib tushgan qarz to'lovlarini qarz turlariga |
+| `link_debt_payments.py` | ismsiz qarz to'lovlarini yagona ismsiz qarzga `repays_id` bilan bog'laydi |
 | `analyze_other.py` | «boshqa chiqim» dagi so'zlar, kamida 3 odamda uchraganlari |
 
 ## PRO versiyasini chiqarish (tariflar, 2026-10)

@@ -48,7 +48,7 @@ decrypt "$main" "$WORK/main.db"
 decrypt "$priv" "$WORK/shaxsiy.db"
 
 cd "$APP"
-for script in migrate_receipts migrate_debts analyze_other; do
+for script in migrate_receipts migrate_debts link_debt_payments analyze_other; do
   echo
   echo "======================== $script ========================"
   # .env dagi kalitlar ishlatiladi; faqat fayl yo'llari nusxaga buriladi
