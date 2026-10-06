@@ -12,7 +12,7 @@ ko'rsatkichlar; ular to'qib yozilmagan.
 | `gemini.py` (Interactions API, qayta urinish, timeout, usage), sxemalar, promptlar | ✅ yozilgan, SDK turlariga qarshi tekshirilgan, oflayn testlar yashil |
 | Narx jadvali (sanaga bog'langan), `cost_usd` | ✅ hujjatdan (2026-10-06) tasdiqlangan, testlangan |
 | Ovozli kiritish (handler, tasdiq, limit, bayroq) | ✅ oflayn testlar yashil |
-| Jonli SDK/API chaqiruvi | ✅ 2026-10-06 bajarildi (1-bo'lim; `audio/ogg`, PDF, kesh ochiq) |
+| Jonli SDK/API chaqiruvi | ✅ 2026-10-06 bajarildi (1-bo'lim; faqat kesh ochiq) |
 | **Claude bazasi** (`docs/ai-baseline-claude.md`) | ❌ Claude kaliti va chek namunalari yo'q |
 | **30+ ovoz namunasi, 20 chek** | ❌ yig'ilmagan (`tests/live_voice/`, `tests/live_receipts/`) |
 
@@ -36,13 +36,17 @@ Natijalar (yengil sinov: `pytest -m live tests/test_live_ai.py` va qo'lda tekshi
 - [x] **Audio qabul qilinadi** (sintez qilingan WAV, `audio/wav`): transkripsiya
       va ikkita yozuv ajratildi, audio tokenlar alohida hisoblandi.
 - [x] **Rasm o'qiladi** (sintetik chek, `image/jpeg`).
-- [ ] **Telegram ovozi `audio/ogg` (Opus)** — alohida tekshirilmagan: OGG namuna
-      yo'q (SDK turida `audio/ogg` bor). Birinchi haqiqiy ovozli xabarda tekshiring.
-- [ ] **PDF** (`document` bo'lagi) — tekshirilmagan.
-- [ ] **Kesh:** ikki bir xil matn so'rovida `total_cached_tokens` = 0 chiqdi
-      (prompt ~3 460 token). Yashirin kesh ishlamadi yoki minimal hajm/vaqt
-      shartiga yetmadi — tasdiqlanmagan. Narx kesh HISOBGA OLINMAGAN holda
-      yozilgan (ehtiyotkor).
+- [x] **Telegram ovozi `audio/ogg` (Opus)** qabul qilinadi (ffmpeg bilan
+      OGG/Opus, mono 48 kHz ga o'girilgan ruscha sintez): transkripsiya, ikki
+      yozuv, kategoriyalar to'g'ri. Ovozli savol (inglizcha sintez) ham
+      `niyat=savol` deb tanildi. Haqiqiy odam ovozi bilan sinov — namunalar
+      yig'ilgach.
+- [x] **PDF** (`document` bo'lagi) o'qiladi: sintetik chek, jami bilan mos.
+- [ ] **Kesh ishlamadi:** 3 ta ketma-ket bir xil matn so'rovida (5 s oraliq)
+      `total_cached_tokens` = 0. Tizim prompti + sxema ~3 460 token — yashirin
+      keshning minimal hajmidan (taxminan 4 096) kichik bo'lishi mumkin;
+      tasdiqlanmagan. Narx kesh HISOBGA OLINMAGAN holda yozilgan (ehtiyotkor),
+      shuning uchun haqiqiy sarf bundan past bo'lishi mumkin.
 
 Birinchi o'lchangan narxlar (sintetik, kichik namunalar — haqiqiy cheklar
 kattaroq):
@@ -52,6 +56,8 @@ kattaroq):
 | Matnli yozuv («obedga 45 ming») | flash-lite, minimal | ~$0.0013 (3 455 kirish, ~120 chiqish) |
 | Ovozli yozuv (~7 s sintez) | flash-lite, minimal | ~$0.0019 (4 489 kirish, shundan 125 audio) |
 | Chek (4 qatorli sintetik rasm) | 3.8-flash, medium | ~$0.0036 (1 986 kirish, 573 chiqish+o'ylash) |
+| Chek (xuddi shu, PDF) | 3.8-flash, medium | ~$0.0030 |
+| Ovozli yozuv (OGG/Opus, ~5 s) | flash-lite, minimal | ~$0.0020 (4 472 kirish, shundan 108 audio) |
 
 ## 2. Qabul mezonlari (7-bo'lim)
 
