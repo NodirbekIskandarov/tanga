@@ -407,7 +407,26 @@ sotilmaydi va berilmaydi. Batafsil: /maxfiylik
 /maxfiylik \u2014 to'liq maxfiylik siyosati
 /shartlar \u2014 xizmat shartlari va to'lov qoidalari
 /ochirish \u2014 hisobni va butun tarixni butunlay o'chirish
-   (tasdiq so'raladi, qaytarib bo'lmaydi)"""
+   (tasdiq so'raladi, qaytarib bo'lmaydi)
+
+━━━━━━━━━━━━━━━
+🎤 <b>14. OVOZ BILAN YOZISH</b>
+
+Matn bilan nima yoza olsangiz, ovoz bilan ham ayta olasiz:
+«obedga qirq besh ming, taksiga yigirma ming», «Akmalga
+yarim million qarz berdim», «bu oy qancha sarfladim?».
+
+• Ovozli xabar (🎤) yoki audio fayl yuboring — 60 soniyagacha
+• Bot avval eshitganini ko'rsatadi: 🎤 «...»
+• Aniq eshitilsa — yozuv darhol saqlanadi, xatoni tugmalar
+  bilan tuzatasiz
+• Aniq eshitilmasa yoki summa katta bo'lsa — avval tasdiq
+  so'raydi: ✅ Saqlash / ❌ Bekor / ✏️ Matn bilan yozaman
+• Ovoz bizning serverda saqlanmaydi, faqat matni yoziladi
+• Kunlik limit bor: Bepulda kamroq, PRO'da ko'proq
+
+Ovozli kiritish bosqichma-bosqich ochilmoqda — hali
+ko'rinmasa, hozircha matn bilan yozing."""
 
 
 # --------------------------------------------------------------------------- #
@@ -1041,7 +1060,7 @@ GUIDE_SEPARATOR = "━" * 15
 GUIDE_BUTTONS = [
     "Yozish", "Chek rasmi", "Aniqlik", "Xatoni tuzatish", "Hisobotlar",
     "Jamg'arma", "Qarzlar", "Byudjet", "Mini App", "Savol berish",
-    "Bepul va PRO", "Bot xabarlari", "Maxfiylik",
+    "Bepul va PRO", "Bot xabarlari", "Maxfiylik", "Ovoz bilan yozish",
 ]
 
 

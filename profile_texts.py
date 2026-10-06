@@ -10,6 +10,8 @@ Kalit — Telegram til kodi; bo'sh satr — standart (til aniqlanmaganda).
 Telegram o'zbek lotin/kirillni ajratmaydi, ikkalasi ham «uz».
 """
 
+import config
+
 LANGS = ["", "uz", "ru"]
 
 NAME = {"": "Tanga", "uz": "Tanga", "ru": "Tanga"}
@@ -51,5 +53,20 @@ DESCRIPTION = {
     ),
 }
 DESCRIPTION["uz"] = DESCRIPTION[""]
+
+# Ovoz haqidagi qator FAQAT hammaga ochilganda (VOICE_ENABLED va beta
+# ro'yxat bo'sh): tavsifda va'da qilingan narsa ishlab turishi kerak.
+if config.VOICE_ENABLED and not config.VOICE_BETA_USER_IDS:
+    # Tavsif 512 belgidan oshmasligi kerak: ovoz qatori chek qatori bilan
+    # birlashtiriladi (alohida qator sig'maydi).
+    _VOICE_LINES = {
+        "": ("• Chek suratini yuborsangiz — har bir mahsulotni o'qib chiqaman\n",
+             "• Chek surati yoki ovozli xabar — o'zim o'qib chiqaman\n"),
+        "ru": ("• Пришлите фото чека — распознаю каждую позицию\n",
+               "• Фото чека или голосовое сообщение — распознаю сам\n"),
+    }
+    for _key, (_anchor, _line) in _VOICE_LINES.items():
+        DESCRIPTION[_key] = DESCRIPTION[_key].replace(_anchor, _line)
+    DESCRIPTION["uz"] = DESCRIPTION[""]
 
 LIMITS = {"name": 64, "short_description": 120, "description": 512}

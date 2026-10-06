@@ -243,7 +243,10 @@ def private_key_pragma() -> str:
 # 2026-10-2: shartlar — obuna to'lovi qaytarilmaydi (avval «3 kunda
 # qaytariladi» deyilgan edi). Foydalanuvchi huquqi kamaygani uchun
 # roziligi qayta so'raladi.
-CONSENT_VERSION = "2026-10-2"
+# 2026-10-3: AI xizmat ko'rsatuvchisi Google (Gemini) ga almashdi va ovozli
+# xabar qo'shildi (ovoz matnga aylantirish uchun Google'ga yuboriladi) —
+# hamma qayta rozilik beradi.
+CONSENT_VERSION = "2026-10-3"
 
 CURRENCY = os.getenv("CURRENCY", "so'm")
 TZ = ZoneInfo(os.getenv("TIMEZONE", "Asia/Tashkent"))

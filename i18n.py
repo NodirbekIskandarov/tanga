@@ -573,15 +573,19 @@ T = {
     # botni taniydi, unga tanishtiruv emas, nima o'zgargani kerak.
     "consent_updated": {
         "uz": ("🔄 <b>Maxfiylik siyosati yangilandi</b>\n\n"
-               "Ma'lumot qanday saqlanishi, zaxira nusxalar va AI xizmati "
-               "haqidagi matn aniqlashtirildi, /csv endi hamma uchun bepul, "
-               "obuna to'lovi qaytarilmasligi aniq yozildi.\n\n"
+               "AI xizmati endi Google (Gemini): matn, chek rasmi va "
+               "ovozli xabar shu yerga yuboriladi (ovoz bizda saqlanmaydi). "
+               "Pullik xizmatda Google ma'lumotni modelni o'qitishga "
+               "ishlatmaydi. Ovozli kiritish qo'shildi. Obuna to'lovi "
+               "qaytarilmasligi /shartlar da aniq yozilgan.\n\n"
                "«Davom etish» bilan yangilangan /maxfiylik va /shartlar ga "
                "rozilik bildirasiz. Rozi bo'lmasangiz — /ochirish."),
         "ru": ("🔄 <b>Политика конфиденциальности обновлена</b>\n\n"
-               "Уточнено, как хранятся данные, резервные копии и как "
-               "используется AI-сервис, /csv теперь бесплатен для всех, явно "
-               "указано, что оплата подписки не возвращается.\n\n"
+               "AI-сервис теперь Google (Gemini): текст, фото чека и "
+               "голосовые сообщения отправляются туда (голос у нас не "
+               "хранится). В платном сервисе Google не использует данные "
+               "для обучения модели. Добавлен голосовой ввод. Оплата "
+               "подписки не возвращается — это указано в /shartlar.\n\n"
                "Нажимая «Продолжить», вы соглашаетесь с обновлёнными "
                "/maxfiylik и /shartlar. Если не согласны — /ochirish."),
     },

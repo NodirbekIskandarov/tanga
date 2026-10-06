@@ -521,3 +521,55 @@ def test_handlers_are_registered():
     callbacks = [h.callback for hs in app.handlers.values() for h in hs
                  if isinstance(h, MessageHandler)]
     assert bot.on_voice in callbacks and bot.on_video_note in callbacks
+
+
+# ------------------------------------------------- rozilik, qo'llanma, profil --
+
+def test_consent_version_was_bumped_and_update_text_names_google():
+    assert config.CONSENT_VERSION > "2026-10-2"
+    for lang in ("uz", "ru"):
+        text = i18n.t(lang, "consent_updated")
+        assert "Google" in text and "Gemini" in text
+
+
+def test_consent_and_privacy_mention_voice_without_absolute_claims():
+    for lang in ("uz", "ru"):
+        consent = i18n.t(lang, "consent")
+        privacy = i18n.t(lang, "privacy", contact="@x")
+        assert "Google" in consent and "Google" in privacy
+        # «u yerda saqlanmaydi» degan MUTLAQ da'vo yo'q: cheklangan saqlash tan olingan.
+        assert ("cheklangan muddat" in privacy) or ("ограниченное время" in privacy)
+        assert ("ovoz" in privacy.lower()) or ("голос" in privacy.lower())
+
+
+def test_guide_has_voice_section_in_both_languages():
+    assert len(bot.GUIDE_SECTIONS) == len(bot.GUIDE_BUTTONS) == 14
+    assert len(bot.GUIDE_SECTIONS_RU) == 14
+    assert "OVOZ BILAN YOZISH" in bot.GUIDE_SECTIONS[-1][1]
+    assert "ГОЛОСОМ" in bot.GUIDE_SECTIONS_RU[-1][1]
+    assert bot.GUIDE_SECTIONS[-1][0].startswith("🎤")           # tugma emoji bilan boshlanadi
+    # Eski tugmalar (g:0..12) o'sha bo'limni ochishda davom etadi: yangisi oxirida.
+    assert "YOZISH" in bot.GUIDE_SECTIONS[0][1].upper()
+
+
+def test_profile_description_mentions_voice_only_when_open_to_everyone(monkeypatch):
+    import importlib
+
+    import profile_texts
+    try:
+        monkeypatch.setattr(config, "VOICE_ENABLED", False)
+        importlib.reload(profile_texts)
+        assert "ovozli xabar" not in profile_texts.DESCRIPTION["uz"]
+        monkeypatch.setattr(config, "VOICE_ENABLED", True)
+        monkeypatch.setattr(config, "VOICE_BETA_USER_IDS", {1})
+        importlib.reload(profile_texts)
+        assert "ovozli xabar" not in profile_texts.DESCRIPTION["uz"]     # beta — va'da yo'q
+        monkeypatch.setattr(config, "VOICE_BETA_USER_IDS", set())
+        importlib.reload(profile_texts)
+        assert "ovozli xabar" in profile_texts.DESCRIPTION["uz"]
+        assert "голосовое сообщение" in profile_texts.DESCRIPTION["ru"]
+        for text in profile_texts.DESCRIPTION.values():
+            assert len(text) <= profile_texts.LIMITS["description"]
+    finally:
+        monkeypatch.undo()
+        importlib.reload(profile_texts)

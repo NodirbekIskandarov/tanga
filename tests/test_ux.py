@@ -56,10 +56,10 @@ def test_more_menu_contains_the_rest():
 
 def test_guide_is_sectioned():
     import bot
-    assert len(bot.GUIDE_SECTIONS) == 13
+    assert len(bot.GUIDE_SECTIONS) == 14
     kb = bot.guide_menu_keyboard()
     datas = [b.callback_data for row in kb.inline_keyboard for b in row]
-    assert datas == [f"g:{i}" for i in range(13)]
+    assert datas == [f"g:{i}" for i in range(14)]
     for label, body in bot.GUIDE_SECTIONS:
         assert len(body) < 4000
         assert body.split()[0] == label.split()[0]   # emoji mos
