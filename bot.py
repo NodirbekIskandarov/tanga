@@ -841,21 +841,51 @@ def try_keyboard(lang: str) -> InlineKeyboardMarkup:
         f"✍️ «{try_example(lang)}»", callback_data="try:ex")]])
 
 
+def start_source(payload: str) -> str | None:
+    """/start parametridan reklama manbasi (K8).
+
+    `src_<kanal>` — reklama havolasi: t.me/<bot>?start=src_insta_reels.
+    `ref<id>` — do'st taklifi, manba «ref». Qolgani (masalan «pro») manba
+    emas. Kanal nomi faqat kichik lotin harf, raqam, «_» va «-», 32
+    belgigacha — admin panelda xavfsiz ko'rsatilsin.
+    """
+    payload = (payload or "").strip()
+    if payload.startswith("src_"):
+        name = "".join(ch for ch in payload[4:].lower()
+                       if ch.isascii() and (ch.isalnum() or ch in "_-"))[:32]
+        return name or None
+    if payload.startswith("ref") and payload[3:].isdigit():
+        return "ref"
+    return None
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Birinchi tanishuv — qisqa. To'liq qo'llanma /qollanma da."""
     user = update.effective_user
     if user is None:
         return
 
+    payload = (context.args or [""])[0] if context.args else ""
+    # Botni birinchi marta ochyaptimi — reklama kanali faqat shunda yoziladi.
+    first_visit = not db.user_exists(user.id)
+
     access = db.access_status(user.id, user.first_name or "", user.username)
     context.user_data["access"] = access
+
+    if first_visit:
+        # Rozilikdan OLDIN yoziladi: aks holda qaysi kanaldan kelganlar
+        # rozilik ekranida ketib qolayotgani ko'rinmasdi. Bu foydalanuvchi
+        # qatoridagi bitta yorliq (masalan «insta_reels»), moliyaviy
+        # ma'lumot emas — qator /start bilan baribir yaratiladi.
+        source = start_source(payload)
+        if source:
+            db.set_source(user.id, source)
 
     if not access["ok"]:
         await _deny(update.effective_message, user, access)
         return
 
     # Rozilik olinmaguncha hech narsa qayta ishlanmaydi — taklif bonusi ham.
-    payload = (context.args or [""])[0] if context.args else ""
     if not db.has_consent(user.id, CONSENT_VERSION):
         if payload:
             context.user_data["pending_ref"] = payload

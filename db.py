@@ -313,6 +313,9 @@ TABLE_MIGRATIONS = [
     # holatda yoqilgan — «hali sozlamagan» va «o'chirgan» farqlanishi kerak.
     ("users", "reminder_off",
      "ALTER TABLE users ADD COLUMN reminder_off INTEGER NOT NULL DEFAULT 0"),
+    # Reklama manbasi (/start src_<kanal> yoki «ref»). Faqat birinchi
+    # kelganda yoziladi; bo'sh — to'g'ridan-to'g'ri kelgan.
+    ("users", "source", "ALTER TABLE users ADD COLUMN source TEXT"),
     ("transactions", "rate", "ALTER TABLE transactions ADD COLUMN rate REAL NOT NULL DEFAULT 1"),
     ("transactions", "amount_base", "ALTER TABLE transactions ADD COLUMN amount_base REAL"),
 ]
@@ -1592,6 +1595,21 @@ def has_consent(user_id: int, version: str) -> bool:
             "SELECT consent_at, consent_version FROM users WHERE user_id = ?",
             (user_id,)).fetchone()
     return bool(row and row["consent_at"] and row["consent_version"] == version)
+
+
+def user_exists(user_id: int) -> bool:
+    with get_conn() as conn:
+        return conn.execute("SELECT 1 FROM users WHERE user_id = ?",
+                            (user_id,)).fetchone() is not None
+
+
+def set_source(user_id: int, source: str) -> bool:
+    """Reklama manbasini yozadi — faqat hali yozilmagan bo'lsa (birinchisi
+    yutadi: keyin boshqa havolani bosish manbani o'zgartirmaydi)."""
+    with get_conn() as conn:
+        return conn.execute(
+            "UPDATE users SET source = ? WHERE user_id = ? AND source IS NULL",
+            (source, user_id)).rowcount > 0
 
 
 def had_consent(user_id: int) -> bool:
