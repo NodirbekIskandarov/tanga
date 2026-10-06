@@ -21,11 +21,11 @@ sys.path.insert(0, str(ROOT))
 
 # Jonli test haqiqiy kalitni ishlatadi — uni saqlab qolamiz, qolganini
 # sinov qiymatlari bilan almashtiramiz.
-_LIVE_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+_LIVE_KEY = os.environ.get("GEMINI_API_KEY", "")
 
 for name, value in {
     "TELEGRAM_TOKEN": "123:test",
-    "ANTHROPIC_API_KEY": _LIVE_KEY or "sk-ant-test",
+    "GEMINI_API_KEY": _LIVE_KEY or "gemini-test-key",
     "DB_ENCRYPTION_KEY": "",
     "PRIVATE_DB_KEY": "",
     "OWNER_IDS": "",

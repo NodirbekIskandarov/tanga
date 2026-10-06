@@ -1,5 +1,11 @@
-"""Anthropic API bilan ishlash: erkin matnni moliyaviy yozuvga aylantirish
-va foydalanuvchi savollariga uning ma'lumotlari asosida javob berish."""
+"""AI qatlami: erkin matn va ovozni moliyaviy yozuvga aylantirish, chek
+o'qish va foydalanuvchi savollariga javob. Google Gemini orqali (gemini.py).
+
+Ochiq interfeys: parse_message, parse_voice, parse_receipt, answer_question.
+Model faqat o'qiydi; barcha normallashtirish va arifmetika (summa, sana,
+kategoriya, valyuta, chek jami) model javobidan KEYIN Python'da bajariladi —
+summalarni AI emas, Python qo'shadi.
+"""
 
 from __future__ import annotations
 
@@ -8,9 +14,10 @@ import logging
 from datetime import date, datetime
 from typing import Any
 
-from anthropic import AsyncAnthropic
-
+import ai_prompts
+import ai_schemas
 import config
+import gemini
 
 log = logging.getLogger(__name__)
 
@@ -19,50 +26,24 @@ def _today() -> date:
     """Toshkent bo'yicha bugun (server mintaqasidan qat'i nazar)."""
     return datetime.now(config.TZ).date()
 
-_client: AsyncAnthropic | None = None
-
-
-def client() -> AsyncAnthropic:
-    global _client
-    if _client is None:
-        # max_retries: 429/5xx da SDK o'zi kutib qayta uradi — 1000 foydalanuvchida
-        # tezlik chegarasiga urilish ehtimoli bor, shuning uchun standart 2 dan ko'proq.
-        _client = AsyncAnthropic(api_key=config.ANTHROPIC_API_KEY, max_retries=4)
-    return _client
-
 
 # --------------------------------------------------------------------------- #
-# Token sarfini o'lchash — har bir chaqiruv narxi foydalanuvchi bo'yicha
-# yoziladi, shuning uchun har bir javobdan haqiqiy usage olinadi (taxmin emas).
+# Token sarfi — har bir chaqiruv narxi foydalanuvchi bo'yicha yoziladi; sarf
+# gemini.usage_of dan keladi (haqiqiy hisobot, taxmin emas).
 # --------------------------------------------------------------------------- #
-
-def _usage_of(resp, model: str) -> dict[str, Any]:
-    u = getattr(resp, "usage", None)
-    inp = int(getattr(u, "input_tokens", 0) or 0)
-    out = int(getattr(u, "output_tokens", 0) or 0)
-    cread = int(getattr(u, "cache_read_input_tokens", 0) or 0)
-    cwrite = int(getattr(u, "cache_creation_input_tokens", 0) or 0)
-    return {
-        "model": model,
-        "input_tokens": inp,
-        "output_tokens": out,
-        "cache_read": cread,
-        "cache_write": cwrite,
-        "cost_usd": config.cost_usd(model, inp, out, cread, cwrite),
-    }
-
 
 def _merge_usage(*items: dict[str, Any] | None) -> dict[str, Any]:
     """Bir amal bir nechta API chaqiruvidan iborat bo'lsa (masalan chek qayta
     o'qilsa) — sarfni qo'shib yig'adi."""
     total = {"model": "", "input_tokens": 0, "output_tokens": 0,
-             "cache_read": 0, "cache_write": 0, "cost_usd": 0.0}
+             "cache_read": 0, "cache_write": 0, "audio_tokens": 0, "cost_usd": 0.0}
     for it in items:
         if not it:
             continue
         total["model"] = it["model"] or total["model"]
-        for k in ("input_tokens", "output_tokens", "cache_read", "cache_write", "cost_usd"):
-            total[k] += it[k]
+        for k in ("input_tokens", "output_tokens", "cache_read", "cache_write",
+                  "audio_tokens", "cost_usd"):
+            total[k] += it.get(k, 0)
     return total
 
 
@@ -70,299 +51,8 @@ def _merge_usage(*items: dict[str, Any] | None) -> dict[str, Any]:
 # 1-vazifa: matnni yozuvlarga ajratish
 # --------------------------------------------------------------------------- #
 
-RECORD_TOOL = {
-    "name": "yozuvlarni_qaytar",
-    "description": (
-        "Foydalanuvchi xabaridan ajratib olingan moliyaviy yozuvlarni qaytaradi. "
-        "Har doim shu asbobdan foydalan."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "niyat": {
-                "type": "string",
-                "enum": ["yozuv", "savol", "kurs", "tushunarsiz"],
-                "description": (
-                    "'yozuv' — xabarda kirim/chiqim/qarz qayd etilgan. "
-                    "'savol' — foydalanuvchi o'z moliyasi haqida so'ramoqda "
-                    "(masalan: bu oy qancha sarfladim). "
-                    "'kurs' — valyuta kursi yoki konvertatsiya so'ralmoqda "
-                    "(«400$ so'mda qancha», «1 mln so'm necha dollar», "
-                    "«dollar kursi qancha»). "
-                    "'tushunarsiz' — moliyaga aloqasi yo'q yoki summa aniqlanmadi."
-                ),
-            },
-            "kurs_summa": {
-                "type": "number",
-                "description": (
-                    "Faqat niyat='kurs' uchun: o'giriladigan summa, aytilmagan "
-                    "bo'lsa 1. «400$» => 400, «1 mln so'm» => 1000000."
-                ),
-            },
-            "kurs_valyuta": {
-                "type": "string",
-                "enum": config.SUPPORTED_CURRENCIES,
-                "description": (
-                    "Faqat niyat='kurs' uchun: QAYSI valyutadan o'giriladi. "
-                    "«400$ so'mda» => 'usd'; «1 mln so'm necha dollar» => 'som'; "
-                    "«dollar kursi» => 'usd'."
-                ),
-            },
-            "yozuvlar": {
-                "type": "array",
-                "description": "Xabardagi har bir alohida amaliyot uchun bitta element.",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "turi": {
-                            "type": "string",
-                            "enum": config.KINDS,
-                            "description": (
-                                "chiqim — pul sarflandi; kirim — pul kelib tushdi; "
-                                "qarz_berdim — men birovga qarz berdim; "
-                                "qarz_oldim — men birovdan qarz oldim; "
-                                "qarz_qaytardim — men O'Z qarzimni qaytardim yoki "
-                                "kredit/nasiya to'ladim (pul chiqdi, lekin xarajat "
-                                "EMAS); "
-                                "qarz_qaytdi — birov menga qarzini qaytardi (pul "
-                                "kirdi, lekin daromad EMAS); "
-                                "jamgarma — pul shaxsiy jamg'armaga qo'yildi "
-                                "(sarflanmadi, o'zida qoldi); "
-                                "jamgarma_yechdim — jamg'armadan pul olindi."
-                            ),
-                        },
-                        "summa": {
-                            "type": "number",
-                            "description": "Musbat son, valyuta birligisiz (masalan 50000).",
-                        },
-                        "valyuta": {
-                            "type": "string",
-                            "enum": config.SUPPORTED_CURRENCIES,
-                            "description": (
-                                "Xabarda \"$\", \"dollar\", \"USD\" kabi ishoralar bo'lsa "
-                                "'usd', aks holda har doim 'som'."
-                            ),
-                        },
-                        "kategoriya": {
-                            "type": "string",
-                            "enum": config.ALL_CATEGORIES,
-                            "description": "Turiga mos kategoriya. Qarz uchun har doim 'qarz'.",
-                        },
-                        "izoh": {
-                            "type": "string",
-                            "description": (
-                                "Qisqa izoh, 1-4 so'z, o'zbek tilida. Masalan: 'tushlik'. "
-                                "Qarz uchun sababni yoz agar aytilgan bo'lsa (masalan "
-                                "'uy uchun', 'mashina taʼmiri') — shaxs ismini takrorlama, "
-                                "sabab aytilmagan bo'lsa 'qarz' deb qo'y."
-                            ),
-                        },
-                        "shaxs": {
-                            "type": "string",
-                            "description": "Faqat qarz uchun: kimga/kimdan. Aks holda bo'sh qoldir.",
-                        },
-                        "sana": {
-                            "type": "string",
-                            "description": (
-                                "YYYY-MM-DD formatida. Xabarda sana aytilmagan bo'lsa "
-                                "bugungi sanani qo'y."
-                            ),
-                        },
-                        "maqsad": {
-                            "type": "string",
-                            "description": (
-                                "Faqat jamgarma uchun: pul qaysi maqsadga qo'yilgani "
-                                "aytilgan bo'lsa, o'sha maqsad nomi 1-3 so'z bilan "
-                                "(\"uy uchun 3 mln qo'ydim\" => \"uy\"). Aytilmagan "
-                                "bo'lsa bo'sh qoldir."
-                            ),
-                        },
-                        "muddat": {
-                            "type": "string",
-                            "description": (
-                                "Faqat qarz_berdim/qarz_oldim uchun: qarz qachon "
-                                "qaytarilishi kerakligi aytilgan bo'lsa, YYYY-MM-DD "
-                                "(\"15-oktabrgacha qaytaradi\", \"bir haftada "
-                                "beraman\"). Aytilmagan bo'lsa bo'sh qoldir."
-                            ),
-                        },
-                    },
-                    "required": ["turi", "summa", "valyuta", "kategoriya", "izoh", "sana"],
-                },
-            },
-            "izoh_matni": {
-                "type": "string",
-                "description": (
-                    "Agar niyat 'tushunarsiz' bo'lsa — foydalanuvchiga o'zbekcha qisqa, "
-                    "do'stona maslahat: nimani qanday yozish mumkin (masalan "
-                    "«Summani yozing: taksi 20 ming»). O'zing haqingda («tahlil "
-                    "qismi», «model», «bot qismi») HECH QACHON gapirma. Aks holda bo'sh."
-                ),
-            },
-        },
-        "required": ["niyat", "yozuvlar"],
-    },
-}
-
-
 def _parse_system_prompt() -> str:
-    """Tahlil uchun tizim prompti — har chaqiruvda AYNAN bir xil.
-
-    Bugungi sana bu yerda ATAYLAB yo'q: u foydalanuvchi xabari oldiga
-    qo'yiladi (parse_message). Prompt keshi prefiks bo'yicha ishlaydi —
-    sana shu yerda tursa, kesh har kuni buzilardi. Asbob sxemasi va shu
-    prompt birga ~5 700 token (Haiku 4.5 da kesh minimumi 4 096 token).
-    """
-    thousands_rule = (
-        "- Birliksiz kichik son (1000 dan kichik) odatda mingni bildiradi, "
-        "LEKIN FAQAT SO'M UCHUN: \"obedga 50\" => 50000 som, \"taksi 20\" => "
-        "20000 som. Dollar summasiga bu qoida qo'llanmaydi (pastga qarang).\n"
-        if config.SMALL_NUMBERS_ARE_THOUSANDS
-        else "- Sonlarni aynan yozilganidek ol, o'zingdan ko'paytirma.\n"
-    )
-    return (
-        "Sen shaxsiy moliya botining tahlil qismisan. Foydalanuvchining erkin "
-        "yozilgan xabarini o'qib, undan kirim, chiqim va qarz yozuvlarini "
-        "ajratib olasan.\n"
-        "Xabar uchta yozuvda kelishi mumkin — uchalasini ham tushun:\n"
-        "  1) O'ZBEK LOTIN: \"obedga 45 ming\", \"taksi 20k\", \"oylik tushdi 8 mln\"\n"
-        "  2) O'ZBEK KIRILL: \"обедга 45 минг\", \"такси 20 минг\", "
-        "\"ойлик тушди 8 млн\", \"Алига 500 минг қарз бердим\"\n"
-        "  3) RUS: \"обед 45 тысяч\", \"такси 20 тысяч\", \"зарплата 8 млн\", "
-        "\"дал в долг Али 500 тысяч\"\n"
-        "Kirill va rus tilidagi sonlar: \"минг\"/\"тысяч\"/\"тыс\" = 1000, "
-        "\"млн\"/\"миллион\" = 1000000, \"млрд\" = 1000000000.\n"
-        "DIQQAT: o'zbek kirill va rus tili bir xil alifboda yozilsa ham "
-        "boshqa-boshqa tillar. \"қарз бердим\" — o'zbekcha, \"дал в долг\" — "
-        "ruscha; ikkalasi ham qarz berish.\n"
-        "Kategoriya nomlari va izohlar HAR DOIM ro'yxatdagidek o'zbek lotin "
-        "yozuvida qaytariladi — foydalanuvchi qaysi yozuvda yozganidan "
-        "qat'i nazar. Izohni esa foydalanuvchi yozganidek qoldir.\n\n"
-        "Bugungi sana har bir xabar boshidagi «Bugungi sana: YYYY-MM-DD» "
-        "qatorida beriladi — nisbiy sanalarni (kecha, 1-avgustda) shunga "
-        "qarab hisobla. Bu qator foydalanuvchi matni emas.\n"
-        f"Standart valyuta: {config.CURRENCY} ('som'). Ikkinchi qo'llab-quvvatlanadigan "
-        "valyuta: AQSH dollari ('usd').\n\n"
-        "Qoidalar:\n"
-        "- Har doim yozuvlarni_qaytar asbobini chaqir, oddiy matn bilan javob berma.\n"
-        "- Bitta xabarda bir nechta amaliyot bo'lishi mumkin — har birini alohida "
-        "element qilib qaytar. Masalan: \"obed 40 ming, taksi 20 ming\" => 2 ta yozuv.\n"
-        "- Summani raqamga aylantir: \"ming\"/\"k\" = 1000, \"mln\"/\"million\"/\"lim\" = 1000000. "
-        "\"250 ming\" => 250000, \"1.5 mln\" => 1500000.\n"
-        + thousands_rule
-        + "- Bo'sh joy yoki nuqta bilan ajratilgan raqamlarni to'g'ri o'qi: "
-        "\"1 200 000\" => 1200000.\n"
-        "- VALYUTANI ANIQLASH: agar summa oldida/yonida \"$\", \"dollar\", "
-        "\"dollarda\", \"USD\" so'zlari bo'lsa => valyuta=\"usd\" va sonni "
-        "AYNAN YOZILGANIDEK ol, ming qoidasini QO'LLAMA — \"$100\" => 100 (usd), "
-        "\"50 dollar\" => 50 (usd), \"200 dollar oylik berdim\" => 200 (usd). "
-        "Aks holda valyuta=\"som\" va yuqoridagi ming/million qoidalari amal qiladi.\n"
-        "- Turini PUL OQIMI YO'NALISHIGA qarab aniqla, alohida fe'lga qarab emas — "
-        "butun jumla mazmunini o'qi. Savolni shunday qo'y: pul SIZDAN chiqyaptimi "
-        "yoki SIZGA kelyaptimi?\n"
-        "  * Pul sizdan chiqsa (xarid, to'lov, xizmat haqi, sarf) => chiqim.\n"
-        "  * Pul sizga kelsa (maosh, sotuv, do'kon qaytimi, sovg'a) => kirim.\n"
-        "  * QARZ harakati (berish, olish, qaytarish, kredit to'lovi) — kirim "
-        "ham, chiqim ham EMAS, alohida qarz turlari (pastga qarang).\n"
-        "- OGOHLANTIRISH — bir xil fe'l ikki xil ma'noda kelishi mumkin, faqat "
-        "fe'lning o'ziga qarab xulosa chiqarma:\n"
-        "  * \"oldim\": \"noutbuk sotib oldim\" => chiqim (xarid), lekin "
-        "\"do'stimdan 200 ming oldim\", \"maoshimni oldim\" => kirim (pul qabul qildi).\n"
-        "  * \"berdim\": \"kira haqini berdim\" => chiqim (to'lov), lekin "
-        "\"tovarni sotib berdim\" => kirim (sotuvdan tushum). \"Aliga 500 ming "
-        "qarz berdim\" => qarz_berdim (qarz so'zi aniq aytilgan bo'lsagina).\n"
-        "  * \"tushdi\": \"oylik tushdi\", \"pul tushdi\" => kirim. Narx/kurs "
-        "pasayishi haqida bo'lsa (\"narxi tushdi\") — moliyaviy yozuv emas.\n"
-        "- Aniq kirim belgilari: \"oylik\", \"maosh\", \"daromad\", \"kirdi\", "
-        "\"tushdi\" (pul ma'nosida), \"sotdim\", \"ishladim\", \"pul yubordi/keldi\", "
-        "\"qaytim\", \"sovg'a berishdi\".\n"
-        "- Aniq chiqim belgilari: \"sotib oldim\", \"xarid qildim\", \"to'ladim\", "
-        "\"sarfladim\", xizmat/mahsulot nomlari ega gaplar (\"taksi\", \"obed\", "
-        "\"kommunal\", \"kira\") — bularda pul deyarli har doim sizdan chiqadi.\n"
-        "- Misollar: \"telefon sotib oldim 2 mln\" => chiqim. \"telefonni sotdim "
-        "2 mln\" => kirim. \"do'stimdan 500 ming oldim\" => kirim. \"ish haqim "
-        "tushdi\" => kirim. \"kira puli to'ladim\" => chiqim.\n"
-        "- \"Aliga 500 ming qarz berdim\" => qarz_berdim, shaxs=\"Ali\". "
-        "\"Akamdan 1 mln qarz oldim\" => qarz_oldim, shaxs=\"akam\". Qarz turi "
-        "faqat \"qarz\" so'zi yoki uning aniq ma'nosi (masalan \"nasiya\") "
-        "jumlada bo'lsa qo'llanadi — aks holda oddiy kirim/chiqim.\n"
-        "- QARZNI QAYTARISH — to'rtta qarz turi bor, YO'NALISHGA qara:\n"
-        "  * qarz_berdim — MEN birovga qarz berdim: \"Akmalga 200 ming qarz "
-        "berdim\" (shaxs=\"Akmal\").\n"
-        "  * qarz_oldim — MEN birovdan qarz oldim: \"Sardordan 500 ming qarz "
-        "oldim\" (shaxs=\"Sardor\").\n"
-        "  * qarz_qaytardim — MEN o'z qarzimni qaytardim yoki kredit/nasiya/"
-        "bo'lib to'lash to'lovini qildim: \"qarzimni qaytardim\", \"qarzimni "
-        "berdim\", \"1 mln qarzim uchun to'landi\", \"qarzimga to'ladim\", "
-        "\"kreditga 2,5 mln to'ladim\", \"kredit to'lovi\", \"nasiyaga to'ladim\", "
-        "\"Sardorga qarzimni qaytardim\" (shaxs=\"Sardor\").\n"
-        "  * qarz_qaytdi — BIROV menga qarzini qaytardi: \"Akmal qarzini "
-        "qaytardi\", \"Akmal 200 mingni qaytardi\", \"Akmal qarzini berdi\" "
-        "(shaxs=\"Akmal\").\n"
-        "  Farqi \"-im\" qo'shimchasida: \"qarzIMni berdim\" — o'z qarzimni "
-        "qaytardim (qarz_qaytardim), \"qarz berdim\" — birovga qarz berdim "
-        "(qarz_berdim). Ism + \"qaytardi\" (uchinchi shaxs) — menga qaytarildi "
-        "(qarz_qaytdi), hatto \"qarz\" so'zi bo'lmasa ham.\n"
-        "  Kirill va rus variantlari ham xuddi shunday: \"қарзимни қайтардим\", "
-        "\"кредитга тўладим\", \"Акмал қарзини қайтарди\", \"вернул долг\", "
-        "\"отдал долг Сардору\", \"заплатил за кредит\", \"Акмал вернул долг\", "
-        "\"Акмал вернул 200 тысяч\", \"взял в долг у Сардора\".\n"
-        "  Bu to'rtta tur HECH QACHON kirim yoki chiqim emas: kategoriya har "
-        "doim \"qarz\". Ism aytilgan bo'lsa shaxs maydoniga faqat ismning "
-        "o'zini yoz, qo'shimchasiz (\"Akmalga\" emas, \"Akmal\"; \"Sardordan\" "
-        "emas, \"Sardor\"; \"Сардору\" emas, \"Sardor\") va HAR DOIM o'zbek "
-        "lotin yozuvida (\"Акмал\" => \"Akmal\") — bir odamning qarzi va "
-        "qaytarishi bir xil yozilsin. Bank yoki kredit bo'lsa shaxs bo'sh "
-        "qoladi.\n"
-        "- JAMG'ARMA. \"jamg'arma\", \"jamgarma\", \"omonat\", \"zaxira\", "
-        "\"copilka\", \"nakopleniye\" so'zlari pul YO'NALISHINI ko'rsatadi:\n"
-        "  * \"jamg'armaga 100 ming o'tkazdim\", \"shaxsiy jamg'armaga 500 ming "
-        "qo'ydim\", \"omonatga 1 mln soldim\", \"zaxiraga 200 ming ajratdim\" "
-        "=> jamgarma.\n"
-        "  * \"jamg'armadan 300 ming oldim\", \"omonatdan yechdim\" "
-        "=> jamgarma_yechdim.\n"
-        "  Bu chiqim EMAS: pul sarflanmadi, odamning o'zida qoldi. Shuning "
-        "uchun \"jamg'armaga o'tkazdim\" ni hech qachon chiqim deb belgilama.\n"
-        "  Diqqat: \"jamg'armaga o'tkazish uchun telefon sotdim\" kabi jumlada "
-        "amaliyot SOTUV (kirim) — jamg'arma so'zi shunchaki maqsadni "
-        "bildiryapti. Pul qayerga BORGANIGA qara.\n"
-        "- \"kecha\", \"ertalab\", \"1-avgustda\" kabi vaqt ko'rsatkichlarini sanaga aylantir. "
-        "Vaqt aytilmasa bugungi sana.\n"
-        "- Kategoriyani faqat ro'yxatdagilardan tanla. Mahsulot/xizmatning "
-        "MAZMUNIGA qarab tanla, sirtqi so'zga emas: \"dorixona\", \"shifokor\" "
-        "=> salomatlik (oziq-ovqat emas). \"internet\", \"mobil aloqa\" => "
-        "aloqa va internet (xizmatlar emas). \"kira haqi\", \"ijaraga\" => "
-        "uy-joy.\n"
-        "- SUV — ikki xil ma'no, FE'LGA qara:\n"
-        "  * suv SOTIB OLINDI (ichimlik): \"suv oldim\", \"12 mingga suv "
-        "oldim\", \"suv sotib oldim\", \"Hydrolife\", \"Nestle\", \"19 litrlik "
-        "suv\" => oziq-ovqat.\n"
-        "  * suv uchun TO'LOV (kommunal xizmat): \"suv puli\", \"suv puliga "
-        "to'ladim\", \"suvga to'ladim\", \"suv uchun to'lov\", \"vodokanal\" "
-        "=> kommunal.\n"
-        "  Xuddi shunday: \"svet\", \"gaz\", \"musor\", \"kvartira puli\" "
-        "(kommunal to'lov ma'nosida) => kommunal.\n"
-        "- UY-RO'ZG'OR VA GIGIYENA: sovun, shampun, tish pastasi, kir yuvish "
-        "vositasi (poroshok), idish yuvish vositasi, salfetka, tualet qog'ozi, "
-        "paket, gubka, dezodorant => \"uy-ro'zg'or va gigiyena\" "
-        "(boshqa chiqim EMAS).\n"
-        "- OZIQ-OVQAT: non, nonga, sut, go'sht, meva, sabzavot, guruch, yog', "
-        "tuxum, shakar, choy, ichimlik — do'kon yoki bozordan oziq-ovqat "
-        "xaridi => oziq-ovqat. Kategoriyani so'zning MA'NOSIGA qarab tanla, "
-        "o'xshash harflarga emas: \"nonga\" — non (oziq-ovqat).\n"
-        "- \"boshqa chiqim\" — FAQAT mazmunini umuman aniqlab bo'lmaydigan "
-        "narsa uchun. Mahsulot yoki xizmat nomi ma'lum bo'lsa, ro'yxatdagi eng "
-        "yaqin kategoriyani tanla. \"boshqa kirim\" ham xuddi shunday.\n"
-        "- Agar xabar savol bo'lsa (masalan \"bu oy qancha sarfladim?\", "
-        "\"eng ko'p nimaga ketdi?\") — niyat=\"savol\", yozuvlar bo'sh massiv.\n"
-        "- Valyuta kursi yoki konvertatsiya so'ralsa (\"400$ so'mda qancha\", "
-        "\"1 mln so'm necha dollar\", \"dollar kursi qancha\", \"сколько 100 "
-        "долларов в сумах\") — niyat=\"kurs\", kurs_summa va kurs_valyuta "
-        "(qaysi valyutadan), yozuvlar bo'sh. Bu yozuv EMAS va tushunarsiz ham "
-        "emas — kursni bot o'zi hisoblaydi.\n"
-        "- Agar summa umuman yo'q yoki matn moliyaga aloqador bo'lmasa — "
-        "niyat=\"tushunarsiz\" va izoh_matni'da qisqa tushuntirish yoz.\n"
-    )
+    return ai_prompts.parse_system_prompt()
 
 
 def _coerce_date(raw: Any, today: date) -> str:
@@ -373,66 +63,35 @@ def _coerce_date(raw: Any, today: date) -> str:
             pass
     return today.isoformat()
 
-
-async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
-    """Xabarni tahlil qiladi.
-
-    Qaytaradi: {"niyat": str, "yozuvlar": [ ... ], "izoh_matni": str}
-    """
-    today = today or _today()
-
-    # Kesh: render tartibi tools -> system, shuning uchun tizim blokidagi
-    # bitta belgi asbob sxemasini ham birga keshlaydi. Ikkalasi ham
-    # foydalanuvchiga bog'liq emas — kesh barcha foydalanuvchilar uchun
-    # umumiy. O'zgaruvchan qism (sana, matn) faqat xabarda.
-    resp = await client().messages.create(
-        model=config.PARSE_MODEL,
-        max_tokens=1500,
-        system=[{"type": "text", "text": _parse_system_prompt(),
-                 "cache_control": {"type": "ephemeral"}}],
-        tools=[RECORD_TOOL],
-        tool_choice={"type": "tool", "name": "yozuvlarni_qaytar"},
-        messages=[{"role": "user", "content": [
-            {"type": "text", "text": f"Bugungi sana: {today.isoformat()}"},
-            {"type": "text", "text": text},
-        ]}],
-    )
-
-    payload: dict[str, Any] | None = None
-    for block in resp.content:
-        if block.type == "tool_use" and block.name == "yozuvlarni_qaytar":
-            payload = block.input
-            break
-
-    usage = _usage_of(resp, config.PARSE_MODEL)
-
-    if not payload:
-        log.warning("Model asbobni chaqirmadi: %s", resp.content)
-        return {"niyat": "tushunarsiz", "yozuvlar": [], "izoh_matni": "", "_usage": usage}
-
+def _normalize_parse(payload: dict[str, Any], today: date) -> dict[str, Any]:
+    """Model javobini tekshiradi va loyiha tuzilmasiga keltiradi (matn va ovoz
+    uchun umumiy). Qaytaradi: {"niyat", "yozuvlar", "izoh_matni"[, "kurs"]}."""
     niyat = payload.get("niyat", "tushunarsiz")
     cleaned: list[dict[str, Any]] = []
 
-    for item in payload.get("yozuvlar") or []:
+    items = payload.get("yozuvlar")
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
         try:
             amount = float(item.get("summa", 0))
         except (TypeError, ValueError):
             continue
-        if amount <= 0:
+        if amount <= 0 or amount != amount or amount == float("inf"):
             continue
 
         kind = item.get("turi")
         if kind not in config.KINDS:
             kind = config.KIND_CHIQIM
 
-        person = (item.get("shaxs") or "").strip() or None
+        person = (str(item.get("shaxs") or "")).strip() or None
         if kind not in config.DEBT_KINDS:
             person = None
 
         sana = _coerce_date(item.get("sana"), today)
         # Maqsad nomi — faqat jamg'armada; qaytarish muddati — faqat ochiq
         # qarzda va yozuv sanasidan keyin bo'lsa (o'tgan sana eslatma emas).
-        goal = (item.get("maqsad") or "").strip()[:60] if kind == config.KIND_JAMGARMA else ""
+        goal = (str(item.get("maqsad") or "")).strip()[:60] if kind == config.KIND_JAMGARMA else ""
         due = None
         if kind in config.DEBT_OPEN_KINDS and item.get("muddat"):
             raw_due = _coerce_date(item.get("muddat"), date.min)
@@ -445,7 +104,7 @@ async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
                 "summa": round(amount, 2),
                 "valyuta": config.normalize_currency(item.get("valyuta")),
                 "kategoriya": config.normalize_category(kind, item.get("kategoriya")),
-                "izoh": (item.get("izoh") or "").strip()[:120],
+                "izoh": (str(item.get("izoh") or "")).strip()[:120],
                 "shaxs": person,
                 "sana": sana,
                 "maqsad": goal or None,
@@ -457,12 +116,13 @@ async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
         niyat = "yozuv"
     elif niyat == "yozuv":
         niyat = "tushunarsiz"
+    if niyat not in ("yozuv", "savol", "kurs", "tushunarsiz"):
+        niyat = "tushunarsiz"
 
     result = {
         "niyat": niyat,
         "yozuvlar": cleaned,
-        "izoh_matni": (payload.get("izoh_matni") or "").strip(),
-        "_usage": usage,
+        "izoh_matni": (str(payload.get("izoh_matni") or "")).strip(),
     }
     if niyat == "kurs":
         # Hisoblashni AI emas, bot qiladi (Markaziy bank kursi bilan).
@@ -475,200 +135,124 @@ async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
     return result
 
 
+async def parse_message(text: str, today: date | None = None) -> dict[str, Any]:
+    """Xabarni tahlil qiladi.
+
+    Qaytaradi: {"niyat": str, "yozuvlar": [ ... ], "izoh_matni": str}
+    """
+    today = today or _today()
+
+    # Tizim prompti va sxema har chaqiruvda bir xil (kesh); o'zgaruvchan
+    # qism — sana va matn — faqat foydalanuvchi qismida.
+    payload, usage = await gemini.generate_json(
+        model=config.PARSE_MODEL,
+        system=ai_prompts.parse_system_prompt(),
+        parts=[gemini.text_part(f"Bugungi sana: {today.isoformat()}"),
+               gemini.text_part(text)],
+        schema=ai_schemas.RECORD_SCHEMA,
+        thinking=config.PARSE_THINKING,
+        timeout=gemini.TIMEOUT_PARSE,
+    )
+
+    if not payload:
+        log.warning("Gemini matn javobi bo'sh yoki buzuq")
+        return {"niyat": "tushunarsiz", "yozuvlar": [], "izoh_matni": "", "_usage": usage}
+
+    result = _normalize_parse(payload, today)
+    result["_usage"] = usage
+    return result
+
+
+# --------------------------------------------------------------------------- #
+# Ovozli xabar: bitta chaqiruvda transkripsiya va yozuvlar
+# --------------------------------------------------------------------------- #
+
+VOICE_LANGS = ("uz", "ru", "aralash", "boshqa")
+VOICE_MAX_ITEMS_NO_CONFIRM = 5        # bundan ko'p yozuv — har doim tasdiq
+
+
+def _needs_confirmation(records: list[dict[str, Any]]) -> bool:
+    """Katta summa yoki ko'p yozuv: ovozdan xato eshitilsa zarari katta —
+    model ishonchidan qat'i nazar foydalanuvchidan tasdiq so'raladi."""
+    if len(records) > VOICE_MAX_ITEMS_NO_CONFIRM:
+        return True
+    for r in records:
+        limit = (config.VOICE_CONFIRM_ABOVE_USD if r["valyuta"] == config.CURRENCY_USD
+                 else config.VOICE_CONFIRM_ABOVE_SOM)
+        if r["summa"] > limit:
+            return True
+    return False
+
+
+async def parse_voice(audio: bytes, mime_type: str = "audio/ogg",
+                      today: date | None = None) -> dict[str, Any]:
+    """Ovozli xabarni tahlil qiladi: transkripsiya + yozuvlar BITTA chaqiruvda.
+
+    Qaytaradi: parse_message natijasi + "transkripsiya", "ishonch"
+    («yuqori» | «past») va "til". Ishonch «past» bo'lsa bot hech narsani
+    saqlamaydi, avval foydalanuvchidan tasdiq so'raydi. Audio faqat xotirada.
+    """
+    today = today or _today()
+
+    payload, usage = await gemini.generate_json(
+        model=config.VOICE_MODEL,
+        system=ai_prompts.voice_system_prompt(),
+        parts=[gemini.text_part(f"Bugungi sana: {today.isoformat()}"),
+               gemini.audio_part(audio, mime_type)],
+        schema=ai_schemas.VOICE_SCHEMA,
+        thinking=config.VOICE_THINKING,
+        timeout=gemini.TIMEOUT_VOICE,
+    )
+
+    if not payload:
+        log.warning("Gemini ovoz javobi bo'sh yoki buzuq")
+        return {"niyat": "tushunarsiz", "yozuvlar": [], "izoh_matni": "",
+                "transkripsiya": "", "ishonch": "past", "til": "boshqa",
+                "_usage": usage}
+
+    result = _normalize_parse(payload, today)
+    result["transkripsiya"] = str(payload.get("transkripsiya") or "").strip()[:2000]
+    til = payload.get("til")
+    result["til"] = til if til in VOICE_LANGS else "boshqa"
+    confidence = "yuqori" if payload.get("ishonch") == "yuqori" else "past"
+    if result["niyat"] == "yozuv" and _needs_confirmation(result["yozuvlar"]):
+        confidence = "past"
+    result["ishonch"] = confidence
+    result["_usage"] = usage
+    return result
+
+
 # --------------------------------------------------------------------------- #
 # 2-vazifa: chek rasmini o'qish
 # --------------------------------------------------------------------------- #
 
-RECEIPT_TOOL = {
-    "name": "chekni_qaytar",
-    "description": (
-        "Chek (kvitansiya) rasmidan do'kon, sana va mahsulotlar ro'yxatini qaytaradi. "
-        "Har doim shu asbobdan foydalan."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "oqildi": {
-                "type": "boolean",
-                "description": (
-                    "Rasmda chek bor va hech bo'lmasa bitta mahsulot qatori o'qilgan "
-                    "bo'lsa true. Rasm chek bo'lmasa yoki umuman o'qib bo'lmasa false."
-                ),
-            },
-            "dokon": {
-                "type": "string",
-                "description": "Do'kon/tashkilot nomi. Ko'rinmasa bo'sh qoldir.",
-            },
-            "sana": {
-                "type": "string",
-                "description": (
-                    "Chekda yozilgan sana, YYYY-MM-DD formatida. "
-                    "Chekda sana ko'rinmasa bugungi sanani qo'y."
-                ),
-            },
-            "mahsulotlar": {
-                "type": "array",
-                "description": (
-                    "Chekdagi har bir mahsulot qatori uchun bitta element. "
-                    "Jami/ITOGO/chegirma/QQS kabi yakuniy qatorlarni bu ro'yxatga QO'SHMA."
-                ),
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "nomi": {
-                            "type": "string",
-                            "description": "Mahsulot nomi chekda yozilganidek.",
-                        },
-                        "miqdori": {
-                            "type": "number",
-                            "description": "Soni yoki og'irligi. Ko'rsatilmagan bo'lsa 1.",
-                        },
-                        "birlik_narxi": {
-                            "type": "number",
-                            "description": "Bir dona/kg narxi. Ko'rinmasa qo'shma.",
-                        },
-                        "summa": {
-                            "type": "number",
-                            "description": (
-                                "Shu qator uchun yakuniy summa (miqdor x narx), "
-                                "valyuta birligisiz musbat son."
-                            ),
-                        },
-                        "kategoriya": {
-                            "type": "string",
-                            "enum": config.EXPENSE_CATEGORIES,
-                            "description": "Mahsulotga eng mos keladigan kategoriya.",
-                        },
-                    },
-                    "required": ["nomi", "summa", "kategoriya"],
-                },
-            },
-            "chekdagi_jami": {
-                "type": "number",
-                "description": (
-                    "Chekda 'JAMI'/'ITOGO'/'TO'LANDI' deb yozilgan yakuniy summa. "
-                    "Ko'rinmasa bu maydonni qo'shma."
-                ),
-            },
-            "chegirma": {
-                "type": "number",
-                "description": "Chegirma/skidka summasi, agar ko'rsatilgan bo'lsa.",
-            },
-            "valyuta": {
-                "type": "string",
-                "enum": ["som", "usd"],
-                "description": (
-                    "Chekdagi summalar qaysi valyutada. So'm/sum/UZS yoki "
-                    "belgisiz => 'som'. $/USD/dollar => 'usd'."
-                ),
-            },
-            "izoh_matni": {
-                "type": "string",
-                "description": (
-                    "oqildi=false bo'lsa — nima uchun o'qib bo'lmaganini o'zbekcha "
-                    "qisqa tushuntir. Aks holda bo'sh."
-                ),
-            },
-        },
-        "required": ["oqildi", "mahsulotlar"],
-    },
-}
-
-
-def _receipt_system_prompt(today: date, parts: int) -> str:
-    multi = (
-        (
-            f"\nMUHIM: sizga bitta uzun chekning {parts} ta rasmi berilgan "
-            "(chek kameraga sig'magani uchun qismlarga bo'lingan). Ular yuqoridan "
-            "pastga ketma-ket. Hammasini BITTA chek deb hisobla.\n"
-            "- Qismlar bir-birini qisman takrorlashi mumkin (bir xil qator ikkita "
-            "rasmda ko'rinishi mumkin). Takrorlangan qatorni FAQAT BIR MARTA yoz.\n"
-            "- Qator ikki rasm chegarasida bo'linib qolgan bo'lsa, uni to'liq "
-            "ko'ringan joyidan ol.\n"
-            "- Do'kon nomi odatda 1-qismda, JAMI summa oxirgi qismda bo'ladi.\n"
-        )
-        if parts > 1
-        else ""
-    )
-    return (
-        "Sen o'zbek tilidagi shaxsiy moliya botining chek o'qish qismisan. "
-        "Berilgan chekni (rasm yoki PDF) diqqat bilan o'qib, undagi mahsulotlar "
-        "ro'yxatini ajratib ol.\n"
-        "PDF bir necha sahifadan iborat bo'lsa, hammasi BITTA chek deb hisobla va "
-        "barcha sahifalardagi mahsulotlarni bitta ro'yxatga yig'.\n\n"
-        f"Bugungi sana: {today.isoformat()}.\n"
-        f"Valyuta: {config.CURRENCY}.\n"
-        + multi
-        + "\nQoidalar:\n"
-        "- Har doim chekni_qaytar asbobini chaqir, oddiy matn bilan javob berma.\n"
-        "- Har bir mahsulot qatorini alohida element qil. Nomini chekda "
-        "yozilganidek ko'chir, o'zingdan o'zgartirma.\n"
-        "- Summalarni aynan chekdagidek ol. Sonlarni O'ZING QO'SHMA — jami "
-        "summani dastur hisoblaydi. Sening vazifang faqat to'g'ri o'qish.\n"
-        "- Bo'sh joy, nuqta yoki vergul bilan ajratilgan sonlarni to'g'ri o'qi: "
-        "\"12 500\" => 12500, \"1.250,00\" => 1250.\n"
-        "- 'JAMI', 'ITOGO', 'ВСЕГО', 'TO'LANDI', 'QQS', 'NDS', 'Naqd', 'Karta', "
-        "'Qaytim' kabi qatorlar mahsulot EMAS — ularni mahsulotlar ro'yxatiga "
-        "qo'shma. Yakuniy summani chekdagi_jami ga yoz.\n"
-        "- Har bir mahsulotga ro'yxatdagi kategoriyalardan eng mosini tanla. "
-        "Oziq-ovqat do'konidagi non, sut, go'sht, ichimlik suvi, sharbat => "
-        "'oziq-ovqat'. Sovun, shampun, tish pastasi, kir va idish yuvish "
-        "vositasi, ko'pik, salfetka, tualet qog'ozi, paket, gubka => "
-        "'uy-ro'zg'or va gigiyena'. Dori, vitamin => 'salomatlik'. "
-        "Sigaret => 'boshqa chiqim'. 'boshqa chiqim' — FAQAT nomidan nima "
-        "ekanini umuman aniqlab bo'lmagan qator uchun; nomi o'qilgan "
-        "mahsulotga eng yaqin kategoriyani tanla.\n"
-        "- Chekda o'qilmaydigan qatorlar bo'lsa, o'qilganlarini qaytar — "
-        "butun chekni tashlab yuborma.\n"
-        "- Fayl chek bo'lmasa (masalan oddiy surat yoki boshqa hujjat) => "
-        "oqildi=false va izoh_matni'da qisqa tushuntirish.\n"
-        "- VALYUTA: chekda \"so'm\", \"sum\", \"UZS\" yozilgan yoki hech narsa "
-        "yozilmagan bo'lsa => valyuta=\"som\". Chekda \"$\", \"USD\" yoki "
-        "\"dollar\" belgisi bo'lsa => valyuta=\"usd\". Ikkilansang \"som\" qo'y.\n"
-    )
-
-
 PDF_MEDIA_TYPE = "application/pdf"
 
 
-def _receipt_content(
-    images: list[tuple[str, str]], caption: str, note: str = ""
-) -> list[dict[str, Any]]:
-    """Rasm va PDF qismlaridan API uchun kontent bloklarini yig'adi."""
-    content: list[dict[str, Any]] = []
-    parts = len(images)
+def _receipt_parts(images: list[tuple[str, str]], today: date, caption: str,
+                   note: str = "") -> list[dict[str, Any]]:
+    """Rasm va PDF qismlaridan so'rov bo'laklarini yig'adi. Sana va qismlar
+    soni BIRINCHI bo'lakda (tizim prompti o'zgarmas qoladi — kesh)."""
+    parts_count = len(images)
+    parts: list[dict[str, Any]] = [
+        gemini.text_part(ai_prompts.receipt_user_note(today, parts_count))]
     for idx, (data, media_type) in enumerate(images, start=1):
-        if parts > 1:
-            content.append({"type": "text", "text": f"--- Chekning {idx}-qismi ---"})
+        if parts_count > 1:
+            parts.append(gemini.text_part(f"--- Chekning {idx}-qismi ---"))
         if media_type == PDF_MEDIA_TYPE:
-            # PDF Claude'ga alohida "document" bloki sifatida beriladi; ichida
-            # matn qatlami bo'lsa u to'g'ridan-to'g'ri o'qiladi (aniqroq),
+            # Ichida matn qatlami bo'lsa to'g'ridan-to'g'ri o'qiladi (aniqroq),
             # skanerlangan bo'lsa sahifalar rasm sifatida ko'riladi.
-            content.append(
-                {
-                    "type": "document",
-                    "source": {
-                        "type": "base64",
-                        "media_type": PDF_MEDIA_TYPE,
-                        "data": data,
-                    },
-                }
-            )
+            parts.append(gemini.document_part(data, PDF_MEDIA_TYPE))
         else:
-            content.append(
-                {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": media_type, "data": data},
-                }
-            )
+            parts.append(gemini.image_part(data, media_type))
 
     tail = "Shu chekni o'qib, mahsulotlar ro'yxatini qaytar."
     if caption.strip():
         tail += f"\nFoydalanuvchi izohi: {caption.strip()}"
     if note:
         tail += f"\n\n{note}"
-    content.append({"type": "text", "text": tail})
-    return content
+    parts.append(gemini.text_part(tail))
+    return parts
 
 
 async def _receipt_call(
@@ -676,49 +260,27 @@ async def _receipt_call(
     today: date,
     caption: str,
     note: str = "",
-    force: bool = False,
+    thinking: str | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    kwargs: dict[str, Any] = {
-        "model": config.VISION_MODEL,
-        "max_tokens": 16000,
-        # Tizim promptи va asbob sxemasi har bir chekda AYNAN bir xil —
-        # keshlash belgisi qo'yilsa keyingi cheklarda shu qism kirish
-        # narxining ~10% iga tushadi. Render tartibi tools -> system, shuning
-        # uchun oxirgi system blokidagi belgi ikkalasini birga keshlaydi.
-        "system": [
-            {
-                "type": "text",
-                "text": _receipt_system_prompt(today, len(images)),
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
-        "tools": [RECEIPT_TOOL],
-        # Odatda «medium» (config.VISION_EFFORT): o'ylash tokenlari chiqish
-        # narxida va chekda yig'indini baribir Python tekshiradi.
-        "output_config": {"effort": config.VISION_EFFORT},
-        "messages": [
-            {"role": "user", "content": _receipt_content(images, caption, note)}
-        ],
-    }
-    if force:
-        # Majburiy asbob chaqiruvi "thinking" bilan birga ishlamaydi.
-        kwargs["tool_choice"] = {"type": "tool", "name": "chekni_qaytar"}
-        kwargs["thinking"] = {"type": "disabled"}
-    else:
-        # Aniqlik uchun model rasmni o'ylab o'qiydi.
-        kwargs["thinking"] = {"type": "adaptive"}
+    # Odatda config.VISION_THINKING: o'ylash tokenlari chiqish narxida va
+    # chekda yig'indini baribir Python tekshiradi.
+    return await gemini.generate_json(
+        model=config.VISION_MODEL,
+        system=ai_prompts.receipt_system_prompt(),
+        parts=_receipt_parts(images, today, caption, note),
+        schema=ai_schemas.RECEIPT_SCHEMA,
+        thinking=thinking or config.VISION_THINKING,
+        timeout=gemini.TIMEOUT_RECEIPT,
+    )
 
-    resp = await client().messages.create(**kwargs)
-    usage = _usage_of(resp, config.VISION_MODEL)
-    for block in resp.content:
-        if block.type == "tool_use" and block.name == "chekni_qaytar":
-            return block.input, usage
-    return None, usage
+
 
 
 def _normalize_receipt(payload: dict[str, Any], today: date) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     for raw in payload.get("mahsulotlar") or []:
+        if not isinstance(raw, dict):
+            continue
         try:
             amount = float(raw.get("summa", 0))
         except (TypeError, ValueError):
@@ -852,7 +414,6 @@ def apply_receipt_total(data: dict[str, Any]) -> dict[str, Any]:
         item["summa"] = amount
     return data
 
-
 async def parse_receipt(
     images: list[tuple[str, str]],
     today: date | None = None,
@@ -869,9 +430,9 @@ async def parse_receipt(
 
     payload, usage = await _receipt_call(images, today, caption)
     if payload is None:
-        # Model asbobni chaqirmadi — majburiy rejimda qayta urinamiz.
-        log.warning("Chek: model asbobni chaqirmadi, majburiy rejimga o'tildi")
-        payload, usage2 = await _receipt_call(images, today, caption, force=True)
+        # JSON bo'sh yoki buzuq — o'ylashsiz bir marta qayta urinamiz.
+        log.warning("Chek: javob bo'sh yoki buzuq, o'ylashsiz qayta uriniladi")
+        payload, usage2 = await _receipt_call(images, today, caption, thinking="minimal")
         usage = _merge_usage(usage, usage2)
 
     if payload is None:
@@ -930,42 +491,11 @@ async def parse_receipt(
     data["_usage"] = usage
     return data
 
-
 # --------------------------------------------------------------------------- #
 # 3-vazifa: ma'lumotlar asosida savolga javob
 # --------------------------------------------------------------------------- #
 
-QA_SYSTEM = (
-    "Sen foydalanuvchining shaxsiy moliyaviy yordamchisisan. Quyida uning "
-    "yozuvlari JSON ko'rinishida beriladi. Faqat shu ma'lumotlarga tayanib, "
-    "qisqa va aniq javob ber.\n"
-    "- TIL: javobni foydalanuvchi savol bergan TIL VA YOZUVDA yoz. Savol "
-    "o'zbek lotinda bo'lsa — o'zbek lotinda, o'zbek kirillda bo'lsa — "
-    "o'zbek kirillda (\"қанча сарфладим\" => кирилл javob), ruscha bo'lsa — "
-    "ruscha javob ber.\n"
-    "- MUHIM: 'hisoblangan' bo'limida tayyor jamlanmalar berilgan — ular dastur "
-    "tomonidan aniq hisoblangan. Savol shu jamlanmalar bilan javob berilsa, "
-    "sonlarni O'ZING QAYTA QO'SHMA, tayyorini ol.\n"
-    "- 'Oxirgi yozuvlar' ro'yxati faqat eng so'nggi yozuvlar — u to'liq "
-    "bo'lmasligi mumkin. Davr jamlari uchun HAR DOIM tayyor jamlanmalar va "
-    "oylar bo'yicha jamlarni ishlat, xom ro'yxatni qo'shib chiqma.\n"
-    "- Faqat tayyor jamlanmada yo'q narsani hisoblashing kerak bo'lsa, "
-    "qo'shishni bosqichma-bosqich va diqqat bilan bajar.\n"
-    "- MUHIM: som va dollar summalarini HECH QACHON bir-biriga qo'shma yoki "
-    "taqqoslama — kurs berilmagan, taxminiy konvertatsiya noto'g'ri javobga "
-    "olib keladi. Agar foydalanuvchida ikkala valyutada ham yozuv bo'lsa, "
-    "javobda ikkalasini ALOHIDA ko'rsat (masalan \"5 000 000 so'm va $200\").\n"
-    "- Qarz turlari (qarz_berdim, qarz_oldim, qarz_qaytardim, qarz_qaytdi) "
-    "xarajat ham, daromad ham EMAS — \"qancha sarfladim\" degan savolga "
-    "ularni qo'shma, so'ralsa alohida ayt.\n"
-    "- Sonlarni o'qishga qulay yoz: 1 250 000 so'm yoki $250.\n"
-    "- Ma'lumot yetarli bo'lmasa, buni ochiq ayt va nimasi yetishmayotganini tushuntir.\n"
-    "- Javob 6 qatordan oshmasin. Ortiqcha muqaddima yozma.\n"
-    "- Oddiy matn bilan yoz: markdown belgilari (**, *, #, `) ishlatma — "
-    "ular foydalanuvchiga xuddi shundayligicha ko'rinadi.\n"
-    "- So'ralmasa moliyaviy maslahat berma; so'ralsa ham bu professional "
-    "investitsiya maslahati emasligini eslat."
-)
+QA_SYSTEM = ai_prompts.QA_SYSTEM
 
 
 def _rows_to_json(rows) -> str:
@@ -1070,18 +600,9 @@ async def answer_question(
     parts.append(f"Savol: {question}")
     content = "\n".join(parts)
 
-    # Sonnet 5'da adaptiv "thinking" sukut bo'yicha yoqilgan va max_tokens
-    # o'ylash + javobni birgalikda cheklaydi — shuning uchun chegara keng.
     # Javob uzunligi QA_SYSTEM bilan cheklanadi (6 qator).
-    resp = await client().messages.create(
-        model=config.CHAT_MODEL,
-        max_tokens=6000,
-        output_config={"effort": "high"},
-        system=QA_SYSTEM,
-        messages=[{"role": "user", "content": content}],
-    )
+    text, usage = await gemini.generate_text(
+        model=config.CHAT_MODEL, system=QA_SYSTEM, content=content,
+        thinking=config.CHAT_THINKING, timeout=gemini.TIMEOUT_QA)
+    return text or "Javob tayyorlab bo'lmadi, qaytadan urinib ko'ring.", usage
 
-    usage = _usage_of(resp, config.CHAT_MODEL)
-    parts = [b.text for b in resp.content if b.type == "text"]
-    text = "\n".join(parts).strip() or "Javob tayyorlab bo'lmadi, qaytadan urinib ko'ring."
-    return text, usage

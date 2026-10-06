@@ -109,7 +109,7 @@ def _user(uid, *, trial_days=7, sub_days=None):
 
 def _spend(uid, usd):
     usage_id = db.usage_begin(uid, "matn")
-    db.usage_finish(usage_id, {"model": "claude-haiku-4-5", "cost_usd": usd})
+    db.usage_finish(usage_id, {"model": "gemini-3.5-flash-lite", "cost_usd": usd})
 
 
 @pytest.fixture(autouse=True)
@@ -171,37 +171,94 @@ def test_global_cap_spares_subscribers_and_notifies_owner_at_100(monkeypatch):
     assert len(to_owner) == 1 and "chegarasi tugadi" in to_owner[0]
 
 
-def test_unknown_model_is_not_free_and_sonnet5_price():
-    assert config.cost_usd("claude-sonnet-5", 1_000_000, 0) == pytest.approx(2.0)
-    assert config.cost_usd("claude-model-yoq-9", 1_000_000, 0) >= 5.0
+def test_unknown_model_is_not_free_and_gemini_prices():
+    from datetime import date
+    lite = "gemini-3.5-flash-lite"
+    assert config.cost_usd(lite, 1_000_000, 0) == pytest.approx(0.30)
+    assert config.cost_usd(lite, 0, 1_000_000) == pytest.approx(2.50)
+    assert config.cost_usd(lite, 0, 0, cache_read=1_000_000) == pytest.approx(0.03)
+    # Noma'lum model tekin emas: eng qimmat ma'lum narx olinadi.
+    assert config.cost_usd("model-yoq-9", 1_000_000, 0, day=date(2026, 10, 6)) \
+        == pytest.approx(0.75)
+    assert config.cost_usd("model-yoq-9", 0, 1_000_000, day=date(2026, 10, 6)) \
+        == pytest.approx(3.75)
+
+
+def test_flash_38_price_depends_on_the_date():
+    from datetime import date
+    m = "gemini-3.8-flash"
+    # 2026-12-31 gacha chegirmali, 2027-01-01 dan to'liq narx.
+    assert config.cost_usd(m, 1_000_000, 1_000_000, day=date(2026, 12, 31)) \
+        == pytest.approx(0.75 + 3.75)
+    assert config.cost_usd(m, 1_000_000, 1_000_000, day=date(2027, 1, 1)) \
+        == pytest.approx(1.50 + 7.50)
+    assert config.cost_usd(m, 0, 0, cache_read=1_000_000, day=date(2027, 1, 1)) \
+        == pytest.approx(0.15)
+    # Noma'lum model uchun ham sana hisobga olinadi.
+    assert config.cost_usd("model-yoq-9", 0, 1_000_000, day=date(2027, 3, 1)) \
+        == pytest.approx(7.50)
+
+
+def test_audio_tokens_use_the_audio_price():
+    m = "gemini-3.5-flash-lite"
+    # 1M kirish tokenining yarmi audio — ikkalasi ham shu modelda $0.30.
+    assert config.cost_usd(m, 1_000_000, 0, audio=500_000) == pytest.approx(0.30)
+    # Audio kirishdan oshib ketmaydi (xato ma'lumot ortiqcha hisoblamasin).
+    assert config.cost_usd(m, 100, 0, audio=10**9) == pytest.approx(100 / 1e6 * 0.30)
 
 
 # ---------------------------------------------------------------- K2 --
 
-def test_parse_prompt_is_cached_and_date_free(monkeypatch):
+def test_parse_prompt_is_stable_and_date_free(monkeypatch):
+    """Gemini'ning yashirin keshi prefiks bo'yicha ishlaydi: tizim prompti va
+    sxema har chaqiruvda bir xil, sana va matn faqat foydalanuvchi qismida."""
     import ai
-    fake = fake_ai.install(monkeypatch, [{"niyat": "tushunarsiz", "yozuvlar": []}])
+    fake = fake_ai.install(monkeypatch, [{"niyat": "tushunarsiz", "yozuvlar": []},
+                                         {"niyat": "tushunarsiz", "yozuvlar": []}])
+    asyncio.run(ai.parse_message("salom", today=datetime(2026, 10, 6).date()))
+    asyncio.run(ai.parse_message("boshqa matn", today=datetime(2027, 2, 1).date()))
+
+    first, second = fake.calls
+    assert first["system"] == second["system"]               # kunlar o'zgarsa ham
+    assert first["schema"] == second["schema"]
+    assert "2026-10-06" not in first["system"] and "2027-02-01" not in first["system"]
+    parts = first["parts"]
+    assert parts[0] == {"type": "text", "text": "Bugungi sana: 2026-10-06"}
+    assert parts[-1] == {"type": "text", "text": "salom"}      # foydalanuvchi matni oxirgi
+    assert ai._parse_system_prompt() == first["system"]
+    assert first["model"] == config.PARSE_MODEL
+    assert first["thinking"] == config.PARSE_THINKING
+
+
+def test_receipt_system_prompt_has_no_date_or_part_count(monkeypatch):
+    import ai
+    fake = fake_ai.install(monkeypatch, [{"oqildi": False, "mahsulotlar": []},
+                                         {"oqildi": False, "mahsulotlar": []}])
     day = datetime(2026, 10, 6).date()
-    asyncio.run(ai.parse_message("salom", today=day))
-
-    call = fake.calls[0]
-    system = call["system"]
-    assert system[-1]["cache_control"] == {"type": "ephemeral"}
-    assert "2026-10-06" not in system[-1]["text"]           # sana keshni buzmasin
-    content = call["messages"][0]["content"]
-    assert content[0]["text"] == "Bugungi sana: 2026-10-06"
-    assert content[-1]["text"] == "salom"
-    # Kunlar o'zgarsa ham prefiks bir xil.
-    assert ai._parse_system_prompt() == system[-1]["text"]
+    asyncio.run(ai.parse_receipt([("eA==", "image/jpeg")], today=day))
+    asyncio.run(ai.parse_receipt([("eA==", "image/jpeg")] * 3, today=day))
+    one, three = fake.calls
+    assert one["system"] == three["system"]                  # qismlar soni keshni buzmasin
+    assert "2026-10-06" not in one["system"]
+    assert "Bugungi sana: 2026-10-06" in one["parts"][0]["text"]
+    assert "3 ta rasm" in three["parts"][0]["text"]
 
 
-def test_receipt_effort_comes_from_config(monkeypatch):
+def test_thinking_level_comes_from_config(monkeypatch):
     import ai
-    monkeypatch.setattr(config, "VISION_EFFORT", "medium")
-    fake = fake_ai.install(monkeypatch, [{"oqildi": False, "mahsulotlar": []}],
-                           tool="chekni_qaytar")
+    monkeypatch.setattr(config, "VISION_THINKING", "high")
+    fake = fake_ai.install(monkeypatch, [{"oqildi": False, "mahsulotlar": []}])
     asyncio.run(ai.parse_receipt([("eA==", "image/jpeg")]))
-    assert fake.calls[0]["output_config"] == {"effort": "medium"}
+    assert fake.calls[0]["thinking"] == "high"
+    assert fake.calls[0]["model"] == config.VISION_MODEL
+
+
+def test_thinking_setting_ignores_garbage(monkeypatch):
+    monkeypatch.setenv("VISION_THINKING", "juda-chuqur")
+    monkeypatch.setenv("PARSE_THINKING", " LOW ")
+    assert config._thinking("VISION_THINKING", "medium") == "medium"   # noto'g'ri — standart
+    assert config._thinking("PARSE_THINKING", "minimal") == "low"
+    assert config._thinking("YOQ_SOZLAMA", "high") == "high"
 
 
 def test_trial_receipts_total_cap():

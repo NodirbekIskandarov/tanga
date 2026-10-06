@@ -239,7 +239,7 @@ def test_qa_aggregates_cover_all_rows_not_just_latest(monkeypatch):
                                    summary_rows=summary,
                                    monthly=db.monthly_totals(UID)))
 
-    prompt = fake.calls[0]["messages"][0]["content"]
+    prompt = fake.calls[0]["content"]
     assert '"chiqim": 300000.0' in prompt            # 30 ta yozuvning hammasi
     assert today.strftime("%Y-%m") in prompt         # oylik jamlar ham bor
 

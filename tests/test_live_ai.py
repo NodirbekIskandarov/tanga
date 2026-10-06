@@ -5,7 +5,8 @@ Faqat qo'lda:
 
     pytest -m live
 
-Kalit `.env` dagi ANTHROPIC_API_KEY dan olinadi. Narxi: ~16 ta qisqa
+Kalit GEMINI_API_KEY muhit o'zgaruvchisidan yoki `.env` dan olinadi
+(faqat billing yoqilgan, PULLIK daraja kaliti). Narxi: ~16 ta qisqa
 so'rov PARSE_MODEL da (bir necha sent). Oxirida natijalar jadvali
 chiqadi (conftest.py, pytest_terminal_summary).
 
@@ -16,6 +17,7 @@ keyingi yo'lni. Ikkalasi ham kerak.
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import date, timedelta
 
 import pytest
@@ -23,6 +25,7 @@ from dotenv import dotenv_values
 
 import ai
 import config
+import gemini
 import reports
 from tests import live_results
 
@@ -78,11 +81,12 @@ EXTRA = [
 
 @pytest.fixture(autouse=True)
 def real_key(monkeypatch):
-    key = (dotenv_values(".env").get("ANTHROPIC_API_KEY") or "").strip()
-    if not key.startswith("sk-ant-") or key == "sk-ant-test":
-        pytest.skip(".env da haqiqiy ANTHROPIC_API_KEY yo'q")
-    monkeypatch.setattr(config, "ANTHROPIC_API_KEY", key)
-    monkeypatch.setattr(ai, "_client", None)
+    key = (os.environ.get("GEMINI_API_KEY")
+           or dotenv_values(".env").get("GEMINI_API_KEY") or "").strip()
+    if not key or key == "gemini-test-key":
+        pytest.skip("haqiqiy GEMINI_API_KEY yo'q (muhit yoki .env)")
+    monkeypatch.setattr(config, "GEMINI_API_KEY", key)
+    monkeypatch.setattr(gemini, "_client", None)
 
 
 def _check(text: str, expected: list[tuple]) -> tuple[bool, str]:

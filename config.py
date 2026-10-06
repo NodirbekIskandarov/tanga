@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+from datetime import date, datetime
+from typing import NamedTuple
 import time
 from zoneinfo import ZoneInfo
 
@@ -29,7 +31,7 @@ def _ids(name: str) -> set[int]:
 
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN", "").strip()
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 
 # Grafik boshqaruv paneli (Telegram Mini App) manzili. Bo'sh bo'lsa
 # tegishli tugma ko'rsatilmaydi — webapp.py alohida joylashtirilishi kerak,
@@ -37,60 +39,125 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
 WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip()
 
 # Yozuvlarni ajratish uchun arzon va tez model yetarli.
-PARSE_MODEL = os.getenv("PARSE_MODEL", "claude-haiku-4-5-20251001").strip()
+PARSE_MODEL = os.getenv("PARSE_MODEL", "gemini-3.5-flash-lite").strip()
+# Ovozli xabar: bitta chaqiruvda ham transkripsiya, ham ajratish. Aniqlik
+# pasaysa kuchliroq modelni sinang: VOICE_MODEL=gemini-3.8-flash.
+VOICE_MODEL = os.getenv("VOICE_MODEL", "gemini-3.5-flash-lite").strip()
 # Savollarga javob berish uchun kuchliroq model.
-CHAT_MODEL = os.getenv("CHAT_MODEL", "claude-sonnet-5").strip()
-# Chek rasmlarini o'qish uchun — eng aniq model. Arzonroq variant: claude-sonnet-5.
-VISION_MODEL = os.getenv("VISION_MODEL", "claude-opus-5").strip()
-# Chek o'qishdagi o'ylash chuqurligi: low | medium | high. «high» ancha
-# qimmat (o'ylash tokenlari chiqish narxida); chekda Python baribir jamini
-# tekshiradi va farq chiqsa qayta o'qitadi. Aniqlik pasaysa — «high».
-VISION_EFFORT = os.getenv("VISION_EFFORT", "medium").strip().lower()
+CHAT_MODEL = os.getenv("CHAT_MODEL", "gemini-3.8-flash").strip()
+# Chek rasmlarini o'qish uchun — aniqlik muhim.
+VISION_MODEL = os.getenv("VISION_MODEL", "gemini-3.8-flash").strip()
 
-# Model narxlari ($ / 1M token): (kirish, chiqish). Keshdan o'qish kirish
-# narxining ~0.1 barobari, keshga yozish ~1.25 barobari (5 daqiqalik TTL).
+
+def _thinking(name: str, default: str) -> str:
+    """«O'ylash» darajasi: minimal | low | medium | high. Noto'g'ri qiymat
+    jimgina standartga tushadi — xato sozlama botni to'xtatmasin."""
+    value = os.getenv(name, default).strip().lower()
+    return value if value in ("minimal", "low", "medium", "high") else default
+
+
+# O'ylash tokenlari chiqish narxida hisoblanadi. Matn va ovozda kerak emas
+# (sxema qat'iy), chekda va savolda o'rtacha: Python chek jamini baribir
+# tekshiradi va farq chiqsa qayta o'qitadi. Chek aniqligi pasaysa — «high».
+PARSE_THINKING = _thinking("PARSE_THINKING", "minimal")
+VOICE_THINKING = _thinking("VOICE_THINKING", "minimal")
+VISION_THINKING = _thinking("VISION_THINKING", "medium")
+CHAT_THINKING = _thinking("CHAT_THINKING", "medium")
+
+
+# --------------------------------------------------------------------------- #
+# Ovozli kiritish
+# --------------------------------------------------------------------------- #
+
+# Funksiya bayrog'i: avval yopiq, keyin beta ro'yxat, keyin hammaga.
+VOICE_ENABLED = _bool("VOICE_ENABLED", False)
+# Bo'sh bo'lmasa — ovoz faqat shu ID'lar va egalar uchun.
+VOICE_BETA_USER_IDS = _ids("VOICE_BETA_USER_IDS")
+# Ovoz chegarasi: davomiyligi (soniya) va hajmi (bayt). Oshsa yuklab
+# olinmaydi.
+VOICE_MAX_SECONDS = int(os.getenv("VOICE_MAX_SECONDS", "60"))
+VOICE_MAX_BYTES = int(os.getenv("VOICE_MAX_BYTES", "2000000"))
+# Shundan katta summa ovozdan aniqlansa — model ishonchidan qat'i nazar
+# foydalanuvchidan tasdiq so'raladi (noto'g'ri eshitish zarari katta).
+VOICE_CONFIRM_ABOVE_SOM = float(os.getenv("VOICE_CONFIRM_ABOVE_SOM", "5000000"))
+VOICE_CONFIRM_ABOVE_USD = float(os.getenv("VOICE_CONFIRM_ABOVE_USD", "500"))
+
+
+# Model narxlari ($ / 1M token): (kirish matn/rasm, kirish audio, chiqish,
+# keshdan o'qish). Chiqishga «o'ylash» tokenlari ham kiradi. Narx sanaga
+# bog'langan bo'lishi mumkin: (shu kungacha, narx) — oxirgisida sana None.
+# Manba: https://ai.google.dev/gemini-api/docs/pricing (pullik daraja).
 # Narxlar o'zgarsa shu yerdan yangilanadi — hisob-kitob avtomatik moslashadi.
-MODEL_PRICES = {
-    "claude-haiku-4-5-20251001": (1.00, 5.00),
-    "claude-haiku-4-5": (1.00, 5.00),
-    # Sonnet 5 ilgari $3/$15 deb yozilgan edi — chek va savol sarfi 1.5
-    # barobar oshirib hisoblanardi (admin «Moliya» va AI limiti ham).
-    "claude-sonnet-5": (2.00, 10.00),
-    "claude-sonnet-5-5": (2.00, 10.00),
-    "claude-opus-5": (5.00, 25.00),
-    "claude-opus-5-5": (4.00, 20.00),
-    "claude-opus-4-8": (5.00, 25.00),
-}
-CACHE_READ_MULTIPLIER = 0.10
-CACHE_WRITE_MULTIPLIER = 1.25
+class Price(NamedTuple):
+    input: float
+    audio: float
+    output: float
+    cache_read: float
 
-# Jadvalda yo'q model uchun — eng qimmat ma'lum narx. Ilgari 0 qaytardi:
-# .env da yangi model nomi yozilsa AI limiti ham, admin «Moliya» si ham
-# jimgina ishlamay qolardi (sarf $0 bo'lib ko'rinardi).
-_FALLBACK_PRICE = max(MODEL_PRICES.values(), key=lambda p: p[0] + p[1])
+
+_FLASH_LITE_35 = Price(0.30, 0.30, 2.50, 0.03)
+# 3.8 Flash: 2026-12-31 gacha chegirmali narx, 2027-01-01 dan to'liq narx.
+# ESLATMA: 2027-01-01 dan xarajat ikki barobar oshadi (README «Xarajat»).
+_FLASH_38_UNTIL = date(2026, 12, 31)
+_FLASH_38 = ((_FLASH_38_UNTIL, Price(0.75, 0.75, 3.75, 0.075)),
+             (None, Price(1.50, 1.50, 7.50, 0.15)))
+
+MODEL_PRICES: dict[str, tuple[tuple[date | None, Price], ...]] = {
+    "gemini-3.5-flash-lite": ((None, _FLASH_LITE_35),),
+    "gemini-3.8-flash": _FLASH_38,
+    # 3.6 / 3.7 Flash narxi 3.8 bilan bir xil (hujjat).
+    "gemini-3.7-flash": _FLASH_38,
+    "gemini-3.6-flash": _FLASH_38,
+}
+
 _warned_models: set[str] = set()
 
 
+def _price_on(tiers: tuple[tuple[date | None, Price], ...], day: date) -> Price:
+    for until, price in tiers:
+        if until is None or day <= until:
+            return price
+    return tiers[-1][1]
+
+
+def price_for(model: str, day: date | None = None) -> Price:
+    """Modelning shu kundagi narxi. Jadvalda yo'q model uchun — eng qimmat
+    ma'lum narx. Ilgari 0 qaytardi: .env da yangi model nomi yozilsa AI
+    limiti ham, admin «Moliya» si ham jimgina ishlamay qolardi (sarf $0
+    bo'lib ko'rinardi)."""
+    day = day or datetime.now(TZ).date()
+    tiers = MODEL_PRICES.get(model)
+    if tiers:
+        return _price_on(tiers, day)
+    if model not in _warned_models:
+        _warned_models.add(model)
+        import logging
+        logging.getLogger("tanga.config").warning(
+            "Model narxi noma'lum: %s — eng qimmat narx olindi. "
+            "config.MODEL_PRICES ni yangilang.", model)
+    known = [_price_on(t, day) for t in MODEL_PRICES.values()]
+    return Price(*(max(p[i] for p in known) for i in range(4)))
+
+
 def cost_usd(model: str, input_tokens: int, output_tokens: int,
-             cache_read: int = 0, cache_write: int = 0) -> float:
-    """Bitta API chaqiruvining narxi. Noma'lum model eng qimmat narxda
-    hisoblanadi va logda bir marta ogohlantiriladi — kam hisoblab limitni
+             cache_read: int = 0, cache_write: int = 0, audio: int = 0,
+             day: date | None = None) -> float:
+    """Bitta API chaqiruvining narxi.
+
+    `input_tokens` — keshdan o'qilmagan kirish (audio ham shunga kiradi),
+    `audio` — shundan audio ulushi (audio narxida), `cache_read` — keshdan
+    o'qilgan kirish. `cache_write` Gemini'da yo'q (yashirin kesh) — eski
+    chaqiruvlar ishlashi uchun qabul qilinadi, hisobga olinmaydi.
+    Noma'lum model eng qimmat narxda hisoblanadi: kam hisoblab limitni
     chetlab o'tgandan ko'ra, ko'p hisoblab erta to'xtagan yaxshi."""
-    price = MODEL_PRICES.get(model)
-    if not price:
-        if model not in _warned_models:
-            _warned_models.add(model)
-            import logging
-            logging.getLogger("tanga.config").warning(
-                "Model narxi noma'lum: %s — eng qimmat narx olindi. "
-                "config.MODEL_PRICES ni yangilang.", model)
-        price = _FALLBACK_PRICE
-    pin, pout = price
+    p = price_for(model, day)
+    audio = max(0, min(audio, input_tokens))
+    text_in = input_tokens - audio
     return (
-        input_tokens / 1e6 * pin
-        + output_tokens / 1e6 * pout
-        + cache_read / 1e6 * pin * CACHE_READ_MULTIPLIER
-        + cache_write / 1e6 * pin * CACHE_WRITE_MULTIPLIER
+        text_in / 1e6 * p.input
+        + audio / 1e6 * p.audio
+        + output_tokens / 1e6 * p.output
+        + cache_read / 1e6 * p.cache_read
     )
 
 
@@ -170,8 +237,9 @@ def private_key_pragma() -> str:
 # Shartlar va maxfiylik siyosatiga rozilik versiyasi. Shartlar o'zgarsa
 # oshiriladi va roziligi eskirganlardan qaytadan so'raladi. Bot ham, Mini
 # App ham shu qiymatni tekshiradi.
-# 2026-10-1: maxfiylik matni haqiqatga moslandi (kalit qayerda, Anthropic
-# 30 kun, Telegram'dagi zaxiralar), /csv bepul, qisqa rozilik ekrani.
+# 2026-10-1: maxfiylik matni haqiqatga moslandi (kalit qayerda, AI
+# xizmatida saqlanish muddati, Telegram'dagi zaxiralar), /csv bepul,
+# qisqa rozilik ekrani.
 # 2026-10-2: shartlar — obuna to'lovi qaytarilmaydi (avval «3 kunda
 # qaytariladi» deyilgan edi). Foydalanuvchi huquqi kamaygani uchun
 # roziligi qayta so'raladi.
@@ -478,8 +546,8 @@ def plan_discount_percent(plan: dict) -> int:
 # foydalanadi, lekin ayrim imkoniyatlar yopiq (tiers.py).
 # --------------------------------------------------------------------------- #
 
-# Bepul: oyiga shuncha chek. Chek o'qish eng qimmat amal (Opus/Sonnet
-# vision), shuning uchun bepul darajada eng qattiq cheklangan.
+# Bepul: oyiga shuncha chek. Chek o'qish eng qimmat amal (rasm/PDF
+# o'qish), shuning uchun bepul darajada eng qattiq cheklangan.
 FREE_RECEIPTS_PER_MONTH = int(os.getenv("FREE_RECEIPTS_PER_MONTH", "3"))
 # Bepul: kuniga shuncha AI savol.
 FREE_QA_PER_DAY = int(os.getenv("FREE_QA_PER_DAY", "3"))
@@ -495,6 +563,10 @@ LIMIT_TEXT_PER_DAY = int(os.getenv("LIMIT_TEXT_PER_DAY", "120"))
 # ~$1 olib keladi — 25 ta chek bitta odamni zararga aylantirardi.
 LIMIT_RECEIPT_PER_DAY = int(os.getenv("LIMIT_RECEIPT_PER_DAY", "10"))
 LIMIT_QA_PER_DAY = int(os.getenv("LIMIT_QA_PER_DAY", "30"))
+# Ovozli xabar: PRO kuniga shuncha, Bepul kuniga shuncha. Bepul limit —
+# BIZNES QARORI (.env da o'zgaradi): ovoz matndan qimmatroq (audio kirishi).
+LIMIT_VOICE_PER_DAY = int(os.getenv("LIMIT_VOICE_PER_DAY", "40"))
+FREE_VOICE_PER_DAY = int(os.getenv("FREE_VOICE_PER_DAY", "5"))
 # Sinov (7 kunlik PRO) davomida JAMI shuncha chek. Sinov — to'liq PRO,
 # lekin chek eng qimmat amal va sinovni yangi akkaunt bilan qayta olish
 # mumkin.
@@ -516,11 +588,14 @@ QA_MAX_ROWS = int(os.getenv("QA_MAX_ROWS", "150"))
 
 # Bitta chek uchun maksimal rasm (uzun chekni bo'lib suratga olish uchun).
 MAX_RECEIPT_PARTS = int(os.getenv("MAX_RECEIPT_PARTS", "8"))
-# Bitta rasm uchun maksimal hajm (Anthropic API chegarasi ~5 MB).
-MAX_IMAGE_BYTES = int(os.getenv("MAX_IMAGE_BYTES", str(4_500_000)))
-# Bitta PDF uchun maksimal hajm. Telegram botlar 20 MB gacha yuklab oladi,
-# base64 esa hajmni ~33% oshiradi (API so'rovi chegarasi 32 MB).
-MAX_PDF_BYTES = int(os.getenv("MAX_PDF_BYTES", str(15_000_000)))
+# Gemini'ga fayllar so'rov ichida (inline) yuboriladi: JAMI so'rov 20 MB dan
+# oshmasligi kerak, base64 esa hajmni ~33% oshiradi — shuning uchun chek
+# qismlarining YIG'INDISI ham cheklanadi (MAX_RECEIPT_TOTAL_BYTES).
+MAX_IMAGE_BYTES = int(os.getenv("MAX_IMAGE_BYTES", str(8_000_000)))
+# Bitta PDF uchun maksimal hajm (xom bayt; base64 dan keyin ~17 MB).
+MAX_PDF_BYTES = int(os.getenv("MAX_PDF_BYTES", str(12_000_000)))
+# Bitta chekning barcha qismlari (rasm va PDF) yig'indisi, xom bayt.
+MAX_RECEIPT_TOTAL_BYTES = int(os.getenv("MAX_RECEIPT_TOTAL_BYTES", str(13_000_000)))
 
 KIND_CHIQIM = "chiqim"
 KIND_KIRIM = "kirim"
@@ -723,6 +798,6 @@ def missing_settings() -> list[str]:
     missing = []
     if not TELEGRAM_TOKEN:
         missing.append("TELEGRAM_TOKEN")
-    if not ANTHROPIC_API_KEY:
-        missing.append("ANTHROPIC_API_KEY")
+    if not GEMINI_API_KEY:
+        missing.append("GEMINI_API_KEY")
     return missing
