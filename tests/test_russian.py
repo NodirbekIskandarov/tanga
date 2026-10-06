@@ -293,3 +293,197 @@ def test_share_card_text_follows_language():
         png = sharecard.build(title="Октябрь", kirim=8_000_000, chiqim=600_000,
                               categories=[("oziq-ovqat", 500_000, 3)], lang="ru")
         assert png and png[:4] == b"\x89PNG"
+
+
+# --------------------------------------------------------------- Mini App --
+
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+_JS_STR = r'"((?:[^"\\\n]|\\.)*)"'
+
+
+def _js_dictionary(js: str) -> set[str]:
+    block = js[js.index("const RU = {"):js.index("const MONTHS_UZ_SHORT")]
+    return {m.group(1).replace('\\"', '"').replace("\\\\", "\\")
+            for m in re.finditer(r'(?:^|[,{\s])' + _JS_STR + r'\s*:', block, re.M)}
+
+
+def test_every_miniapp_text_has_a_russian_translation():
+    js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+    known = _js_dictionary(js)
+    assert len(known) > 100
+    used = {m.group(1) for m in re.finditer(r'\bt\(' + _JS_STR, js)}
+    assert used, "t() chaqiruvlari topilmadi"
+    assert not (used - known), f"tarjimasiz: {sorted(used - known)}"
+    html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+    attrs = {m.group(1) for m in re.finditer(r'data-i18n(?:-ph|-aria)?="([^"]*)"', html)}
+    assert attrs and not (attrs - known), f"HTML da tarjimasiz: {sorted(attrs - known)}"
+
+
+def test_no_uzbek_literals_left_outside_t_in_miniapp():
+    """Foydalanuvchiga ko'rinadigan o'zbekcha matn t() dan o'tmay qolmasin."""
+    js = (ROOT / "static" / "app.js").read_text(encoding="utf-8")
+    body = js[js.index("const MONTHS_UZ_SHORT"):]
+    leftovers = []
+    for n, line in enumerate(body.splitlines(), 1):
+        code = line.split("//")[0] if line.strip().startswith("//") else line
+        if line.strip().startswith(("//", "*", "/*")):
+            continue
+        for lit in re.finditer(r"toast\(\"([^\"]+)\"\)|textContent = \"([A-Z][^\"]+)\"", code):
+            leftovers.append((n, lit.group(0)))
+    assert not leftovers, leftovers
+
+
+def _init(uid):
+    import hashlib, hmac, json, time
+    from urllib.parse import urlencode
+    pairs = {"auth_date": str(int(time.time())),
+             "user": json.dumps({"id": uid, "first_name": "Иван"})}
+    check = "\n".join(f"{k}={v}" for k, v in sorted(pairs.items()))
+    secret = hmac.new(b"WebAppData", config.TELEGRAM_TOKEN.encode(), hashlib.sha256).digest()
+    pairs["hash"] = hmac.new(secret, check.encode(), hashlib.sha256).hexdigest()
+    return {"X-Telegram-Init-Data": urlencode(pairs)}
+
+
+def test_miniapp_api_speaks_the_users_language():
+    from fastapi.testclient import TestClient
+    import webapp
+    webapp._rate.clear()
+    ru, uz = _ru_user(2101), 2102
+    db.get_or_create_user(uz, "Ali", None)
+    db.set_consent(uz, config.CONSENT_VERSION)
+    client = TestClient(webapp.app)
+
+    me = client.get("/api/me", headers=_init(ru)).json()
+    assert me["lang"] == "ru"
+    assert me["category_labels"]["oziq-ovqat"] == "продукты"
+    assert me["kind_labels"]["qarz_berdim"] == "Дал в долг"
+    assert me["currency_symbols"]["som"] == "сум"
+    me_uz = client.get("/api/me", headers=_init(uz)).json()
+    assert me_uz["lang"] == "uz" and me_uz["currency_symbols"]["som"] == "so'm"
+    assert me_uz["category_labels"] == {"oylik": "ish haqi"}
+
+    assert client.get("/api/summary?period=oy", headers=_init(ru)).json()["label"] \
+        .split()[0] in [m.capitalize() for m in i18n.MONTHS_RU_NOM]
+    week = client.get("/api/summary?period=hafta", headers=_init(ru)).json()["label"]
+    assert re.search("[а-я]", week)
+
+    bad = client.delete("/api/transactions/999999", headers=_init(ru))
+    assert bad.status_code == 404 and bad.json()["detail"] == "Запись не найдена"
+    bad = client.delete("/api/transactions/999999", headers=_init(uz))
+    assert bad.json()["detail"] == "Yozuv topilmadi"
+    bad = client.get("/api/summary?period=oy&ref=xx", headers=_init(ru))
+    assert bad.status_code == 400 and "Неверная дата" in bad.json()["detail"]
+
+
+def test_miniapp_rate_limit_message_is_russian(monkeypatch):
+    from fastapi.testclient import TestClient
+    import webapp
+    webapp._rate.clear()
+    monkeypatch.setattr(webapp, "RATE_LIMIT", 1)
+    uid = _ru_user(2103)
+    client = TestClient(webapp.app)
+    client.get("/api/me", headers=_init(uid))
+    r = client.get("/api/me", headers=_init(uid))
+    assert r.status_code == 429 and "Слишком много запросов" in r.json()["detail"]
+
+
+# ---------------------------------------------------- matn va chek oqimi --
+
+def _text_run(monkeypatch, parsed, text="обед 45 тысяч", uid=2201, error=False):
+    import ai
+
+    async def fake_parse(t, today=None):
+        if error:
+            raise RuntimeError("boom")
+        return parsed
+
+    monkeypatch.setattr(ai, "parse_message", fake_parse)
+    uid = _ru_user(uid)
+    update, msg = _upd(uid)
+    msg.text = text
+    msg.chat_id = uid
+    ctx = SimpleNamespace(bot=SimpleNamespace(send_chat_action=_noop, send_message=_noop2),
+                          user_data={}, args=[], bot_data={})
+
+    async def run():
+        await bot._private_chat_guard(update, ctx)
+        await bot._process_text(update, ctx, text)
+
+    asyncio.run(run())
+    return msg
+
+
+async def _noop(*a, **k):
+    return None
+
+
+async def _noop2(*a, **k):
+    return None
+
+
+def test_text_entry_is_saved_and_answered_in_russian(monkeypatch):
+    parsed = {"niyat": "yozuv", "izoh_matni": "", "_usage": None, "yozuvlar": [
+        {"turi": "chiqim", "summa": 45_000, "valyuta": "som", "kategoriya": "kafe va restoran",
+         "izoh": "обед", "shaxs": "", "sana": date.today().isoformat(), "maqsad": "",
+         "muddat": None}]}
+    msg = _text_run(monkeypatch, parsed)
+    text = msg.replies[0][0]
+    _no_uzbek(text)
+    assert "Расход" in text and "сохранено" in text and "кафе и рестораны" in text
+    assert "45 000 сум" in text and "Расходы сегодня" in text
+    buttons = [b.text for row in msg.replies[0][1].inline_keyboard for b in row]
+    assert "✏️ Категория" in buttons and "🗑 Удалить" in buttons
+
+
+def test_multi_entry_message_in_russian(monkeypatch):
+    day = date.today().isoformat()
+    row = lambda amount, cat, note: {
+        "turi": "chiqim", "summa": amount, "valyuta": "som", "kategoriya": cat,
+        "izoh": note, "shaxs": "", "sana": day, "maqsad": "", "muddat": None}
+    parsed = {"niyat": "yozuv", "izoh_matni": "", "_usage": None,
+              "yozuvlar": [row(20_000, "transport", "такси"), row(25_000, "oziq-ovqat", "кофе")]}
+    msg = _text_run(monkeypatch, parsed, uid=2202)
+    text = msg.replies[0][0]
+    _no_uzbek(text)
+    assert "2 записи сохранены" in text and "Чтобы исправить" in text
+
+
+def test_unclear_message_gives_russian_hint(monkeypatch):
+    parsed = {"niyat": "tushunarsiz", "izoh_matni": "Summa aniq emas", "_usage": None,
+              "yozuvlar": []}
+    msg = _text_run(monkeypatch, parsed, text="привет как дела", uid=2203)
+    assert "Не понял" in msg.replies[0][0] and "Summa" not in msg.replies[0][0]
+
+
+def test_ai_failure_message_is_russian(monkeypatch):
+    msg = _text_run(monkeypatch, {}, text="обед 45 тысяч", uid=2204, error=True)
+    assert msg.replies[0][0] == "⚠️ Ошибка связи с AI. Попробуйте чуть позже."
+
+
+def test_receipt_reading_status_and_errors_in_russian(monkeypatch):
+    import ai
+    uid = _ru_user(2205)
+
+    async def failing(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ai, "parse_receipt", failing)
+    update, msg = _upd(uid)
+    msg.edit_log = []
+
+    async def edit_text(text, **kw):
+        msg.edit_log.append(text)
+
+    msg.edit_text = edit_text
+    ctx = SimpleNamespace(bot=SimpleNamespace(send_chat_action=_noop, send_message=_noop2),
+                          user_data={}, args=[], bot_data={})
+
+    async def run():
+        await bot._private_chat_guard(update, ctx)
+        await bot._process_receipt(update, ctx, [("x", "image/jpeg")] * 2, "")
+
+    asyncio.run(run())
+    assert msg.replies[0][0] == "🔍 Читаю чек (2 ч.)…"
+    assert msg.edit_log == ["⚠️ Ошибка при чтении чека. Попробуйте чуть позже."]

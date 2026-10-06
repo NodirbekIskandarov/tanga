@@ -81,7 +81,7 @@ Eng aniq natija uchun rasmni **Fayl** sifatida yuboring — Telegram uni siqmayd
 | `config.py` | Sozlamalar va kategoriyalar ro'yxati |
 | `tiers.py` | Bepul va PRO chegaralari |
 | `webapp.py` + `static/` | Telegram Mini App (grafikli panel) |
-| `i18n.py`, `guide_ru.py` | Matnlar: o'zbek (lotin/kirill) va rus |
+| `i18n.py`, `i18n_extra.py`, `guide_ru.py` | Matnlar: o'zbek (lotin/kirill) va rus; hisobotlar `reports.py` da, Mini App tarjimasi `static/app.js` (`RU`) da |
 | `scripts/` | Ma'lumot migratsiyalari (dry-run / `--apply` / `--rollback`) |
 
 ## O'rnatish

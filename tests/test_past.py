@@ -186,6 +186,7 @@ def test_flushed_album_is_remembered(monkeypatch):
     assert "G10" in bot._done_albums
 
 
-def test_russian_is_marked_beta():
-    assert "beta" in i18n.LANGS["ru"].lower()
+def test_russian_is_no_longer_marked_beta():
+    """K11: rus tili to'liq (tests/test_russian.py) — «beta» belgisi olib tashlandi."""
+    assert "beta" not in i18n.LANGS["ru"].lower()
     assert "beta" not in i18n.LANGS["uz"].lower()

@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 import config
+import i18n
 import db
 import goals
 import learning
@@ -134,29 +135,42 @@ def _validate_init_data(init_data: str) -> dict:
     # yopiq rejimdagi begona kira olmaydi.
     access = db.access_status(user_id, user.get("first_name", ""), user.get("username"))
     if not access["ok"]:
-        detail = {
-            "blocked": "Hisobingiz bloklangan.",
-            "not_allowed": "Bot hozircha yopiq sinovda.",
-        }.get(access["status"], "Ruxsat yo'q.")
-        raise HTTPException(403, detail)
+        key = {
+            "blocked": "wa_blocked",
+            "not_allowed": "wa_closed",
+        }.get(access["status"], "err_no_access")
+        raise _err({"lang": _app_lang(user_id)}, 403, key)
 
     # Botda har bir amal rozilikdan keyin. Mini App ham shunday: endi
     # Bepul daraja hammaga ochiq, rozilik bermagan odam panel orqali
     # ma'lumot qo'sha olmasin.
     if not db.has_consent(user_id, config.CONSENT_VERSION):
-        raise HTTPException(403, "Avval botda shartlarga rozilik bering: /start")
+        raise _err({"lang": _app_lang(user_id)}, 403, "wa_consent")
 
     return {
         "user_id": user_id,
         "first_name": user.get("first_name", ""),
         "access": access,
+        "lang": _app_lang(user_id),
     }
+
+
+def _app_lang(user_id: int) -> str:
+    """Mini App tili: «ru» yoki «uz». O'zbek kirill bu yerda lotin bo'lib
+    qoladi — panelda kirill tarjimasi yo'q."""
+    return "ru" if i18n.normalize(db.get_lang(user_id)) == "ru" else "uz"
+
+
+def _err(user: dict | None, status: int, key: str, **kwargs) -> HTTPException:
+    """Foydalanuvchi tilidagi xato (matn i18n jadvalidan)."""
+    lang = (user or {}).get("lang", "uz")
+    return HTTPException(status, i18n.t(lang, key, **kwargs))
 
 
 def current_user(x_telegram_init_data: str = Header(default="")) -> dict:
     """FastAPI dependency: har bir himoyalangan endpoint shu orqali autentifikatsiya qiladi."""
     user = _validate_init_data(x_telegram_init_data)
-    _check_rate(user["user_id"])
+    _check_rate(user["user_id"], user["lang"])
     return user
 
 
@@ -204,6 +218,9 @@ def _bot_username() -> str:
 # --------------------------------------------------------------------------- #
 
 EXPORT_TOKEN_TTL = 60
+# Havola brauzerda ochiladi — foydalanuvchi tili bu yerda noma'lum.
+_LINK_EXPIRED = ("Havola eskirgan — panelni yangilab qayta urining / "
+                 "Ссылка устарела — обновите панель и попробуйте снова")
 _export_tokens: dict[str, tuple[int, float]] = {}
 
 
@@ -220,10 +237,10 @@ def _issue_export_token(user_id: int) -> str:
 def _consume_export_token(token: str) -> int:
     entry = _export_tokens.pop(token, None)
     if not entry:
-        raise HTTPException(401, "Havola eskirgan — panelni yangilab qayta urining")
+        raise HTTPException(401, _LINK_EXPIRED)
     user_id, expires = entry
     if expires < time.time():
-        raise HTTPException(401, "Havola eskirgan — panelni yangilab qayta urining")
+        raise HTTPException(401, _LINK_EXPIRED)
     return user_id
 
 
@@ -235,11 +252,11 @@ RATE_LIMIT = 90          # daqiqasiga so'rov
 _rate: dict[int, list[float]] = {}
 
 
-def _check_rate(user_id: int) -> None:
+def _check_rate(user_id: int, lang: str = "uz") -> None:
     now = time.time()
     hits = [t for t in _rate.get(user_id, []) if now - t < 60]
     if len(hits) >= RATE_LIMIT:
-        raise HTTPException(429, "Juda ko'p so'rov. Bir daqiqadan keyin urinib ko'ring.")
+        raise _err({"lang": lang}, 429, "wa_rate_limit")
     hits.append(now)
     _rate[user_id] = hits
     # Xotira o'smasin: eskirgan yozuvlarni vaqti-vaqti bilan tozalaymiz.
@@ -252,40 +269,38 @@ def _check_rate(user_id: int) -> None:
 # Sana oralig'ini hisoblash (dashboard uchun — oldinga/orqaga navigatsiya)
 # --------------------------------------------------------------------------- #
 
-def _compute_range(period: str, ref: date) -> tuple[date, date, str]:
+def _compute_range(period: str, ref: date, lang: str = "uz") -> tuple[date, date, str]:
+    month = lambda d: i18n.month_name(lang, d.month)      # noqa: E731
     if period == "hafta":
         start = ref - timedelta(days=ref.weekday())
         end = start + timedelta(days=6)
         if start.month == end.month:
-            label = f"{start.day}–{end.day} {reports.UZ_MONTHS[start.month - 1]}"
+            label = f"{start.day}–{end.day} {month(start)}"
         else:
-            label = (
-                f"{start.day} {reports.UZ_MONTHS[start.month - 1]} – "
-                f"{end.day} {reports.UZ_MONTHS[end.month - 1]}"
-            )
+            label = f"{start.day} {month(start)} – {end.day} {month(end)}"
         return start, end, label
     if period == "oy":
         start = ref.replace(day=1)
         next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
         end = next_month - timedelta(days=1)
-        label = f"{reports.UZ_MONTHS[ref.month - 1].capitalize()} {ref.year}"
-        return start, end, label
+        name = i18n.month_name(lang, ref.month, nominative=True).capitalize()
+        return start, end, f"{name} {ref.year}"
     if period == "yil":
         start = ref.replace(month=1, day=1)
         end = ref.replace(month=12, day=31)
-        return start, end, f"{ref.year}-yil"
+        return start, end, (f"{ref.year} год" if lang == "ru" else f"{ref.year}-yil")
     # "kun"
-    label = f"{ref.day}-{reports.UZ_MONTHS[ref.month - 1]}"
+    label = f"{ref.day} {month(ref)}" if lang == "ru" else f"{ref.day}-{month(ref)}"
     return ref, ref, label
 
 
-def _parse_date(raw: str | None, default: date) -> date:
+def _parse_date(raw: str | None, default: date, lang: str = "uz") -> date:
     if not raw:
         return default
     try:
         return date.fromisoformat(raw)
     except ValueError:
-        raise HTTPException(400, f"Noto'g'ri sana: {raw}")
+        raise _err({"lang": lang}, 400, "wa_bad_date", raw=raw[:20])
 
 
 # --------------------------------------------------------------------------- #
@@ -296,6 +311,7 @@ def _parse_date(raw: str | None, default: date) -> date:
 def api_me(user: dict = Depends(current_user)):
     access = user.get("access") or {}
     until = access.get("until")
+    lang = user["lang"]
     return {
         "user_id": user["user_id"],
         "first_name": user["first_name"],
@@ -309,14 +325,18 @@ def api_me(user: dict = Depends(current_user)):
             "days_left": access.get("days_left"),
             "until": until.isoformat() if until else None,
         },
+        "lang": lang,
         "currency": config.CURRENCY,
         "categories": config.ALL_CATEGORIES,
         "category_icons": config.CATEGORY_ICONS,
-        "currency_symbols": config.CURRENCY_SYMBOLS,
+        "currency_symbols": {**config.CURRENCY_SYMBOLS,
+                             config.CURRENCY_SOM: i18n.money_unit(lang)},
         "kind_icons": config.KIND_ICONS,
-        "kind_labels": config.KIND_LABELS,
+        "kind_labels": {k: i18n.kind_label(lang, k) for k in config.KIND_LABELS},
         "kind_switches": config.KIND_SWITCHES,
-        "category_labels": config.CATEGORY_LABELS,
+        "category_labels": {c: i18n.category_name(lang, c)
+                            for c in config.ALL_CATEGORIES
+                            if i18n.category_name(lang, c) != c},
         "categories_by_kind": {
             config.KIND_CHIQIM: config.EXPENSE_CATEGORIES,
             config.KIND_KIRIM: config.INCOME_CATEGORIES,
@@ -336,8 +356,8 @@ def api_summary(
     ref: str | None = None,
     user: dict = Depends(current_user),
 ):
-    ref_date = _parse_date(ref, reports.today())
-    start, end, label = _compute_range(period, ref_date)
+    ref_date = _parse_date(ref, reports.today(), user["lang"])
+    start, end, label = _compute_range(period, ref_date, user["lang"])
     if period == "yil" or not tiers.history_allowed(user["access"], start):
         if not tiers.is_pro(user["access"]):
             _paywall(user, "history")
@@ -508,8 +528,8 @@ def api_transactions(
     offset: int = Query(0, ge=0),
     user: dict = Depends(current_user),
 ):
-    start_d = _parse_date(start, date(2000, 1, 1))
-    end_d = _parse_date(end, reports.today())
+    start_d = _parse_date(start, date(2000, 1, 1), user["lang"])
+    end_d = _parse_date(end, reports.today(), user["lang"])
     # Bepul daraja: ro'yxat joriy oydan boshlanadi (xato emas, jim cheklov —
     # qidiruv va «yana yuklash» ham shu chegarada ishlaydi).
     if not tiers.is_pro(user["access"]):
@@ -519,16 +539,16 @@ def api_transactions(
     if kind and "," in kind:
         kinds = [k for k in kind.split(",") if k]
         if any(k not in config.KINDS for k in kinds):
-            raise HTTPException(400, "Noto'g'ri turi")
+            raise _err(user, 400, "wa_bad_kind")
         kind = kinds
     elif kind and kind not in config.KINDS:
-        raise HTTPException(400, "Noto'g'ri turi")
+        raise _err(user, 400, "wa_bad_kind")
     # «hammasi» — valyuta filtri yo'q degani. /api/summary uni valyutalar
     # ro'yxatiga qo'shadi, shuning uchun bu yerda ham qabul qilinishi shart.
     if currency == config.CURRENCY_ALL:
         currency = None
     if currency and currency not in config.SUPPORTED_CURRENCIES:
-        raise HTTPException(400, "Noto'g'ri valyuta")
+        raise _err(user, 400, "wa_bad_currency")
 
     # Filtrlash, tartiblash va sahifalash SQL tomonida — foydalanuvchida
     # bir necha yillik yozuv to'planganda ham tez ishlashi kerak.
@@ -548,7 +568,7 @@ def api_transactions(
 def api_delete_transaction(tx_id: int, user: dict = Depends(current_user)):
     ok = db.delete_transaction(user["user_id"], tx_id)
     if not ok:
-        raise HTTPException(404, "Yozuv topilmadi")
+        raise _err(user, 404, "entry_not_found")
     return {"deleted": True}
 
 
@@ -573,7 +593,7 @@ def api_delete_receipt(receipt_id: str, user: dict = Depends(current_user)):
     """Butun chek: mahsulotlar va sarlavha bitta tranzaksiyada."""
     removed = db.delete_receipt(user["user_id"], receipt_id)
     if not removed:
-        raise HTTPException(404, "Chek topilmadi")
+        raise _err(user, 404, "wa_receipt_nf")
     return {"deleted": removed}
 
 
@@ -589,7 +609,7 @@ class TxUpdate(BaseModel):
 def api_update_transaction(tx_id: int, body: TxUpdate, user: dict = Depends(current_user)):
     row = db.get_transaction(user["user_id"], tx_id)
     if not row:
-        raise HTTPException(404, "Yozuv topilmadi")
+        raise _err(user, 404, "entry_not_found")
 
     if body.kind and body.kind != row["kind"]:
         # Ruxsat etilgan almashtirishlar config.KIND_SWITCHES da: kirim <->
@@ -597,14 +617,14 @@ def api_update_transaction(tx_id: int, body: TxUpdate, user: dict = Depends(curr
         # ATAYLAB yo'q — qoldiqni jimgina buzardi. Kerak bo'lsa yozuvni
         # o'chirib, qaytadan yozish to'g'ri yo'l.
         if body.kind not in config.KIND_SWITCHES.get(row["kind"], []):
-            raise HTTPException(400, "Bu yozuv turini almashtirib bo'lmaydi")
+            raise _err(user, 400, "kind_locked")
         new_category = body.category or config.fallback_category(body.kind)
         if new_category not in config.categories_for(body.kind):
-            raise HTTPException(400, "Noto'g'ri kategoriya")
+            raise _err(user, 400, "bad_category")
         db.update_kind(user["user_id"], tx_id, body.kind, new_category)
     elif body.category:
         if body.category not in config.categories_for(row["kind"]):
-            raise HTTPException(400, "Noto'g'ri kategoriya")
+            raise _err(user, 400, "bad_category")
         db.update_category(user["user_id"], tx_id, body.category)
         # Botdagi tuzatish bilan bir xil: keyingi shunday yozuv o'zi
         # to'g'ri kategoriyaga tushadi.
@@ -629,7 +649,7 @@ def api_debt_due(tx_id: int, body: DueBody, user: dict = Depends(current_user)):
         _paywall(user, "debt_reminders")
     due = tiers.today() + timedelta(days=body.days) if body.days else None
     if not db.set_due(user["user_id"], tx_id, due):
-        raise HTTPException(404, "Ochiq qarz topilmadi")
+        raise _err(user, 404, "wa_open_debt_nf")
     return {"due": due.isoformat() if due else None}
 
 
@@ -638,8 +658,9 @@ def api_debt_detail(tx_id: int, user: dict = Depends(current_user)):
     """Qarz kartasi: asli, to'langan, qoldiq va to'lovlar tarixi."""
     d = db.debt_detail(user["user_id"], tx_id)
     if d is None:
-        raise HTTPException(404, "Qarz topilmadi")
-    return {"id": d["id"], "kind": d["kind"], "person": d["person"] or "noma'lum",
+        raise _err(user, 404, "debt_not_found")
+    return {"id": d["id"], "kind": d["kind"],
+            "person": d["person"] or i18n.t(user["lang"], "debt_person_unknown"),
             "currency": d["currency"], "original": d["amount"], "paid": d["paid"],
             "remaining": d["remaining"], "date": d["occurred_on"],
             "payments": d["payments"]}
@@ -656,9 +677,9 @@ def api_debt_pay(tx_id: int, body: DebtPayBody, user: dict = Depends(current_use
     jimgina yo'qolmasin — interfeys «to'liq yopish» ni taklif qiladi)."""
     d = db.debt_detail(user["user_id"], tx_id)
     if d is None or d["remaining"] <= 0:
-        raise HTTPException(404, "Ochiq qarz topilmadi")
+        raise _err(user, 404, "wa_open_debt_nf")
     if body.amount > d["remaining"] + 0.005:
-        raise HTTPException(400, f"Qoldiqdan ko'p: qoldiq {d['remaining']:g}")
+        raise _err(user, 400, "wa_over_remaining", left=f"{d['remaining']:g}")
     db.add_debt_payment(user["user_id"], tx_id, body.amount)
     return api_debt_detail(tx_id, user)
 
@@ -667,7 +688,7 @@ def api_debt_pay(tx_id: int, body: DebtPayBody, user: dict = Depends(current_use
 def api_settle_debt(tx_id: int, user: dict = Depends(current_user)):
     ok = db.settle_debt(user["user_id"], tx_id)
     if not ok:
-        raise HTTPException(404, "Ochiq qarzlar orasida topilmadi")
+        raise _err(user, 404, "wa_open_debt_nf")
     return {"settled": True}
 
 
@@ -686,17 +707,17 @@ class TxCreate(BaseModel):
 @app.post("/api/transactions", status_code=201)
 def api_create_transaction(body: TxCreate, user: dict = Depends(current_user)):
     if body.kind not in config.KINDS:
-        raise HTTPException(400, "Noto'g'ri turi")
+        raise _err(user, 400, "wa_bad_kind")
     currency = config.normalize_currency(body.currency)
     category = config.normalize_category(body.kind, body.category)
     person = (body.person or "").strip() or None
     # Qarz berish/olishda shaxs shart; qaytarishda ixtiyoriy (bank
     # krediti to'lovida shaxs yo'q).
     if body.kind in config.DEBT_OPEN_KINDS and not person:
-        raise HTTPException(400, "Qarz uchun shaxs ismi kerak")
+        raise _err(user, 400, "wa_person_needed")
     if body.kind not in config.DEBT_KINDS:
         person = None
-    occurred_on = _parse_date(body.date, reports.today()).isoformat()
+    occurred_on = _parse_date(body.date, reports.today(), user["lang"]).isoformat()
 
     tx_id = db.add_transaction(
         user_id=user["user_id"], kind=body.kind, amount=body.amount,

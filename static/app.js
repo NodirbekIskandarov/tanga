@@ -9,6 +9,157 @@
   const INIT_DATA = tg ? tg.initData : "";
 
   // ----------------------------------------------------------------------- //
+  // Til (uz / ru). Kalit — o'zbekcha matnning o'zi (gettext uslubi): tarjima
+  // topilmasa o'zbekcha ko'rinadi, ya'ni yetishmagan tarjima ekranni buzmaydi.
+  // Server ham yorliq, davr nomi va xatolarni foydalanuvchi tilida beradi;
+  // bu yerda faqat interfeys matnlari. Til /api/me dan keladi (`lang`).
+  // ----------------------------------------------------------------------- //
+
+  const RU = {
+    "CSV eksport": "Экспорт CSV",
+    "Qidiruv": "Поиск",
+    "Qidirish… (masalan: taksi)": "Поиск… (например: такси)",
+    "Kun": "День", "Hafta": "Неделя", "Oy": "Месяц", "Yil": "Год",
+    "Hammasi": "Все", "Kirim": "Доход", "Chiqim": "Расход", "Qarz": "Долг",
+    "Jamg'arma": "Накопления",
+    "💰 Oylik kirimingizni kiriting — shunda qancha tejayotganingizni ko'rasiz":
+      "💰 Укажите месячный доход — тогда увидите, сколько вы экономите",
+    "So'nggi yozuvlar": "Последние записи",
+    "Yana yuklash": "Загрузить ещё",
+    "Yozuv qo'shish": "Добавить запись",
+    "Yopish": "Закрыть",
+    "PRO imkoniyati": "Функция PRO",
+    "Boshqa ({n})": "Другое ({n})",
+    "Yozuv yo'q.": "Записей нет.",
+    "Yo'q.": "Нет.",
+    "qoldiq · asli {amount}": "остаток · было {amount}",
+    "Botda /obuna buyrug'ini bosing": "Отправьте боту команду /obuna",
+    "💎 PRO ga o'tish": "💎 Перейти на PRO",
+    "PRO ga o'tasizmi?": "Перейти на PRO?",
+    "Bu davrda yozuv yo'q.": "За этот период записей нет.",
+    "Farq": "Разница",
+    "🏦 Jamg'arma": "🏦 Накопления",
+    "Kirim kategoriyalari": "Категории доходов",
+    "Chiqim kategoriyalari": "Категории расходов",
+    "Kategoriyalar": "Категории",
+    "Sof qarz": "Чистый долг",
+    "📤 Menga qarzdorlar": "📤 Должны мне",
+    "📥 Men qarzdorman": "📥 Я должен",
+    "↩️ Qarzimni qaytardim": "↩️ Я вернул долг",
+    "↪️ Menga qaytarildi": "↪️ Мне вернули долг",
+    "Shu davrda qaytarilgan": "Возвращено за период",
+    "Sof jamg'arma": "Чистые накопления",
+    "🏦 Qo'yilgan": "🏦 Отложено",
+    "🏧 Yechilgan": "🏧 Снято",
+    "🎉 Maqsadga yetdingiz!": "🎉 Цель достигнута!",
+    "🔒 «Qachon erishaman» bashorati — PRO": "🔒 Прогноз «когда достигну» — PRO",
+    "📈 Shu sur'atda <b>{when}</b>da erishasiz":
+      "📈 В таком темпе цель будет достигнута: <b>{when}</b>",
+    "📈 Bashorat uchun kamida 2 haftalik jamg'arma kerak":
+      "📈 Для прогноза нужны накопления минимум за 2 недели",
+    "📅 {when} gacha oyiga <b>{amount}</b> kerak":
+      "📅 До {when} нужно откладывать <b>{amount}</b> в месяц",
+    "Jamg'arma holati": "Состояние накоплений",
+    "Umumiy qoldiq": "Общий остаток",
+    "Maqsadlar": "Цели",
+    "Maqsad qo'yilmagan. Botda: ": "Цель не задана. В боте: ",
+    "Jamg'arma foizingiz: <b>{pct}</b>. O'zgartirish: <b>/foiz</b>":
+      "Ваш процент накоплений: <b>{pct}</b>. Изменить: <b>/foiz</b>",
+    "🔥 Ketma-ket <b>{n} oy</b> {pct} qoidasini bajaryapsiz":
+      "🔥 Уже <b>{n} мес.</b> подряд вы выполняете правило {pct}",
+    "Bu davrda harakat yo'q. Qo'shish: ": "За этот период движений нет. Добавить: ",
+    "<b>jamg'armaga 500 ming o'tkazdim</b>": "<b>отложил 500 тысяч в накопления</b>",
+    "Bu qarzni yopilgan deb belgilaysizmi?": "Отметить этот долг закрытым?",
+    "Ochiq qarz yo'q.": "Открытых долгов нет.",
+    "Ro'yxatni yuklab bo'lmadi.": "Не удалось загрузить список.",
+    "Nomaʼlum xatolik": "Неизвестная ошибка",
+    "Qayta urinish": "Повторить",
+    "Filtr:": "Фильтр:",
+    "✕ tozalash": "✕ сбросить",
+    "{shop} cheki": "Чек {shop}",
+    "Chek": "Чек",
+    "{n} mahsulot": "{n} поз.",
+    "🗑 Butun chekni o'chirish": "🗑 Удалить весь чек",
+    "Butun chek o'chirilsinmi?": "Удалить весь чек?",
+    "Chek o'chirildi": "Чек удалён",
+    "Xatolik: ": "Ошибка: ",
+    "Kategoriya": "Категория",
+    "{kind} deb belgilash": "Отметить как «{kind}»",
+    "💸 Qisman to'lash": "💸 Частичная оплата",
+    "Yuklanmoqda…": "Загрузка…",
+    "Summa": "Сумма",
+    "To'lash": "Оплатить",
+    "📅 Qaytarish muddati": "📅 Срок возврата",
+    "Ertaga": "Завтра", "1 hafta": "1 неделя", "2 hafta": "2 недели",
+    "1 oy": "1 месяц", "Muddatsiz": "Без срока",
+    "🧾 Shu chekdagi boshqa mahsulotlar": "🧾 Другие товары из этого чека",
+    "✅ Yopish": "✅ Закрыть долг",
+    "🗑 O'chirish": "🗑 Удалить",
+    "Bu yozuvni o'chirasizmi?": "Удалить эту запись?",
+    "Kategoriya yangilandi": "Категория обновлена",
+    "Turi yangilandi": "Тип обновлён",
+    "Muddat qo'yildi — eslataman": "Срок установлен — напомню",
+    "Muddat olib tashlandi": "Срок убран",
+    "Asli {a} · to'langan {p}": "Было {a} · оплачено {p}",
+    " · qoldiq <b>{r}</b>": " · остаток <b>{r}</b>",
+    "To'lovlar": "Платежи",
+    "Summani kiriting": "Введите сумму",
+    "To'landi ✅ Qoldiq: {r}": "Оплачено ✅ Остаток: {r}",
+    "Qarz to'liq yopildi 🎉": "Долг полностью закрыт 🎉",
+    "Qarz yopildi ✅": "Долг закрыт ✅",
+    "O'chirildi": "Удалено",
+    "➕ Yangi yozuv": "➕ Новая запись",
+    "Turi": "Тип",
+    "Valyuta": "Валюта",
+    "Kim bilan (ism)": "С кем (имя)",
+    "Masalan: Ali": "Например: Али",
+    "Izoh": "Заметка",
+    "Ixtiyoriy": "Необязательно",
+    "Sana": "Дата",
+    "Bekor qilish": "Отмена",
+    "Saqlash": "Сохранить",
+    "Summani to'g'ri kiriting": "Введите корректную сумму",
+    "Qarz uchun ism kerak": "Для долга нужно имя",
+    "Saqlandi ✅": "Сохранено ✅",
+    "Yuklab bo'lmadi: ": "Не удалось выгрузить: ",
+    "Natija topilmadi.": "Ничего не найдено.",
+    "{n} ta natija · Jami: {totals}": "Найдено: {n} · Итого: {totals}",
+    "⚠️ Bu sahifa faqat Telegram ichida ishlaydi.<br>Botdagi «📱 Panel» tugmasini bosing.":
+      "⚠️ Эта страница работает только внутри Telegram.<br>Нажмите кнопку «📱 Панель» в боте.",
+  };
+  const MONTHS_UZ_SHORT = ["yan", "fev", "mar", "apr", "may", "iyun", "iyul", "avg", "sen", "okt", "noy", "dek"];
+  const MONTHS_RU_SHORT = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+  const MONTHS_UZ = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul",
+                     "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
+  const MONTHS_RU = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль",
+                     "август", "сентябрь", "октябрь", "ноябрь", "декабрь"];
+
+  // Telegram o'z tilini aytadi; /api/me kelgach bot tanlovi ustun turadi.
+  let LANG = (() => {
+    try {
+      const code = tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.language_code;
+      return code === "ru" ? "ru" : "uz";
+    } catch (_) { return "uz"; }
+  })();
+
+  /** Tarjima. `{nom}` o'rinlari params bilan to'ldiriladi (HTML kerak
+   * bo'lsa qiymatni chaqiruvchi o'zi qochiradi). */
+  function t(key, params) {
+    let s = (LANG === "ru" && RU[key]) || key;
+    if (params) s = s.replace(/\{(\w+)\}/g, (_, k) => (params[k] == null ? "" : params[k]));
+    return s;
+  }
+
+  /** index.html dagi statik matnlar: data-i18n (matn), data-i18n-ph
+   * (placeholder), data-i18n-aria (aria-label). */
+  function applyStatic() {
+    document.documentElement.lang = LANG;
+    document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
+    document.querySelectorAll("[data-i18n-ph]").forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
+    document.querySelectorAll("[data-i18n-aria]").forEach((el) => { el.setAttribute("aria-label", t(el.dataset.i18nAria)); });
+  }
+
+  // ----------------------------------------------------------------------- //
   // Ranglar — Anthropic dataviz skill'ining tasdiqlangan palitrasi.
   // Status ranglar (kirim/chiqim/qarz) mode-invariant, faqat "chiqim" light/
   // dark uchun ikki xil qadam. Kategoriya ranglari — 8 xil hue, adjacent
@@ -111,7 +262,7 @@
       try { detail = (await res.json()).detail || detail; } catch (_) {}
       // 402 — Bepul daraja chegarasi: {paywall, message}.
       if (detail && typeof detail === "object") {
-        const err = new Error(detail.message || "PRO imkoniyati");
+        const err = new Error(detail.message || t("PRO imkoniyati"));
         err.paywall = detail.paywall;
         throw err;
       }
@@ -177,17 +328,14 @@
   }
 
   function fmtDate(iso) {
-    const MONTHS = ["yan", "fev", "mar", "apr", "may", "iyun", "iyul", "avg", "sen", "okt", "noy", "dek"];
     const [y, m, d] = iso.split("-").map(Number);
-    return `${d}-${MONTHS[m - 1]}`;
+    return LANG === "ru" ? `${d} ${MONTHS_RU_SHORT[m - 1]}` : `${d}-${MONTHS_UZ_SHORT[m - 1]}`;
   }
 
-  /** "2028-03-31" -> "2028-yil mart" (maqsad bashorati uchun). */
+  /** "2028-03-31" -> "2028-yil mart" / "март 2028" (maqsad bashorati uchun). */
   function fmtMonthYear(iso) {
-    const MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul",
-                    "avgust", "sentabr", "oktabr", "noyabr", "dekabr"];
     const [y, m] = iso.split("-").map(Number);
-    return `${y}-yil ${MONTHS[m - 1]}`;
+    return LANG === "ru" ? `${MONTHS_RU[m - 1]} ${y}` : `${y}-yil ${MONTHS_UZ[m - 1]}`;
   }
 
   function toast(msg) {
@@ -245,7 +393,7 @@
     const rest = rows.slice(MAX_CATEGORY_SLICES - 1);
     const otherSum = rest.reduce((s, r) => s + r.summa, 0);
     const otherCount = rest.reduce((s, r) => s + r.soni, 0);
-    head.push({ kategoriya: `Boshqa (${rest.length})`, summa: otherSum, soni: otherCount, _other: true });
+    head.push({ kategoriya: t("Boshqa ({n})", { n: rest.length }), summa: otherSum, soni: otherCount, _other: true });
     return head;
   }
 
@@ -338,7 +486,7 @@
     const folded = foldToOther(rows);
     let html = `<div class="section-label">${escapeHtml(title)}</div>`;
     if (!folded.length) {
-      return html + '<div class="empty-state">Yozuv yo\'q.</div>';
+      return html + `<div class="empty-state">${t("Yozuv yo'q.")}</div>`;
     }
     folded.forEach((row, i) => {
       const share = total > 0 ? row.summa / total : 0;
@@ -362,7 +510,7 @@
   function renderPersonSection(title, items, currency, color, kind) {
     let html = `<div class="section-label">${escapeHtml(title)}</div>`;
     if (!items.length) {
-      return html + '<div class="empty-state">Yo\'q.</div>';
+      return html + `<div class="empty-state">${t("Yo'q.")}</div>`;
     }
     const total = items.reduce((s, i) => s + i.amount, 0);
     items.forEach((item) => {
@@ -376,10 +524,10 @@
               <span class="cat-amount">${fmtMoney(item.amount, currency)}</span>
             </div>
             ${item.original && item.original > item.amount
-              ? `<div class="tx-meta">qoldiq · asli ${fmtMoney(item.original, currency)}</div>` : ""}
+              ? `<div class="tx-meta">${t("qoldiq · asli {amount}", { amount: fmtMoney(item.original, currency) })}</div>` : ""}
             <div class="cat-bar-bg"><div class="cat-bar-fill" style="width:${(share * 100).toFixed(0)}%;background:${color}"></div></div>
           </div>
-          <button class="cat-settle" data-settle-id="${item.id}">Yopish</button>
+          <button class="cat-settle" data-settle-id="${item.id}">${t("Yopish")}</button>
         </div>`;
     });
     return html;
@@ -391,6 +539,9 @@
 
   async function loadMe() {
     state.me = await api("/api/me");
+    // Til: bot sozlamasi (Telegram tili emas) ustun turadi.
+    LANG = state.me.lang === "ru" ? "ru" : "uz";
+    applyStatic();
   }
 
   /** PRO imkoniyatga urilganda: Telegram'ning o'z oynasi va «PRO ga
@@ -400,16 +551,16 @@
     const bot = state.me && state.me.bot_username;
     const go = () => {
       if (bot && tg && tg.openTelegramLink) tg.openTelegramLink(`https://t.me/${bot}?start=pro`);
-      else toast("Botda /obuna buyrug'ini bosing");
+      else toast(t("Botda /obuna buyrug'ini bosing"));
     };
     const text = message.length > 250 ? message.slice(0, 247) + "…" : message;
     if (tg && tg.showPopup) {
       tg.showPopup({
         title: "💎 Tanga PRO",
         message: text,
-        buttons: [{ id: "pro", type: "default", text: "💎 PRO ga o'tish" }, { type: "close" }],
+        buttons: [{ id: "pro", type: "default", text: t("💎 PRO ga o'tish") }, { type: "close" }],
       }, (id) => { if (id === "pro") go(); });
-    } else if (confirm(text + "\n\nPRO ga o'tasizmi?")) {
+    } else if (confirm(text + "\n\n" + t("PRO ga o'tasizmi?"))) {
       go();
     }
   }
@@ -469,7 +620,7 @@
     state.currencies.forEach((cur) => {
       const btn = document.createElement("button");
       // «hammasi» — valyutalar asosiy valyutada birlashtirilgan ko'rinish.
-      btn.textContent = cur === ALL ? "Hammasi" : (symbols[cur] || cur.toUpperCase());
+      btn.textContent = cur === ALL ? t("Hammasi") : (symbols[cur] || cur.toUpperCase());
       if (cur === state.currency) btn.classList.add("active");
       btn.onclick = () => {
         state.currency = cur;
@@ -502,7 +653,7 @@
     if (!data) {
       renderDonut([], fmtMoneyParts(0, cur), "");
       renderLegend([], cur);
-      listEl.innerHTML = '<div class="empty-state">Bu davrda yozuv yo\'q.</div>';
+      listEl.innerHTML = `<div class="empty-state">${t("Bu davrda yozuv yo'q.")}</div>`;
       return;
     }
 
@@ -515,7 +666,7 @@
       document.getElementById("incomeCta").classList.toggle("hidden", !noIncome || !data.chiqim);
       if (noIncome) {
         renderDonut([{ value: data.chiqim, color: CALM.neutral }],
-          fmtMoneyParts(data.chiqim, cur), "Chiqim");
+          fmtMoneyParts(data.chiqim, cur), t("Chiqim"));
       } else {
         renderDonut(
           [
@@ -523,40 +674,40 @@
             { value: data.chiqim, color: data.farq < 0 ? CALM.over : STATUS.chiqim },
           ],
           fmtMoneyParts(data.farq, cur),
-          "Farq"
+          t("Farq")
         );
       }
       // Jamg'arma halqaga QO'SHILMAYDI: halqa kirim/chiqim nisbatini
       // ko'rsatadi, jamg'arma esa sarflangan pul emas. Lekin yorliqda
       // turadi — «avval o'zingga to'la» qoidasi ko'zga tashlansin.
       renderLegend([
-        { label: "Kirim", value: data.kirim, color: STATUS.kirim },
-        { label: "Chiqim", value: data.chiqim, color: STATUS.chiqim },
+        { label: t("Kirim"), value: data.kirim, color: STATUS.kirim },
+        { label: t("Chiqim"), value: data.chiqim, color: STATUS.chiqim },
         ...(data.jamgarma
-          ? [{ label: "🏦 Jamg'arma", value: data.jamgarma, color: STATUS.jamgarma }]
+          ? [{ label: t("🏦 Jamg'arma"), value: data.jamgarma, color: STATUS.jamgarma }]
           : []),
       ], cur);
       listEl.innerHTML =
-        renderCategorySection("Kirim kategoriyalari", data.kirim_kategoriyalari, data.kirim, cur, "kirim") +
-        renderCategorySection("Chiqim kategoriyalari", data.chiqim_kategoriyalari, data.chiqim, cur, "chiqim");
+        renderCategorySection(t("Kirim kategoriyalari"), data.kirim_kategoriyalari, data.kirim, cur, "kirim") +
+        renderCategorySection(t("Chiqim kategoriyalari"), data.chiqim_kategoriyalari, data.chiqim, cur, "chiqim");
     } else if (state.kind === "kirim") {
       const folded = foldToOther(data.kirim_kategoriyalari);
       renderDonut(
         folded.map((c, i) => ({ value: c.summa, color: CATEGORY_PALETTE[i % CATEGORY_PALETTE.length] })),
-        fmtMoneyParts(data.kirim, cur), "Kirim"
+        fmtMoneyParts(data.kirim, cur), t("Kirim")
       );
       // Kategoriya bo'laklari pastdagi ro'yxatda nomi bilan berilgan —
       // takrorlamaymiz, faqat 2 bo'lakli ko'rinishlarda yorliq kerak.
       renderLegend([], cur);
-      listEl.innerHTML = renderCategorySection("Kategoriyalar", data.kirim_kategoriyalari, data.kirim, cur, "kirim");
+      listEl.innerHTML = renderCategorySection(t("Kategoriyalar"), data.kirim_kategoriyalari, data.kirim, cur, "kirim");
     } else if (state.kind === "chiqim") {
       const folded = foldToOther(data.chiqim_kategoriyalari);
       renderDonut(
         folded.map((c, i) => ({ value: c.summa, color: CATEGORY_PALETTE[i % CATEGORY_PALETTE.length] })),
-        fmtMoneyParts(data.chiqim, cur), "Chiqim"
+        fmtMoneyParts(data.chiqim, cur), t("Chiqim")
       );
       renderLegend([], cur);
-      listEl.innerHTML = renderCategorySection("Kategoriyalar", data.chiqim_kategoriyalari, data.chiqim, cur, "chiqim");
+      listEl.innerHTML = renderCategorySection(t("Kategoriyalar"), data.chiqim_kategoriyalari, data.chiqim, cur, "chiqim");
     }
 
     bindCategoryClicks();
@@ -574,11 +725,11 @@
         { value: oldim, color: STATUS.qarz_oldim },
       ],
       fmtMoneyParts(berdim - oldim, cur),
-      "Sof qarz"
+      t("Sof qarz")
     );
     renderLegend([
-      { label: "📤 Menga qarzdorlar", value: berdim, color: STATUS.qarz_berdim },
-      { label: "📥 Men qarzdorman", value: oldim, color: STATUS.qarz_oldim },
+      { label: t("📤 Menga qarzdorlar"), value: berdim, color: STATUS.qarz_berdim },
+      { label: t("📥 Men qarzdorman"), value: oldim, color: STATUS.qarz_oldim },
     ], cur);
     const berdimItems = state.debts.qarz_berdim.items[cur] || [];
     const oldimItems = state.debts.qarz_oldim.items[cur] || [];
@@ -586,11 +737,11 @@
     // uchun faqat shu yerda ko'rinadi.
     const period = state.summary && state.summary.by_currency[cur];
     const repaid = period
-      ? [["↩️ Qarzimni qaytardim", period.qarz_qaytardim],
-         ["↪️ Menga qaytarildi", period.qarz_qaytdi]].filter((r) => r[1])
+      ? [[t("↩️ Qarzimni qaytardim"), period.qarz_qaytardim],
+         [t("↪️ Menga qaytarildi"), period.qarz_qaytdi]].filter((r) => r[1])
       : [];
     const repaidHtml = repaid.length
-      ? `<div class="section-label">Shu davrda qaytarilgan</div>` +
+      ? `<div class="section-label">${t("Shu davrda qaytarilgan")}</div>` +
         repaid.map(([label, value]) => `
           <div class="cat-row">
             <div class="cat-info"><div class="cat-name-row">
@@ -600,8 +751,8 @@
           </div>`).join("")
       : "";
     listEl.innerHTML =
-      renderPersonSection("📤 Menga qarzdorlar", berdimItems, cur, STATUS.qarz_berdim, "qarz_berdim") +
-      renderPersonSection("📥 Men qarzdorman", oldimItems, cur, STATUS.qarz_oldim, "qarz_oldim") +
+      renderPersonSection(t("📤 Menga qarzdorlar"), berdimItems, cur, STATUS.qarz_berdim, "qarz_berdim") +
+      renderPersonSection(t("📥 Men qarzdorman"), oldimItems, cur, STATUS.qarz_oldim, "qarz_oldim") +
       repaidHtml;
     bindSettleButtons();
   }
@@ -624,7 +775,7 @@
     const yechgan = data.jamgarma_yechgan || 0;
 
     if (!qoygan && !yechgan) {
-      renderDonut([], fmtMoneyParts(0, cur), "Jamg'arma");
+      renderDonut([], fmtMoneyParts(0, cur), t("Jamg'arma"));
       renderLegend([], cur);
     } else {
       renderDonut(
@@ -633,11 +784,11 @@
           { value: yechgan, color: STATUS.jamgarma_yechdim },
         ],
         fmtMoneyParts(qoygan - yechgan, cur),
-        "Sof jamg'arma"
+        t("Sof jamg'arma")
       );
       renderLegend([
-        { label: "🏦 Qo'yilgan", value: qoygan, color: STATUS.jamgarma },
-        { label: "🏧 Yechilgan", value: yechgan, color: STATUS.jamgarma_yechdim },
+        { label: t("🏦 Qo'yilgan"), value: qoygan, color: STATUS.jamgarma },
+        { label: t("🏧 Yechilgan"), value: yechgan, color: STATUS.jamgarma_yechdim },
       ], cur);
     }
 
@@ -671,17 +822,17 @@
         <div class="cat-share">${pct.toFixed(0)}%</div>
       </div>`;
     if (g.left <= 0) {
-      return html + '<div class="hint-row">🎉 Maqsadga yetdingiz!</div>';
+      return html + `<div class="hint-row">${t("🎉 Maqsadga yetdingiz!")}</div>`;
     }
     if (g.forecast_locked) {
-      html += '<div class="hint-row">🔒 «Qachon erishaman» bashorati — PRO</div>';
+      html += `<div class="hint-row">${t("🔒 «Qachon erishaman» bashorati — PRO")}</div>`;
     } else if (g.eta) {
-      html += `<div class="hint-row">📈 Shu sur'atda <b>${fmtMonthYear(g.eta)}</b>da erishasiz</div>`;
+      html += `<div class="hint-row">${t("📈 Shu sur'atda <b>{when}</b>da erishasiz", { when: fmtMonthYear(g.eta) })}</div>`;
     } else if (g.pace === null) {
-      html += '<div class="hint-row">📈 Bashorat uchun kamida 2 haftalik jamg\'arma kerak</div>';
+      html += `<div class="hint-row">${t("📈 Bashorat uchun kamida 2 haftalik jamg'arma kerak")}</div>`;
     }
     if (g.need_monthly) {
-      html += `<div class="hint-row">📅 ${fmtMonthYear(g.deadline)} gacha oyiga <b>${fmtMoney(g.need_monthly, "som")}</b> kerak</div>`;
+      html += `<div class="hint-row">${t("📅 {when} gacha oyiga <b>{amount}</b> kerak", { when: fmtMonthYear(g.deadline), amount: fmtMoney(g.need_monthly, "som") })}</div>`;
     }
     return html;
   }
@@ -690,13 +841,13 @@
     const s = state.savings;
     if (!s) return "";
 
-    let html = '<div class="section-label">Jamg\'arma holati</div>';
+    let html = `<div class="section-label">${t("Jamg'arma holati")}</div>`;
     html += `
       <div class="cat-row">
         <div class="cat-icon" style="background:${STATUS.jamgarma}22">🏦</div>
         <div class="cat-info">
           <div class="cat-name-row">
-            <span class="cat-name">Umumiy qoldiq</span>
+            <span class="cat-name">${t("Umumiy qoldiq")}</span>
             <span class="cat-amount">${fmtMoney(s.balance, "som")}</span>
           </div>
         </div>
@@ -705,22 +856,24 @@
     // Har bir maqsad: progress va (PRO'da) «qachon erishaman» bashorati.
     const goals = s.goals || [];
     if (goals.length) {
-      html += '<div class="section-label">Maqsadlar</div>';
+      html += `<div class="section-label">${t("Maqsadlar")}</div>`;
       goals.forEach((g) => { html += renderGoalRow(g); });
     } else {
-      html += '<div class="hint-row">Maqsad qo\'yilmagan. Botda: '
+      html += `<div class="hint-row">${t("Maqsad qo'yilmagan. Botda: ")}`
             + '<b>/maqsad Uy 300 mln 2028-mart</b></div>';
-      html += `<div class="hint-row">Jamg'arma foizingiz: `
-            + `<b>${pctText(s.rate)}</b>. O'zgartirish: <b>/foiz</b></div>`;
+      html += `<div class="hint-row">`
+            + t("Jamg'arma foizingiz: <b>{pct}</b>. O'zgartirish: <b>/foiz</b>", { pct: pctText(s.rate) })
+            + `</div>`;
     }
 
     if (s.streak >= 2) {
-      html += `<div class="hint-row">🔥 Ketma-ket <b>${s.streak} oy</b> `
-            + `${pctText(s.rate)} qoidasini bajaryapsiz</div>`;
+      html += `<div class="hint-row">`
+            + t("🔥 Ketma-ket <b>{n} oy</b> {pct} qoidasini bajaryapsiz", { n: s.streak, pct: pctText(s.rate) })
+            + `</div>`;
     }
     if (!hadMovement) {
-      html += '<div class="hint-row">Bu davrda harakat yo\'q. Qo\'shish: '
-            + '<b>jamg\'armaga 500 ming o\'tkazdim</b></div>';
+      html += `<div class="hint-row">${t("Bu davrda harakat yo'q. Qo'shish: ")}`
+            + t("<b>jamg'armaga 500 ming o'tkazdim</b>") + `</div>`;
     }
     return html;
   }
@@ -739,7 +892,7 @@
     listEl.querySelectorAll("[data-settle-id]").forEach((btn) => {
       btn.onclick = (ev) => {
         ev.stopPropagation();
-        confirmAction("Bu qarzni yopilgan deb belgilaysizmi?", () => settleDebt(btn.dataset.settleId));
+        confirmAction(t("Bu qarzni yopilgan deb belgilaysizmi?"), () => settleDebt(btn.dataset.settleId));
       };
     });
   }
@@ -760,7 +913,7 @@
         ...((state.debts.qarz_oldim.items[cur] || []).map((i) => ({ ...i, kind: "qarz_oldim" }))),
       ].sort((a, b) => (a.date < b.date ? 1 : -1));
       listEl.innerHTML = "";
-      if (!items.length) { listEl.innerHTML = '<div class="empty-state">Ochiq qarz yo\'q.</div>'; return; }
+      if (!items.length) { listEl.innerHTML = `<div class="empty-state">${t("Ochiq qarz yo'q.")}</div>`; return; }
       items.forEach((it) => listEl.appendChild(buildDebtRow(it, cur)));
       return;
     }
@@ -791,7 +944,7 @@
     }
     if (!append) listEl.innerHTML = "";
     if (!data.items.length && !append) {
-      listEl.innerHTML = '<div class="empty-state">Yozuv yo\'q.</div>';
+      listEl.innerHTML = `<div class="empty-state">${t("Yozuv yo'q.")}</div>`;
     }
     data.items.forEach((tx) => listEl.appendChild(buildTxRow(tx)));
 
@@ -803,9 +956,9 @@
   function showListError(listEl, err, retry) {
     document.getElementById("loadMore").classList.add("hidden");
     listEl.innerHTML =
-      `<div class="empty-state">Ro'yxatni yuklab bo'lmadi.<br>` +
-      `<small>${escapeHtml(err.message || "Nomaʼlum xatolik")}</small><br>` +
-      `<button class="clear-filter" id="retryList">Qayta urinish</button></div>`;
+      `<div class="empty-state">${t("Ro'yxatni yuklab bo'lmadi.")}<br>` +
+      `<small>${escapeHtml(err.message || t("Nomaʼlum xatolik"))}</small><br>` +
+      `<button class="clear-filter" id="retryList">${t("Qayta urinish")}</button></div>`;
     listEl.querySelector("#retryList").onclick = retry;
   }
 
@@ -830,10 +983,10 @@
     const filtered = data.items.filter((t) => t.category === category);
 
     // Filtr qo'llanganini ko'rsatuvchi yorliq + uni bekor qilish tugmasi.
-    setListTitle(`${catIcon(category)} ${category}`, true);
+    setListTitle(`${catIcon(category)} ${catLabel(category)}`, true);
 
     listEl.innerHTML = "";
-    if (!filtered.length) { listEl.innerHTML = '<div class="empty-state">Yozuv yo\'q.</div>'; return; }
+    if (!filtered.length) { listEl.innerHTML = `<div class="empty-state">${t("Yozuv yo'q.")}</div>`; return; }
     filtered.forEach((tx) => listEl.appendChild(buildTxRow(tx)));
     document.getElementById("loadMore").classList.add("hidden");
     document.getElementById("listTitle").scrollIntoView({ behavior: "smooth", block: "start" });
@@ -843,10 +996,10 @@
   function setListTitle(text, filtered) {
     const el = document.getElementById("listTitle");
     if (!filtered) {
-      el.innerHTML = "So'nggi yozuvlar";
+      el.textContent = t("So'nggi yozuvlar");
       return;
     }
-    el.innerHTML = `Filtr: ${escapeHtml(text)} <button class="clear-filter" id="clearFilter">✕ tozalash</button>`;
+    el.innerHTML = `${t("Filtr:")} ${escapeHtml(text)} <button class="clear-filter" id="clearFilter">${t("✕ tozalash")}</button>`;
     el.querySelector("#clearFilter").onclick = () => {
       setListTitle("", false);
       state.recentOffset = 0;
@@ -857,12 +1010,12 @@
   function buildReceiptRow(tx) {
     const div = document.createElement("div");
     div.className = "tx-row";
-    const name = tx.shop ? `${tx.shop} cheki` : "Chek";
+    const name = tx.shop ? t("{shop} cheki", { shop: tx.shop }) : t("Chek");
     div.innerHTML = `
       <div class="tx-icon">🧾</div>
       <div class="tx-main">
         <div class="tx-note">${escapeHtml(name)}</div>
-        <div class="tx-meta">${fmtDate(tx.date)} · ${tx.items_count} mahsulot</div>
+        <div class="tx-meta">${fmtDate(tx.date)} · ${t("{n} mahsulot", { n: tx.items_count })}</div>
       </div>
       <div class="tx-amount chiqim">${kindIcon("chiqim")} ${fmtMoney(tx.amount, tx.currency)}</div>
     `;
@@ -874,30 +1027,30 @@
    * tuzatish) va butun chekni o'chirish. */
   async function openReceiptSheet(tx) {
     const body = document.getElementById("detailBody");
-    const name = tx.shop ? `${tx.shop} cheki` : "Chek";
+    const name = tx.shop ? t("{shop} cheki", { shop: tx.shop }) : t("Chek");
     body.innerHTML = `
       <div class="sheet-titlebar">
         <div class="tx-detail-header">
           <span style="font-size:22px">🧾</span>
           <span class="tx-detail-amount">${fmtMoney(tx.amount, tx.currency)}</span>
         </div>
-        <button class="icon-btn" id="detailClose" aria-label="Yopish">✕</button>
+        <button class="icon-btn" id="detailClose" aria-label="${t("Yopish")}">✕</button>
       </div>
-      <div class="tx-detail-meta">${escapeHtml(name)} · ${fmtDate(tx.date)} · ${tx.items_count} mahsulot</div>
+      <div class="tx-detail-meta">${escapeHtml(name)} · ${fmtDate(tx.date)} · ${t("{n} mahsulot", { n: tx.items_count })}</div>
       <div id="receiptAll" class="tx-list">${skeleton(3)}</div>
       <div class="sheet-actions">
-        <button class="btn btn-danger" id="deleteReceiptBtn">🗑 Butun chekni o'chirish</button>
+        <button class="btn btn-danger" id="deleteReceiptBtn">${t("🗑 Butun chekni o'chirish")}</button>
       </div>`;
     openSheet("detailBackdrop");
     body.querySelector("#detailClose").onclick = () => closeSheet("detailBackdrop");
     body.querySelector("#deleteReceiptBtn").onclick = () =>
-      confirmAction("Butun chek o'chirilsinmi?", async () => {
+      confirmAction(t("Butun chek o'chirilsinmi?"), async () => {
         try {
           await api(`/api/receipts/${encodeURIComponent(tx.receipt_id)}`, { method: "DELETE" });
-          haptic("success"); toast("Chek o'chirildi");
+          haptic("success"); toast(t("Chek o'chirildi"));
           closeSheet("detailBackdrop");
           refreshAll();
-        } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
+        } catch (e) { haptic("error"); toast(t("Xatolik: ") + e.message); }
       });
     try {
       const data = await api(`/api/transactions?receipt_id=${encodeURIComponent(tx.receipt_id)}&limit=200`);
@@ -996,7 +1149,7 @@
             ${fmtMoney(tx.amount, tx.currency)}
           </span>
         </div>
-        <button class="icon-btn" id="detailClose" aria-label="Yopish">✕</button>
+        <button class="icon-btn" id="detailClose" aria-label="${t("Yopish")}">✕</button>
       </div>
       <div class="tx-detail-meta">
         ${escapeHtml(kindLabel(tx.kind))} · ${fmtDate(tx.date)}
@@ -1007,7 +1160,7 @@
 
     if (!isDebt) {
       html += `<div class="sheet-row">
-        <div class="sheet-label">Kategoriya</div>
+        <div class="sheet-label">${t("Kategoriya")}</div>
         <div class="chip-grid" id="catChips">
           ${cats.map((c) => `<button class="chip ${c === tx.category ? "active" : ""}" data-cat="${escapeHtml(c)}">${catIcon(c)} ${escapeHtml(catLabel(c))}</button>`).join("")}
         </div>
@@ -1016,7 +1169,7 @@
 
     switches.forEach((other) => {
       html += `<button class="btn btn-secondary" data-switch-kind="${escapeHtml(other)}" style="width:100%;margin-bottom:10px">
-        🔄 ${kindIcon(other)} ${escapeHtml(kindLabel(other))} deb belgilash
+        🔄 ${kindIcon(other)} ${escapeHtml(t("{kind} deb belgilash", { kind: kindLabel(other) }))}
       </button>`;
     });
 
@@ -1024,12 +1177,12 @@
     // Asli / to'langan / qoldiq serverdan keladi (to'lovlar ayirilgan).
     if (canSettle && !tx.settled) {
       html += `<div class="sheet-row" id="debtPayRow">
-        <div class="sheet-label">💸 Qisman to'lash</div>
-        <div class="tx-meta" id="debtSummary">Yuklanmoqda…</div>
+        <div class="sheet-label">${t("💸 Qisman to'lash")}</div>
+        <div class="tx-meta" id="debtSummary">${t("Yuklanmoqda…")}</div>
         <div style="display:flex;gap:8px;margin-top:8px">
           <input id="debtPayAmount" class="field-input" type="number" inputmode="decimal"
-                 min="0" placeholder="Summa" style="flex:1" />
-          <button class="btn btn-good" id="debtPayBtn" style="width:auto">To'lash</button>
+                 min="0" placeholder="${t("Summa")}" style="flex:1" />
+          <button class="btn btn-good" id="debtPayBtn" style="width:auto">${t("To'lash")}</button>
         </div>
         <div id="debtHistory"></div>
       </div>`;
@@ -1037,9 +1190,9 @@
 
     // Qarzni qaytarish muddati — bir kun oldin va o'sha kuni eslatma (PRO).
     if (canSettle && !tx.settled) {
-      const opts = [[1, "Ertaga"], [7, "1 hafta"], [14, "2 hafta"], [30, "1 oy"], [0, "Muddatsiz"]];
+      const opts = [[1, t("Ertaga")], [7, t("1 hafta")], [14, t("2 hafta")], [30, t("1 oy")], [0, t("Muddatsiz")]];
       html += `<div class="sheet-row">
-        <div class="sheet-label">📅 Qaytarish muddati${tx.due ? ": " + fmtDate(tx.due) : ""}</div>
+        <div class="sheet-label">${t("📅 Qaytarish muddati")}${tx.due ? ": " + fmtDate(tx.due) : ""}</div>
         <div class="chip-grid" id="dueChips">
           ${opts.map(([d, label]) => `<button class="chip" data-due="${d}">${label}</button>`).join("")}
         </div>
@@ -1047,12 +1200,12 @@
     }
 
     if (tx.receipt_id) {
-      html += `<div id="receiptItems" class="sheet-row"><div class="sheet-label">🧾 Shu chekdagi boshqa mahsulotlar</div><div class="spinner">Yuklanmoqda…</div></div>`;
+      html += `<div id="receiptItems" class="sheet-row"><div class="sheet-label">${t("🧾 Shu chekdagi boshqa mahsulotlar")}</div><div class="spinner">${t("Yuklanmoqda…")}</div></div>`;
     }
 
     html += `<div class="sheet-actions">
-      ${canSettle && !tx.settled ? '<button class="btn btn-good" id="settleBtn">✅ Yopish</button>' : ""}
-      <button class="btn btn-danger" id="deleteBtn">🗑 O'chirish</button>
+      ${canSettle && !tx.settled ? `<button class="btn btn-good" id="settleBtn">${t("✅ Yopish")}</button>` : ""}
+      <button class="btn btn-danger" id="deleteBtn">${t("🗑 O'chirish")}</button>
     </div>`;
 
     const body = document.getElementById("detailBody");
@@ -1071,14 +1224,14 @@
       btn.onclick = () => toggleTxKind(tx.id, btn.dataset.switchKind);
     });
     const settleBtn = body.querySelector("#settleBtn");
-    if (settleBtn) settleBtn.onclick = () => confirmAction("Bu qarzni yopilgan deb belgilaysizmi?", () => settleDebt(tx.id));
+    if (settleBtn) settleBtn.onclick = () => confirmAction(t("Bu qarzni yopilgan deb belgilaysizmi?"), () => settleDebt(tx.id));
     const payBtn = body.querySelector("#debtPayBtn");
     if (payBtn) {
       payBtn.onclick = () => payDebt(tx.id, body.querySelector("#debtPayAmount").value);
       loadDebtDetail(tx.id);
     }
     body.querySelector("#deleteBtn").onclick = () =>
-      confirmAction("Bu yozuvni o'chirasizmi?", () => deleteTx(tx.id));
+      confirmAction(t("Bu yozuvni o'chirasizmi?"), () => deleteTx(tx.id));
     body.querySelector("#detailClose").onclick = () => closeSheet("detailBackdrop");
 
     if (tx.receipt_id) loadReceiptItems(tx.receipt_id, tx.id);
@@ -1096,41 +1249,41 @@
       }
       const list = others.map((i) =>
         `<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:13px;color:var(--hint)">
-          <span>${catIcon(i.category)} ${escapeHtml(i.note || i.category)}</span>
+          <span>${catIcon(i.category)} ${escapeHtml(i.note || catLabel(i.category))}</span>
           <span>${fmtMoney(i.amount, i.currency)}</span>
         </div>`
       ).join("");
-      el.innerHTML = `<div class="sheet-label">🧾 Shu chekdagi boshqa mahsulotlar (${others.length})</div>${list}`;
+      el.innerHTML = `<div class="sheet-label">${t("🧾 Shu chekdagi boshqa mahsulotlar")} (${others.length})</div>${list}`;
     } catch (_) { /* jim tur — asosiy funksionallik emas */ }
   }
 
   async function updateTxCategory(id, category) {
     try {
       await api(`/api/transactions/${id}`, { method: "PATCH", body: { category } });
-      haptic("success"); toast("Kategoriya yangilandi");
+      haptic("success"); toast(t("Kategoriya yangilandi"));
       closeSheet("detailBackdrop");
       refreshAll();
-    } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
+    } catch (e) { haptic("error"); toast(t("Xatolik: ") + e.message); }
   }
 
   async function toggleTxKind(id, newKind) {
     try {
       await api(`/api/transactions/${id}`, { method: "PATCH", body: { kind: newKind } });
-      haptic("success"); toast("Turi yangilandi");
+      haptic("success"); toast(t("Turi yangilandi"));
       closeSheet("detailBackdrop");
       refreshAll();
-    } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
+    } catch (e) { haptic("error"); toast(t("Xatolik: ") + e.message); }
   }
 
   async function setDebtDue(id, days) {
     try {
       await api(`/api/debts/${id}/due`, { method: "POST", body: { days } });
-      haptic("success"); toast(days ? "Muddat qo'yildi — eslataman" : "Muddat olib tashlandi");
+      haptic("success"); toast(days ? t("Muddat qo'yildi — eslataman") : t("Muddat olib tashlandi"));
       closeSheet("detailBackdrop");
       refreshAll();
     } catch (e) {
       if (e.paywall) { showPaywall(e.message); return; }
-      haptic("error"); toast("Xatolik: " + e.message);
+      haptic("error"); toast(t("Xatolik: ") + e.message);
     }
   }
 
@@ -1141,11 +1294,11 @@
       if (!row || !document.body.contains(row)) return;
       const cur = d.currency;
       row.querySelector("#debtSummary").innerHTML =
-        `Asli ${escapeHtml(fmtMoney(d.original, cur))} · to'langan ${escapeHtml(fmtMoney(d.paid, cur))}` +
-        ` · qoldiq <b>${escapeHtml(fmtMoney(d.remaining, cur))}</b>`;
+        t("Asli {a} · to'langan {p}", { a: escapeHtml(fmtMoney(d.original, cur)), p: escapeHtml(fmtMoney(d.paid, cur)) }) +
+        t(" · qoldiq <b>{r}</b>", { r: escapeHtml(fmtMoney(d.remaining, cur)) });
       if (d.payments.length) {
         row.querySelector("#debtHistory").innerHTML =
-          `<div class="sheet-label" style="margin-top:10px">To'lovlar</div>` +
+          `<div class="sheet-label" style="margin-top:10px">${t("To'lovlar")}</div>` +
           d.payments.map((p) =>
             `<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;color:var(--hint)">
               <span>${fmtDate(p.date)}</span><span>${escapeHtml(fmtMoney(p.amount, cur))}</span>
@@ -1159,34 +1312,34 @@
 
   async function payDebt(id, raw) {
     const amount = Number(String(raw || "").replace(/\s/g, "").replace(",", "."));
-    if (!(amount > 0)) { toast("Summani kiriting"); return; }
+    if (!(amount > 0)) { toast(t("Summani kiriting")); return; }
     try {
       const d = await api(`/api/debts/${id}/pay`, { method: "POST", body: { amount } });
       haptic("success");
-      toast(d.remaining > 0 ? `To'landi ✅ Qoldiq: ${fmtMoney(d.remaining, d.currency)}` : "Qarz to'liq yopildi 🎉");
+      toast(d.remaining > 0 ? t("To'landi ✅ Qoldiq: {r}", { r: fmtMoney(d.remaining, d.currency) }) : t("Qarz to'liq yopildi 🎉"));
       closeSheet("detailBackdrop");
       await loadDebts();
       refreshAll();
-    } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
+    } catch (e) { haptic("error"); toast(t("Xatolik: ") + e.message); }
   }
 
   async function settleDebt(id) {
     try {
       await api(`/api/debts/${id}/settle`, { method: "POST" });
-      haptic("success"); toast("Qarz yopildi ✅");
+      haptic("success"); toast(t("Qarz yopildi ✅"));
       closeSheet("detailBackdrop");
       await loadDebts();
       refreshAll();
-    } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
+    } catch (e) { haptic("error"); toast(t("Xatolik: ") + e.message); }
   }
 
   async function deleteTx(id) {
     try {
       await api(`/api/transactions/${id}`, { method: "DELETE" });
-      haptic("success"); toast("O'chirildi");
+      haptic("success"); toast(t("O'chirildi"));
       closeSheet("detailBackdrop");
       refreshAll();
-    } catch (e) { haptic("error"); toast("Xatolik: " + e.message); }
+    } catch (e) { haptic("error"); toast(t("Xatolik: ") + e.message); }
   }
 
   function refreshAll() {
@@ -1239,12 +1392,12 @@
 
     const html = `
       <div class="sheet-titlebar">
-        <h2>➕ Yangi yozuv</h2>
-        <button class="icon-btn" id="addClose" aria-label="Yopish">✕</button>
+        <h2>${t("➕ Yangi yozuv")}</h2>
+        <button class="icon-btn" id="addClose" aria-label="${t("Yopish")}">✕</button>
       </div>
 
       <div class="sheet-row">
-        <div class="sheet-label">Turi</div>
+        <div class="sheet-label">${t("Turi")}</div>
         <div class="chip-grid">
           ${["chiqim", "kirim", "qarz_berdim", "qarz_oldim",
              "qarz_qaytardim", "qarz_qaytdi",
@@ -1255,12 +1408,12 @@
       </div>
 
       <div class="sheet-row">
-        <div class="sheet-label">Summa</div>
+        <div class="sheet-label">${t("Summa")}</div>
         <input id="fAmount" class="field-input" type="number" inputmode="decimal" placeholder="0" value="${escapeHtml(addForm.amount)}" />
       </div>
 
       <div class="sheet-row">
-        <div class="sheet-label">Valyuta</div>
+        <div class="sheet-label">${t("Valyuta")}</div>
         <div class="chip-grid">
           ${(state.me.currency_symbols ? Object.keys(state.me.currency_symbols) : ["som", "usd"]).map((c) =>
             `<button class="chip ${c === addForm.currency ? "active" : ""}" data-currency="${c}">${state.me.currency_symbols[c]}</button>`
@@ -1270,7 +1423,7 @@
 
       ${!isDebt ? `
       <div class="sheet-row">
-        <div class="sheet-label">Kategoriya</div>
+        <div class="sheet-label">${t("Kategoriya")}</div>
         <div class="chip-grid">
           ${cats.map((c) => `<button class="chip ${c === addForm.category ? "active" : ""}" data-cat="${escapeHtml(c)}">${catIcon(c)} ${escapeHtml(catLabel(c))}</button>`).join("")}
         </div>
@@ -1278,23 +1431,23 @@
 
       ${isDebt ? `
       <div class="sheet-row">
-        <div class="sheet-label">Kim bilan (ism)</div>
-        <input id="fPerson" class="field-input" type="text" placeholder="Masalan: Ali" value="${escapeHtml(addForm.person)}" />
+        <div class="sheet-label">${t("Kim bilan (ism)")}</div>
+        <input id="fPerson" class="field-input" type="text" placeholder="${t("Masalan: Ali")}" value="${escapeHtml(addForm.person)}" />
       </div>` : ""}
 
       <div class="sheet-row">
-        <div class="sheet-label">Izoh</div>
-        <input id="fNote" class="field-input" type="text" placeholder="Ixtiyoriy" value="${escapeHtml(addForm.note)}" />
+        <div class="sheet-label">${t("Izoh")}</div>
+        <input id="fNote" class="field-input" type="text" placeholder="${t("Ixtiyoriy")}" value="${escapeHtml(addForm.note)}" />
       </div>
 
       <div class="sheet-row">
-        <div class="sheet-label">Sana</div>
+        <div class="sheet-label">${t("Sana")}</div>
         <input id="fDate" class="field-input" type="date" value="${addForm.date}" />
       </div>
 
       <div class="sheet-actions">
-        <button class="btn btn-secondary" id="addCancel">Bekor qilish</button>
-        <button class="btn btn-primary" id="addSave">Saqlash</button>
+        <button class="btn btn-secondary" id="addCancel">${t("Bekor qilish")}</button>
+        <button class="btn btn-primary" id="addSave">${t("Saqlash")}</button>
       </div>
     `;
     const body = document.getElementById("addBody");
@@ -1320,10 +1473,10 @@
 
   async function submitAddForm() {
     const amount = parseFloat(document.getElementById("fAmount").value);
-    if (!amount || amount <= 0) { toast("Summani to'g'ri kiriting"); return; }
+    if (!amount || amount <= 0) { toast(t("Summani to'g'ri kiriting")); return; }
     const isDebt = addForm.kind.startsWith("qarz");
     const person = isDebt ? (document.getElementById("fPerson").value || "").trim() : "";
-    if (isDebt && !person) { toast("Qarz uchun ism kerak"); return; }
+    if (isDebt && !person) { toast(t("Qarz uchun ism kerak")); return; }
 
     const body = {
       kind: addForm.kind, amount, currency: addForm.currency,
@@ -1334,11 +1487,11 @@
     };
     try {
       await api("/api/transactions", { method: "POST", body });
-      haptic("success"); toast("Saqlandi ✅");
+      haptic("success"); toast(t("Saqlandi ✅"));
       closeSheet("addBackdrop");
       refreshAll();
     } catch (e) {
-      haptic("error"); toast("Xatolik: " + e.message);
+      haptic("error"); toast(t("Xatolik: ") + e.message);
     }
   }
 
@@ -1361,7 +1514,7 @@
     } catch (e) {
       if (e.paywall) { showPaywall(e.message); return; }
       haptic("error");
-      toast("Yuklab bo'lmadi: " + e.message);
+      toast(t("Yuklab bo'lmadi: ") + e.message);
     }
   }
 
@@ -1402,15 +1555,15 @@
       const data = await api(`/api/transactions?search=${encodeURIComponent(q)}&limit=100`);
       resultsEl.innerHTML = "";
       if (!data.items.length) {
-        metaEl.textContent = "Natija topilmadi.";
+        metaEl.textContent = t("Natija topilmadi.");
         return;
       }
       const totalsStr = Object.entries(data.totals)
         .map(([cur, v]) => fmtMoney(v, cur)).join(" + ");
-      metaEl.textContent = `${data.total_count} ta natija · Jami: ${totalsStr}`;
+      metaEl.textContent = t("{n} ta natija · Jami: {totals}", { n: data.total_count, totals: totalsStr });
       data.items.forEach((tx) => resultsEl.appendChild(buildTxRow(tx)));
     } catch (e) {
-      metaEl.textContent = "Xatolik: " + e.message;
+      metaEl.textContent = t("Xatolik: ") + e.message;
     }
   }
 
@@ -1470,9 +1623,10 @@
   }
 
   async function main() {
+    applyStatic();
     if (!INIT_DATA) {
       document.getElementById("app").innerHTML =
-        '<div class="empty-state" style="padding-top:60px">⚠️ Bu sahifa faqat Telegram ichida ishlaydi.<br>Botdagi «📱 Panel» tugmasini bosing.</div>';
+        `<div class="empty-state" style="padding-top:60px">${t("⚠️ Bu sahifa faqat Telegram ichida ishlaydi.<br>Botdagi «📱 Panel» tugmasini bosing.")}</div>`;
       return;
     }
     try {

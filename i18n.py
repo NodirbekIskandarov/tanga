@@ -4,7 +4,8 @@ Matnlar shu yerda — kodning ichida emas. Yangi til qo'shish uchun
 har bir kalitga uchinchi qiymat qo'shilsa yetadi.
 
 Kalit topilmasa o'zbekchasi qaytariladi, ya'ni tarjima yetishmasa ham
-bot ishlaydi. Uzun qo'llanma (/qollanma) hozircha faqat o'zbekcha.
+bot ishlaydi. Hisobotlar (reports.py), tugmalar va Mini App ham ikki
+tilda; qo'llanma ruscha varianti — guide_ru.py.
 """
 
 from __future__ import annotations
@@ -17,9 +18,7 @@ import translit
 LANGS = {
     "uz": "🇺🇿 O'zbekcha (lotin)",
     "uzc": "🇺🇿 Ўзбекча (кирилл)",
-    # Ruscha tarjima hali to'liq emas (hisobotlar, Mini App va ba'zi xabarlar
-    # o'zbekcha chiqadi) — foydalanuvchi buni tanlashdan oldin bilsin.
-    "ru": "🇷🇺 Русский (beta)",
+    "ru": "🇷🇺 Русский",
 }
 DEFAULT = "uz"
 
@@ -324,7 +323,7 @@ T = {
     },
     "status_limits": {"uz": "<b>Bugungi limitlar:</b>", "ru": "<b>Лимиты на сегодня:</b>"},
     "status_rows": {"uz": "📒 Bazangizda {n} ta yozuv bor.",
-                    "ru": "📒 В вашей базе {n} записей."},
+                    "ru": "📒 Записей в вашей базе: {n}."},
     "status_extend_hint": {
         "uz": ("<i>Obunani hoziroq uzaytirsangiz, qolgan kunlar yo'qolmaydi — "
                "ustiga qo'shiladi.</i>"),
@@ -1439,7 +1438,7 @@ T.update({
     },
     "goal_eta": {
         "uz": "📈 Shu sur'atda maqsadga <b>{when}</b>da erishasiz (oyiga ~{pace}).",
-        "ru": "📈 В таком темпе цель будет достигнута <b>{when}</b> (~{pace} в месяц).",
+        "ru": "📈 В таком темпе цель будет достигнута: <b>{when}</b> (~{pace} в месяц).",
     },
     "goal_no_pace": {
         "uz": "📈 Bashorat uchun kamida 2 haftalik jamg'arma tarixi kerak.",

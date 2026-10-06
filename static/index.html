@@ -20,14 +20,14 @@
   <header class="topbar">
     <h1>🪙 Tanga</h1>
     <div class="topbar-actions">
-      <button id="csvBtn" class="icon-btn" aria-label="CSV eksport">📤</button>
-      <button id="searchToggle" class="icon-btn" aria-label="Qidiruv">🔍</button>
+      <button id="csvBtn" class="icon-btn" aria-label="CSV eksport" data-i18n-aria="CSV eksport">📤</button>
+      <button id="searchToggle" class="icon-btn" aria-label="Qidiruv" data-i18n-aria="Qidiruv">🔍</button>
     </div>
   </header>
 
   <!-- Qidiruv paneli -->
   <section id="searchPanel" class="search-panel hidden">
-    <input id="searchInput" type="text" inputmode="search" placeholder="Qidirish… (masalan: taksi)" />
+    <input id="searchInput" type="text" inputmode="search" placeholder="Qidirish… (masalan: taksi)" data-i18n-ph="Qidirish… (masalan: taksi)" />
     <div id="searchMeta" class="search-meta"></div>
     <div id="searchResults" class="tx-list"></div>
   </section>
@@ -36,10 +36,10 @@
   <main id="dashboard">
 
     <div class="period-tabs" id="periodTabs">
-      <button data-period="kun">Kun</button>
-      <button data-period="hafta">Hafta</button>
-      <button data-period="oy" class="active">Oy</button>
-      <button data-period="yil">Yil</button>
+      <button data-period="kun" data-i18n="Kun">Kun</button>
+      <button data-period="hafta" data-i18n="Hafta">Hafta</button>
+      <button data-period="oy" class="active" data-i18n="Oy">Oy</button>
+      <button data-period="yil" data-i18n="Yil">Yil</button>
     </div>
 
     <div class="range-nav">
@@ -49,11 +49,11 @@
     </div>
 
     <div class="kind-tabs" id="kindTabs">
-      <button data-kind="hammasi" class="active">Hammasi</button>
-      <button data-kind="kirim">Kirim</button>
-      <button data-kind="chiqim">Chiqim</button>
-      <button data-kind="qarz">Qarz</button>
-      <button data-kind="jamgarma">Jamg'arma</button>
+      <button data-kind="hammasi" class="active" data-i18n="Hammasi">Hammasi</button>
+      <button data-kind="kirim" data-i18n="Kirim">Kirim</button>
+      <button data-kind="chiqim" data-i18n="Chiqim">Chiqim</button>
+      <button data-kind="qarz" data-i18n="Qarz">Qarz</button>
+      <button data-kind="jamgarma" data-i18n="Jamg'arma">Jamg'arma</button>
     </div>
 
     <div class="currency-toggle" id="currencyToggle"></div>
@@ -70,20 +70,20 @@
         </div>
       </div>
       <div id="donutLegend" class="donut-legend"></div>
-      <button id="incomeCta" class="cta-inline hidden">💰 Oylik kirimingizni kiriting — shunda qancha tejayotganingizni ko'rasiz</button>
+      <button id="incomeCta" class="cta-inline hidden" data-i18n="💰 Oylik kirimingizni kiriting — shunda qancha tejayotganingizni ko'rasiz">💰 Oylik kirimingizni kiriting — shunda qancha tejayotganingizni ko'rasiz</button>
     </section>
 
     <section class="card" id="categoryCard">
       <div id="categoryList" class="category-list"></div>
     </section>
 
-    <h3 class="section-title" id="listTitle">So'nggi yozuvlar</h3>
+    <h3 class="section-title" id="listTitle" data-i18n="So'nggi yozuvlar">So'nggi yozuvlar</h3>
     <div id="recentList" class="tx-list"></div>
-    <button id="loadMore" class="load-more hidden">Yana yuklash</button>
+    <button id="loadMore" class="load-more hidden" data-i18n="Yana yuklash">Yana yuklash</button>
 
   </main>
 
-  <button id="fabAdd" class="fab" aria-label="Yozuv qo'shish">+</button>
+  <button id="fabAdd" class="fab" aria-label="Yozuv qo'shish" data-i18n-aria="Yozuv qo'shish">+</button>
 
   <!-- Yozuv tafsiloti / tahrirlash paneli -->
   <div id="detailBackdrop" class="sheet-backdrop hidden">

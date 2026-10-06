@@ -2465,8 +2465,9 @@ def _fmt_dt(dt) -> str:
 # Obuna tariflari
 # --------------------------------------------------------------------------- #
 
-def _fmt_price(amount: int) -> str:
-    return f"{amount:,}".replace(",", " ") + " so'm"
+def _fmt_price(amount: int, lang: str = "uz") -> str:
+    """«149 000 so'm» / «149 000 сум». Egaga boradigan xabarlarda til berilmaydi."""
+    return f"{amount:,}".replace(",", " ") + " " + i18n.money_unit(lang)
 
 
 def _plan_label(plan: dict, lang: str) -> str:
@@ -2485,7 +2486,7 @@ def plans_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
         elif p.get("founders"):
             label = f"🎁 {label}"
         rows.append([InlineKeyboardButton(
-            f"{label} — {_fmt_price(p['price'])}", callback_data=f"sub:{p['code']}")])
+            f"{label} — {_fmt_price(p['price'], lang)}", callback_data=f"sub:{p['code']}")])
     return InlineKeyboardMarkup(rows)
 
 
@@ -2500,10 +2501,10 @@ def plans_text(access: dict | None = None, lang: str = "uz",
 
     for p in config.public_plans():
         label = _plan_label(p, lang)
-        price = _fmt_price(p["price"])
+        price = _fmt_price(p["price"], lang)
         if p.get("best"):
             lines.append(i18n.t(lang, "plan_best_line", label=label, price=price,
-                                monthly=_fmt_price(config.plan_monthly_price(p)),
+                                monthly=_fmt_price(config.plan_monthly_price(p), lang),
                                 pct=config.plan_discount_percent(p)))
         elif p.get("founders"):
             places = (i18n.t(lang, "founders_places_all", total=config.FOUNDERS_LIMIT)
@@ -2554,7 +2555,7 @@ async def cmd_plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def payment_text(plan: dict, lang: str = "uz") -> str:
     """Karta rekvizitlari va to'lov yo'riqnomasi."""
     contact = reports.esc(_support_contact())
-    price = _fmt_price(plan["price"])
+    price = _fmt_price(plan["price"], lang)
     if not config.card_ready():
         return i18n.t(lang, "pay_no_card", plan=plan["label"], price=price,
                       contact=contact)
@@ -2756,7 +2757,7 @@ async def _accept_payment_proof(update: Update, context: ContextTypes.DEFAULT_TY
     label = plan["label"] if plan else req["plan_code"]
     await query.edit_message_text(
         i18n.t(lang_of(user.id, context), "proof_received", plan=label,
-               price=_fmt_price(req["price"])),
+               price=_fmt_price(req["price"], lang_of(user.id, context))),
         parse_mode=ParseMode.HTML,
     )
 

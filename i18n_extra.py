@@ -192,6 +192,29 @@ TEXTS = {
         "ru": "<i>Изменить: /byudjet &lt;категория&gt; &lt;сумма&gt;</i>",
     },
 
+    # ---- Mini App (webapp.py) xatolari ----
+    "wa_blocked": {"uz": "Hisobingiz bloklangan.", "ru": "Ваш аккаунт заблокирован."},
+    "wa_closed": {"uz": "Bot hozircha yopiq sinovda.",
+                  "ru": "Бот пока на закрытом тестировании."},
+    "wa_consent": {
+        "uz": "Avval botda shartlarga rozilik bering: /start",
+        "ru": "Сначала согласитесь с условиями в боте: /start",
+    },
+    "wa_rate_limit": {
+        "uz": "Juda ko'p so'rov. Bir daqiqadan keyin urinib ko'ring.",
+        "ru": "Слишком много запросов. Попробуйте через минуту.",
+    },
+    "wa_bad_date": {"uz": "Noto'g'ri sana: {raw}", "ru": "Неверная дата: {raw}"},
+    "wa_bad_kind": {"uz": "Noto'g'ri turi", "ru": "Неверный тип"},
+    "wa_bad_currency": {"uz": "Noto'g'ri valyuta", "ru": "Неверная валюта"},
+    "wa_receipt_nf": {"uz": "Chek topilmadi", "ru": "Чек не найден"},
+    "wa_open_debt_nf": {"uz": "Ochiq qarz topilmadi",
+                        "ru": "Открытый долг не найден"},
+    "wa_over_remaining": {"uz": "Qoldiqdan ko'p: qoldiq {left}",
+                          "ru": "Больше остатка: остаток {left}"},
+    "wa_person_needed": {"uz": "Qarz uchun shaxs ismi kerak",
+                         "ru": "Для долга нужно имя человека"},
+
     # ---- Valyuta kursi ----
     "fx_rate_page": {
         "uz": ("\U0001F4B1 <b>Valyuta kursi</b>\n\n"

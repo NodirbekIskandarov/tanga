@@ -223,9 +223,14 @@ def forecast(user_id: int, goal: dict) -> dict:
     return {"pace": pace, "eta": eta, "need_monthly": need}
 
 
-def month_year(d: date) -> str:
-    """2028-yil mart"""
-    return f"{d.year}-yil {UZ_MONTHS[d.month - 1]}"
+def month_year(d: date, lang: str | None = None) -> str:
+    """2028-yil mart / март 2028 (til berilmasa — joriy foydalanuvchi tili)."""
+    import i18n
+    import reports
+    lang = reports.resolve_lang(lang)
+    if i18n.normalize(lang) == "ru":
+        return f"{i18n.month_name(lang, d.month, nominative=True)} {d.year}"
+    return i18n.pick(lang, f"{d.year}-yil {UZ_MONTHS[d.month - 1]}")
 
 
 # ---------------------------------------------------------------- matn --
