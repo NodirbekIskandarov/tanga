@@ -98,29 +98,42 @@ def available() -> bool:
     return _find(FONT_CANDIDATES) is not None
 
 
-def _money(value: float, currency: str = "som") -> str:
+def _money(value: float, currency: str = "som", lang: str | None = None) -> str:
     """Rasmda joy kam — katta sonlarni qisqartiramiz."""
+    import i18n
     if currency == "usd":
         return f"${value:,.2f}".replace(",", " ")
     v = abs(value)
     if v >= 1_000_000:
-        text = f"{value / 1_000_000:.1f} mln".replace(".0 ", " ")
+        text = f"{value / 1_000_000:.1f} {i18n.pick(lang, 'mln', 'млн')}".replace(".0 ", " ")
     elif v >= 1_000:
-        text = f"{value / 1_000:.0f} ming"
+        text = f"{value / 1_000:.0f} {i18n.pick(lang, 'ming', 'тыс.')}"
     else:
         text = f"{value:.0f}"
-    return f"{text} so'm"
+    return f"{text} {i18n.money_unit(lang)}"
+
+
+def _entries_label(n: int, lang: str | None) -> str:
+    import i18n
+    if i18n.normalize(lang) == "ru":
+        word = ("запись" if n % 10 == 1 and n % 100 != 11 else
+                "записи" if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14 else
+                "записей")
+        return f"{n} {word}"
+    return i18n.pick(lang, f"{n} ta yozuv")
 
 
 def build(*, title: str, kirim: float, chiqim: float, categories: list[tuple],
           currency: str = "som", entries: int = 0,
-          bot_username: str = "") -> bytes | None:
+          bot_username: str = "", lang: str | None = None) -> bytes | None:
     """Oylik natijani PNG qilib qaytaradi. Muvaffaqiyatsiz bo'lsa None."""
     try:
         from PIL import Image, ImageDraw, ImageFont
     except ImportError:
         log.info("Pillow yo'q — ulashish rasmi tayyorlanmadi")
         return None
+    import i18n
+    pick = lambda uz, ru: i18n.pick(lang, uz, ru)   # noqa: E731
 
     regular_path = _find(FONT_CANDIDATES)
     bold_path = _find(BOLD_CANDIDATES) or regular_path
@@ -144,7 +157,8 @@ def build(*, title: str, kirim: float, chiqim: float, categories: list[tuple],
     pad = 72
     y = 96
 
-    draw.text((pad, y), "MOLIYAVIY HISOBOT", font=font(30, True), fill=ACCENT)
+    draw.text((pad, y), pick("MOLIYAVIY HISOBOT", "ФИНАНСОВЫЙ ОТЧЁТ"),
+              font=font(30, True), fill=ACCENT)
     y += 52
     draw.text((pad, y), title, font=font(66, True), fill=INK)
     y += 108
@@ -152,22 +166,24 @@ def build(*, title: str, kirim: float, chiqim: float, categories: list[tuple],
     # Kirim / chiqim kartalari
     card_w = (W - pad * 2 - 28) // 2
     for i, (label, value, color) in enumerate(
-            [("Kirim", kirim, GOOD), ("Chiqim", chiqim, BAD)]):
+            [(pick("Kirim", "Доход"), kirim, GOOD),
+             (pick("Chiqim", "Расход"), chiqim, BAD)]):
         x = pad + i * (card_w + 28)
         draw.rounded_rectangle([x, y, x + card_w, y + 168], radius=22, fill=CARD)
         draw.text((x + 30, y + 28), label.upper(), font=font(26, True), fill=INK_2)
-        draw.text((x + 30, y + 74), _money(value, currency), font=font(44, True),
+        draw.text((x + 30, y + 74), _money(value, currency, lang), font=font(44, True),
                   fill=color)
     y += 210
 
     # Farq
     diff = kirim - chiqim
     draw.rounded_rectangle([pad, y, W - pad, y + 132], radius=22, fill=CARD)
-    draw.text((pad + 30, y + 26), "FARQ", font=font(26, True), fill=INK_2)
-    draw.text((pad + 30, y + 66), _money(diff, currency), font=font(48, True),
+    draw.text((pad + 30, y + 26), pick("FARQ", "РАЗНИЦА"), font=font(26, True),
+              fill=INK_2)
+    draw.text((pad + 30, y + 66), _money(diff, currency, lang), font=font(48, True),
               fill=GOOD if diff >= 0 else BAD)
     if entries:
-        label = f"{entries} ta yozuv"
+        label = _entries_label(entries, lang)
         box = draw.textbbox((0, 0), label, font=font(28))
         draw.text((W - pad - 30 - (box[2] - box[0]), y + 78), label,
                   font=font(28), fill=INK_2)
@@ -175,13 +191,15 @@ def build(*, title: str, kirim: float, chiqim: float, categories: list[tuple],
 
     # Kategoriyalar
     if categories:
-        draw.text((pad, y), "ENG KO'P XARAJAT", font=font(28, True), fill=INK_2)
+        draw.text((pad, y), pick("ENG KO'P XARAJAT", "КРУПНЕЙШИЕ РАСХОДЫ"),
+                  font=font(28, True), fill=INK_2)
         y += 56
         biggest = max(amount for _, amount, *_ in categories[:5]) or 1
         for name, amount, *rest in categories[:5]:
             share = amount / biggest
-            draw.text((pad, y), name.capitalize(), font=font(34), fill=INK)
-            value_text = _money(amount, currency)
+            draw.text((pad, y), i18n.category_name(lang, name).capitalize(),
+                      font=font(34), fill=INK)
+            value_text = _money(amount, currency, lang)
             box = draw.textbbox((0, 0), value_text, font=font(34, True))
             draw.text((W - pad - (box[2] - box[0]), y), value_text,
                       font=font(34, True), fill=INK)

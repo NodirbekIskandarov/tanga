@@ -417,6 +417,37 @@ def _support_contact() -> str:
     return config.SUPPORT_CONTACT or "administrator"
 
 
+def tr(key: str, lang: str | None = None, **kwargs) -> str:
+    """Joriy foydalanuvchi tilida matn (til berilmasa — `reports.set_lang`
+    dagi). Handler ichida va `lang` qo'lda olib yurilmaydigan joylarda."""
+    return i18n.t(reports.resolve_lang(lang), key, **kwargs)
+
+
+def _ai_hint(hint: str | None, fallback_key: str) -> str:
+    """AI qaytargan qisqa tushuntirish — tayyor HTML (AI matni qochiriladi).
+
+    AI uni o'zbekcha yozadi: rus foydalanuvchiga kirillsiz matn ko'rsatilmaydi,
+    o'rniga tayyor ruscha javob chiqadi. Bo'sh bo'lsa ham tayyor javob.
+    """
+    lang = reports.resolve_lang(None)
+    text = (hint or "").strip()
+    if not text or (i18n.normalize(lang) == "ru" and not _has_cyrillic(text)):
+        return tr(fallback_key)
+    return reports.esc(text)
+
+
+def _job_lang(user_id: int) -> str:
+    """Rejali vazifada har bir odam uchun tilni o'rnatadi: summa va sana
+    formatlari ham shu tilda chiqadi (yangilanish yo'q — guard ishlamaydi)."""
+    lang = lang_of(user_id)
+    reports.set_lang(lang)
+    return lang
+
+
+def _has_cyrillic(text: str) -> bool:
+    return any("\u0400" <= ch <= "\u04ff" for ch in text)
+
+
 def lang_of(user_id: int, context: ContextTypes.DEFAULT_TYPE | None = None) -> str:
     """Foydalanuvchi tili. Bir so'rov ichida keshlanadi — har bir matn uchun
     bazaga borish shart emas."""
@@ -745,13 +776,13 @@ def entry_keyboard(tx_ids: list[int], kind: str | None = None,
     if len(tx_ids) == 1:
         tx = tx_ids[0]
         row = [
-            InlineKeyboardButton("✏️ Kategoriya", callback_data=f"c:{tx}"),
-            InlineKeyboardButton("🗑 O'chirish", callback_data=f"d:{tx}"),
+            InlineKeyboardButton(tr("btn_category"), callback_data=f"c:{tx}"),
+            InlineKeyboardButton(tr("btn_delete"), callback_data=f"d:{tx}"),
         ]
         buttons = [row]
         buttons += kind_switch_rows(tx, kind)
         if kind in config.DEBT_OPEN_KINDS:
-            buttons.append([InlineKeyboardButton("📅 Qaytarish muddati",
+            buttons.append([InlineKeyboardButton(tr("btn_due"),
                                                  callback_data=f"due:{tx}")])
         return InlineKeyboardMarkup(buttons)
     if not tx_ids:
@@ -761,16 +792,17 @@ def entry_keyboard(tx_ids: list[int], kind: str | None = None,
     # alohida xabarda ochadi.
     buttons = []
     for i, tx in enumerate(tx_ids):
-        label = f"✏️ {i + 1}-yozuv"
+        label = tr("btn_entry_n", n=i + 1)
         if items and i < len(items):
             it = items[i]
-            note = (it.get("izoh") or config.category_label(it["kategoriya"]))[:18]
+            note = (it.get("izoh") or i18n.category_name(
+                reports.resolve_lang(None), it["kategoriya"]))[:18]
             label = f"✏️ {reports.fmt_money(it['summa'], it.get('valyuta', 'som'))} · {note}"
         buttons.append([InlineKeyboardButton(label, callback_data=f"e:{tx}")])
     payload = "D:" + ",".join(map(str, tx_ids))
     # Telegram callback_data uchun chegara — 64 bayt.
     if len(payload.encode()) <= 64:
-        buttons.append([InlineKeyboardButton("🗑 Hammasini o'chirish",
+        buttons.append([InlineKeyboardButton(tr("btn_delete_all"),
                                              callback_data=payload)])
     return InlineKeyboardMarkup(buttons)
 
@@ -784,7 +816,7 @@ def kind_switch_rows(tx: int, kind: str | None) -> list[list[InlineKeyboardButto
     raqami — ro'yxat faqat oxiridan to'ldiriladi, raqamlar o'zgarmaydi.
     """
     return [[InlineKeyboardButton(
-        f"🔄 {config.KIND_ICONS[other]} {config.KIND_LABELS[other]}",
+        f"🔄 {config.KIND_ICONS[other]} {i18n.kind_label(reports.resolve_lang(None), other)}",
         callback_data=f"T:{tx}:{config.KINDS.index(other)}")]
         for other in config.KIND_SWITCHES.get(kind or "", [])]
 
@@ -797,9 +829,9 @@ LEGACY_CATEGORY_COUNT = 23
 def receipt_keyboard(receipt_id: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("📋 To'liq ro'yxat", callback_data=f"L:{receipt_id}")],
-            [InlineKeyboardButton("➕ Chek davomi bor", callback_data=f"A:{receipt_id}")],
-            [InlineKeyboardButton("🗑 Chekni o'chirish", callback_data=f"R:{receipt_id}")],
+            [InlineKeyboardButton(tr("btn_full_list"), callback_data=f"L:{receipt_id}")],
+            [InlineKeyboardButton(tr("btn_receipt_more"), callback_data=f"A:{receipt_id}")],
+            [InlineKeyboardButton(tr("btn_receipt_delete"), callback_data=f"R:{receipt_id}")],
         ]
     )
 
@@ -811,14 +843,15 @@ def category_keyboard(tx_id: int, kind: str) -> InlineKeyboardMarkup:
         icon = config.CATEGORY_ICONS.get(name, "•")
         # Raqam config.CATEGORY_REGISTRY dan — u o'zgarmaydi.
         idx = config.CATEGORY_REGISTRY.index(name)
-        row.append(InlineKeyboardButton(f"{icon} {config.category_label(name)}",
-                                        callback_data=f"k:{tx_id}:{idx}"))
+        row.append(InlineKeyboardButton(
+            f"{icon} {i18n.category_name(reports.resolve_lang(None), name)}",
+            callback_data=f"k:{tx_id}:{idx}"))
         if len(row) == 2:
             buttons.append(row)
             row = []
     if row:
         buttons.append(row)
-    buttons.append([InlineKeyboardButton("⬅️ Bekor", callback_data=f"x:{tx_id}")])
+    buttons.append([InlineKeyboardButton(tr("btn_back"), callback_data=f"x:{tx_id}")])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -989,7 +1022,7 @@ async def on_try_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         example = (try_example(lang_of(update.effective_user.id, context))
                    if arg == "ex" else FIRST_STEPS[int(arg)][0])
     except (ValueError, IndexError):
-        await query.answer("Misol topilmadi")
+        await query.answer(tr("example_missing"))
         return
     await query.answer(example)
     await query.edit_message_text(f"✍️ <i>{reports.esc(example)}</i>",
@@ -1068,6 +1101,11 @@ async def on_guide_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             i18n.t(lang, "guide_back"), callback_data="g:menu")]]))
 
 
+def _command_text(lang: str, uz: str, ru: str | None) -> str:
+    """Buyruq tavsifi: ruscha, kirillcha (lotinchadan) yoki lotincha."""
+    return i18n.pick(lang, uz, ru)
+
+
 async def cmd_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/buyruqlar — barcha buyruqlar bo'limlarga ajratilgan holda.
 
@@ -1075,15 +1113,16 @@ async def cmd_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     to'liq va tartibli ro'yxat shu yerda beriladi: odam /maqsad qaysi
     bo'limga tegishligini bir qarashda ko'radi.
     """
-    lines = ["\U0001F4CB <b>BUYRUQLAR</b>"]
+    lang = lang_of(update.effective_user.id, context)
+    lines = [i18n.t(lang, "commands_title")]
     for icon, title, items in COMMAND_SECTIONS:
         lines.append("")
-        lines.append(f"{icon} <b>{title}</b>")
+        lines.append(f"{icon} <b>{_command_text(lang, title, i18n.SECTION_RU.get(title))}</b>")
         for name, desc in items:
-            lines.append(f"/{name} \u2014 {desc}")
+            lines.append(f"/{name} \u2014 "
+                         f"{_command_text(lang, desc, i18n.COMMAND_RU.get(name))}")
     lines.append("")
-    lines.append("<i>Yozuv qo\'shish uchun buyruq kerak emas \u2014 "
-                 "shunchaki yozing: <code>obedga 45 ming</code></i>")
+    lines.append(i18n.t(lang, "commands_footer"))
     await update.effective_message.reply_text(
         "\n".join(lines), parse_mode=ParseMode.HTML)
 
@@ -1146,7 +1185,7 @@ def _period_command(period: str):
                 callback_data=f"share:{period}")])
         if period == "oy":
             rows.append([InlineKeyboardButton(
-                "📊 O'tgan oy bilan solishtirish", callback_data="cmp:oy")])
+                tr("btn_compare"), callback_data="cmp:oy")])
         if rows:
             markup = InlineKeyboardMarkup(rows)
         await update.effective_message.reply_text(
@@ -1182,9 +1221,10 @@ async def on_share_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         currency=currency,
         entries=entries,
         bot_username=me.username or "",
+        lang=reports.resolve_lang(None),
     )
     if not png:
-        await query.answer("Rasm tayyorlab bo'lmadi", show_alert=True)
+        await query.answer(tr("share_failed"), show_alert=True)
         return
 
     data = io.BytesIO(png)
@@ -1400,7 +1440,7 @@ async def link_repayments(context: ContextTypes.DEFAULT_TYPE, user_id: int, mess
             continue
         rows = []
         for d in cands[:DEBT_BUTTONS_MAX]:
-            who = (d["person"] or "noma'lum")[:18]
+            who = (d["person"] or tr("debt_person_unknown"))[:18]
             label = (f"{who} · {_debt_money(d, 'remaining')} · "
                      f"{reports.fmt_date(d['occurred_on'])}")
             rows.append([InlineKeyboardButton(label, callback_data=f"dl:{tx_id}:{d['id']}")])
@@ -1415,17 +1455,16 @@ async def link_repayments(context: ContextTypes.DEFAULT_TYPE, user_id: int, mess
 @private_only
 async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args or not context.args[0].lstrip("#").isdigit():
-        await update.message.reply_text("Foydalanish: /ochir 12")
+        await update.message.reply_text(tr("usage_delete"))
         return
     tx_id = int(context.args[0].lstrip("#"))
     removed = delete_entry(update.effective_user.id, tx_id)
     if removed is None:
-        await update.message.reply_text(f"#{tx_id} topilmadi.")
+        await update.message.reply_text(tr("entry_nf", id=tx_id))
     elif removed > 1:
-        await update.message.reply_text(
-            f"🗑 Chek o'chirildi ({removed} ta mahsulot).")
+        await update.message.reply_text(tr("receipt_removed", n=removed))
     else:
-        await update.message.reply_text(f"🗑 #{tx_id} o'chirildi.")
+        await update.message.reply_text(tr("entry_removed", id=tx_id))
 
 
 def remember_receipt_shop(user_id: int, row, category: str) -> None:
@@ -1455,13 +1494,12 @@ def delete_entry(user_id: int, tx_id: int) -> int | None:
 @private_only
 async def cmd_settle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args or not context.args[0].lstrip("#").isdigit():
-        await update.message.reply_text("Foydalanish: /yopdim 12")
+        await update.message.reply_text(tr("usage_settle"))
         return
     tx_id = int(context.args[0].lstrip("#"))
     ok = db.settle_debt(update.effective_user.id, tx_id)
     await update.message.reply_text(
-        f"✅ #{tx_id} qarzi yopildi." if ok else f"#{tx_id} ochiq qarzlar orasida topilmadi."
-    )
+        tr("debt_closed", id=tx_id) if ok else tr("debt_closed_nf", id=tx_id))
 
 
 @private_only
@@ -1477,13 +1515,13 @@ async def _send_csv(update: Update, context: ContextTypes.DEFAULT_TYPE,
     """CSV faylni yuboradi. /csv va hisobni o'chirishdan oldin ishlatiladi."""
     content, count = reports.csv_bytes(user_id)
     if not count:
-        await update.effective_message.reply_text("Eksport qilish uchun yozuv yo'q.")
+        await update.effective_message.reply_text(tr("csv_empty"))
         return
 
     data = io.BytesIO(content)
     data.name = "hisobot.csv"
     await update.effective_message.reply_document(
-        document=data, filename="hisobot.csv", caption=f"{count} ta yozuv."
+        document=data, filename="hisobot.csv", caption=tr("csv_caption", n=count)
     )
 
 
@@ -1604,25 +1642,18 @@ async def _download_receipt_file(context, message) -> tuple[str, str]:
             media_type = (doc.mime_type or "").lower()
             limit = config.MAX_IMAGE_BYTES
             if media_type not in SUPPORTED_IMAGE_TYPES:
-                raise ImageError(
-                    "Bu fayl turi qo'llab-quvvatlanmaydi.\n"
-                    "Chekni rasm (JPG/PNG) yoki PDF ko'rinishida yuboring."
-                )
+                raise ImageError(tr("err_file_type"))
         if (doc.file_size or 0) > limit:
-            raise ImageError(
-                f"Fayl juda katta ({(doc.file_size or 0) // 1_000_000} MB, "
-                f"chegara {limit // 1_000_000} MB)."
-            )
+            raise ImageError(tr("err_file_big", size=(doc.file_size or 0) // 1_000_000,
+                                limit=limit // 1_000_000))
         tg_file = await context.bot.get_file(doc.file_id)
     else:
-        raise ImageError("Chek fayli topilmadi.")
+        raise ImageError(tr("err_file_missing"))
 
     raw = bytes(await tg_file.download_as_bytearray())
     if len(raw) > limit:
-        raise ImageError(
-            f"Fayl juda katta ({len(raw) // 1_000_000} MB, "
-            f"chegara {limit // 1_000_000} MB)."
-        )
+        raise ImageError(tr("err_file_big", size=len(raw) // 1_000_000,
+                            limit=limit // 1_000_000))
     return base64.standard_b64encode(raw).decode(), media_type
 
 
@@ -1637,18 +1668,16 @@ async def _process_receipt(update: Update, context, images: list, caption: str,
     user_id = update.effective_user.id
 
     if len(images) > config.MAX_RECEIPT_PARTS:
-        await message.reply_text(
-            f"Bitta chek uchun ko'pi bilan {config.MAX_RECEIPT_PARTS} ta rasm "
-            f"yuborish mumkin (siz {len(images)} ta yubordingiz)."
-        )
+        await message.reply_text(tr("err_parts_max", max=config.MAX_RECEIPT_PARTS,
+                                    n=len(images)))
         return
 
     usage_id = await check_quota(update, context, "chek")
     if usage_id is None:
         return
 
-    qism = f" ({len(images)} ta qism)" if len(images) > 1 else ""
-    status = await message.reply_text(f"🔍 Chek o'qilmoqda{qism}…")
+    qism = tr("receipt_parts", n=len(images)) if len(images) > 1 else ""
+    status = await message.reply_text(tr("receipt_reading", parts=qism))
     await context.bot.send_chat_action(message.chat_id, ChatAction.TYPING)
 
     try:
@@ -1656,19 +1685,14 @@ async def _process_receipt(update: Update, context, images: list, caption: str,
     except Exception:
         log.exception("Chekni o'qishda xatolik")
         db.usage_cancel(usage_id)
-        await status.edit_text(
-            "⚠️ Chekni o'qishda xatolik yuz berdi. Birozdan keyin urinib ko'ring."
-        )
+        await status.edit_text(tr("receipt_error"))
         return
 
     db.usage_finish(usage_id, data.get("_usage"))
 
     if not data["oqildi"]:
-        hint = data["izoh_matni"] or (
-            "Chekni o'qib bo'lmadi. Yorug'roq, to'g'ridan-to'g'ri tushirilgan "
-            "surat yuboring."
-        )
-        await status.edit_text(f"🤔 {reports.esc(hint)}", parse_mode=ParseMode.HTML)
+        hint = _ai_hint(data["izoh_matni"], "receipt_unreadable")
+        await status.edit_text(f"🤔 {hint}", parse_mode=ParseMode.HTML)
         return
 
     db.log_event(user_id, "chek_yuborildi")
@@ -1736,8 +1760,7 @@ async def _flush_album(key: str, update: Update, context):
         # Albom chegaradan katta: yarim chekni o'qib noto'g'ri jami
         # chiqargandan ko'ra, ochiq aytamiz.
         await update.effective_message.reply_text(
-            f"Bitta chek uchun ko'pi bilan {config.MAX_RECEIPT_PARTS} ta rasm "
-            f"yuborish mumkin. Chekni kamroq qismga bo'lib qayta yuboring.")
+            tr("err_album_max", max=config.MAX_RECEIPT_PARTS))
         return
     await _process_receipt(update, context, bucket["images"], bucket["caption"])
 
@@ -1792,7 +1815,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     except Exception:
         log.exception("Chek faylini yuklab olishda xatolik")
-        await message.reply_text("⚠️ Faylni yuklab olishda xatolik yuz berdi.")
+        await message.reply_text(tr("err_download"))
         return
 
     # 1) «Uzun chek» rejimi — qismlarni yig'amiz.
@@ -1802,8 +1825,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if caption and not bucket["caption"]:
             bucket["caption"] = caption
         await message.reply_text(
-            f"✅ {len(bucket['images'])}-qism qabul qilindi.\n"
-            "Yana yuboring yoki «✅ Tayyor» bosing.",
+            tr("part_accepted", n=len(bucket["images"])),
             reply_markup=collect_menu(lang_of(update.effective_user.id, context)),
         )
         return
@@ -1828,11 +1850,7 @@ async def on_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_collect_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _collect.set(update.effective_user.id, {"images": [], "caption": ""})
     await update.effective_message.reply_text(
-        "🧾 <b>Uzun chek rejimi</b>\n\n"
-        "Chekni qismlarga bo'lib suratga oling va ketma-ket yuboring "
-        "(yuqoridan pastga). Qismlar bir-birini biroz takrorlasa ham "
-        "bo'ladi — takroriy qatorlar bir marta hisoblanadi.\n\n"
-        "Hammasi tayyor bo'lgach «✅ Tayyor» bosing.",
+        tr("collect_intro"),
         parse_mode=ParseMode.HTML,
         reply_markup=collect_menu(lang_of(update.effective_user.id, context)),
     )
@@ -1843,11 +1861,11 @@ async def cmd_collect_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bucket = _collect.pop(update.effective_user.id, None)
     if not bucket or not bucket["images"]:
         await update.effective_message.reply_text(
-            "Hech qanday rasm yuborilmadi.", reply_markup=main_menu(lang_of(update.effective_user.id, context))
+            tr("collect_none"), reply_markup=main_menu(lang_of(update.effective_user.id, context))
         )
         return
     await update.effective_message.reply_text(
-        f"📥 {len(bucket['images'])} ta qism qabul qilindi.", reply_markup=main_menu(lang_of(update.effective_user.id, context))
+        tr("collect_got", n=len(bucket["images"])), reply_markup=main_menu(lang_of(update.effective_user.id, context))
     )
     await _process_receipt(update, context, bucket["images"], bucket["caption"],
                            replaces=bucket.get("replaces"))
@@ -1856,7 +1874,7 @@ async def cmd_collect_done(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @private_only
 async def cmd_collect_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _collect.pop(update.effective_user.id, None)
-    await update.effective_message.reply_text("Bekor qilindi.", reply_markup=main_menu(lang_of(update.effective_user.id, context)))
+    await update.effective_message.reply_text(tr("cancelled"), reply_markup=main_menu(lang_of(update.effective_user.id, context)))
 
 
 # --------------------------------------------------------------------------- #
@@ -1976,7 +1994,7 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
     if user_id in _collect:
         _collect.get(user_id)["caption"] = text
         await message.reply_text(
-            "📝 Izoh saqlandi. Chek qismlarini yuborishda davom eting.",
+            tr("collect_caption_saved"),
             reply_markup=collect_menu(lang_of(update.effective_user.id, context)),
         )
         return
@@ -2000,7 +2018,7 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
     except Exception:
         log.exception("AI tahlilida xatolik")
         db.usage_cancel(usage_id)
-        await message.reply_text("⚠️ AI bilan bog'lanishda xatolik. Birozdan keyin urinib ko'ring.")
+        await message.reply_text(tr("ai_error"))
         return
 
     db.usage_finish(usage_id, parsed.get("_usage"))
@@ -2033,7 +2051,7 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
         except Exception:
             log.exception("AI javobida xatolik")
             db.usage_cancel(qa_id)
-            await message.reply_text("⚠️ Javob tayyorlashda xatolik yuz berdi.")
+            await message.reply_text(tr("answer_error"))
             return
         if qa_usage:
             db.usage_finish(qa_id, qa_usage)
@@ -2043,10 +2061,8 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
         return
 
     if niyat != "yozuv" or not parsed["yozuvlar"]:
-        hint = parsed.get("izoh_matni") or (
-            "Tushunmadim. Summani aniq yozing, masalan: <code>obedga 45 ming</code>"
-        )
-        await message.reply_text(f"🤔 {reports.esc(hint)}", parse_mode=ParseMode.HTML)
+        hint = _ai_hint(parsed.get("izoh_matni"), "not_understood")
+        await message.reply_text(f"🤔 {hint}", parse_mode=ParseMode.HTML)
         return
 
     # Foydalanuvchining o'z tuzatishlaridan o'rganilgan qoidalar AI
@@ -2083,7 +2099,7 @@ async def _process_text(update: Update, context: ContextTypes.DEFAULT_TYPE,
     start, end, _ = reports.period_range("bugun")
     day_total = db.totals_unified(user_id, start, end)["totals"][config.KIND_CHIQIM]
     if day_total:
-        body += f"\n\n<i>Bugungi chiqim: {reports.fmt_money(day_total)}</i>"
+        body += "\n\n" + tr("today_expense", amount=reports.fmt_money(day_total))
 
     single_kind = parsed["yozuvlar"][0]["turi"] if len(saved_ids) == 1 else None
     await message.reply_text(
@@ -2223,7 +2239,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Boshqa hamma tugma uchun bot bilan bir xil kirish qoidasi.
     access = db.access_status(user_id, user.first_name or "", user.username)
     if not access["ok"]:
-        await query.answer("Ruxsat yo'q.", show_alert=True)
+        await query.answer(tr("err_no_access"), show_alert=True)
         return
 
     if not db.has_consent(user_id, CONSENT_VERSION):
@@ -2250,8 +2266,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("d:"):
         tx_id = int(data[2:])
         db.delete_transaction(user_id, tx_id)
-        await query.answer("O'chirildi")
-        await query.edit_message_text("🗑 Yozuv o'chirildi.")
+        await query.answer(tr("toast_deleted"))
+        await query.edit_message_text(tr("entry_deleted"))
         return
 
     if data.startswith("e:"):
@@ -2259,8 +2275,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tx_id = int(data[2:])
         row = db.get_transaction(user_id, tx_id)
         if not row:
-            await query.answer("Yozuv topilmadi (o'chirilgan bo'lishi mumkin)",
-                               show_alert=True)
+            await query.answer(tr("entry_gone"), show_alert=True)
             return
         await query.answer()
         await query.message.reply_text(
@@ -2272,8 +2287,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ids = [int(x) for x in data[2:].split(",") if x.isdigit()]
         for tx_id in ids:
             db.delete_transaction(user_id, tx_id)
-        await query.answer("O'chirildi")
-        await query.edit_message_text(f"🗑 {len(ids)} ta yozuv o'chirildi.")
+        await query.answer(tr("toast_deleted"))
+        await query.edit_message_text(tr("entries_deleted", n=len(ids)))
         return
 
     # --- Chek tugmalari ---
@@ -2282,8 +2297,8 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         receipt_id = data[2:]
         removed = db.delete_receipt(user_id, receipt_id)
         _last_receipt.pop(user_id, None)
-        await query.answer("O'chirildi")
-        await query.edit_message_text(f"🗑 Chek o'chirildi ({removed} ta yozuv).")
+        await query.answer(tr("toast_deleted"))
+        await query.edit_message_text(tr("receipt_deleted", n=removed))
         return
 
     if data.startswith("L:"):
@@ -2298,10 +2313,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         receipt_id = data[2:]
         last = _last_receipt.get(user_id)
         if not last or last["receipt_id"] != receipt_id:
-            await query.answer(
-                "Bu chek rasmlari saqlanmagan. «🧾 Uzun chek» bilan qaytadan yuboring.",
-                show_alert=True,
-            )
+            await query.answer(tr("receipt_images_gone"), show_alert=True)
             return
         # Eski chek HOZIR o'chirilmaydi: yangi o'qish muvaffaqiyatli
         # saqlangandagina almashtiriladi (`replaces`). Ilgari darhol
@@ -2311,12 +2323,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                "replaces": receipt_id})
         await query.answer()
         await query.edit_message_text(
-            f"➕ Chekning qolgan qismlarini yuboring "
-            f"({len(last['images'])} ta qism allaqachon bor).\n"
-            "Tugagach «✅ Tayyor» bosing — chek boshidan qayta hisoblanadi."
-        )
+            tr("receipt_more_prompt", n=len(last["images"])))
         await query.message.reply_text(
-            "Qolgan qismlarni kutyapman…",
+            tr("receipt_more_wait"),
             reply_markup=collect_menu(lang_of(user_id, context)),
         )
         return
@@ -2349,7 +2358,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tx_id = int(data[2:])
         row = db.get_transaction(user_id, tx_id)
         if not row:
-            await query.answer("Yozuv topilmadi", show_alert=True)
+            await query.answer(tr("entry_not_found"), show_alert=True)
             return
         await query.answer()
         await query.edit_message_reply_markup(category_keyboard(tx_id, row["kind"]))
@@ -2360,7 +2369,7 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tx_id, idx = int(raw_id), int(raw_idx)
         row = db.get_transaction(user_id, tx_id)
         if not row:
-            await query.answer("Yozuv topilmadi", show_alert=True)
+            await query.answer(tr("entry_not_found"), show_alert=True)
             return
         if prefix == "k":
             names = config.CATEGORY_REGISTRY
@@ -2371,16 +2380,18 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                      if config.CATEGORY_REGISTRY.index(c) < LEGACY_CATEGORY_COUNT]
         category = names[idx] if 0 <= idx < len(names) else None
         if category not in config.categories_for(row["kind"]):
-            await query.answer("Noto'g'ri kategoriya", show_alert=True)
+            await query.answer(tr("bad_category"), show_alert=True)
             return
         db.update_category(user_id, tx_id, category)
         learned = learning.remember(user_id, row["kind"], row["note"], category)
         remember_receipt_shop(user_id, row, category)
-        await query.answer(f"Eslab qoldim: «{learned}» → {config.category_label(category)}"
-                           if learned else "Yangilandi")
+        await query.answer(
+            tr("learned_toast", word=learned,
+               category=i18n.category_name(reports.resolve_lang(None), category))
+            if learned else tr("updated_toast"))
         row = db.get_transaction(user_id, tx_id)
         await query.edit_message_text(
-            "✏️ Kategoriya yangilandi\n\n" + reports.transaction_line(row),
+            tr("category_updated") + "\n\n" + reports.transaction_line(row),
             parse_mode=ParseMode.HTML,
             reply_markup=entry_keyboard([tx_id], row["kind"]),
         )
@@ -2403,16 +2414,17 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         row = db.get_transaction(user_id, tx_id)
         new_kind = config.KINDS[kind_idx] if 0 <= kind_idx < len(config.KINDS) else None
         if not row or new_kind not in config.KIND_SWITCHES.get(row["kind"], []):
-            await query.answer("Bu yozuv turini almashtirib bo'lmaydi", show_alert=True)
+            await query.answer(tr("kind_locked"), show_alert=True)
             return
         db.update_kind(user_id, tx_id, new_kind, config.fallback_category(new_kind))
-        await query.answer("Turi yangilandi")
+        await query.answer(tr("kind_updated"))
         row = db.get_transaction(user_id, tx_id)
-        hint = ("\n\n<i>Kategoriyani ham to'g'rilash uchun «✏️ Kategoriya» bosing.</i>"
+        hint = (tr("hint_fix_category")
                 if new_kind in (config.KIND_CHIQIM, config.KIND_KIRIM) else
-                "\n\n<i>Qarz to'lovi kundalik chiqim va kirimga kirmaydi.</i>")
+                tr("hint_debt_payment"))
         await query.edit_message_text(
-            f"🔄 {config.KIND_LABELS[new_kind]}\n\n" + reports.transaction_line(row) + hint,
+            f"🔄 {i18n.kind_label(reports.resolve_lang(None), new_kind)}\n\n"
+            + reports.transaction_line(row) + hint,
             parse_mode=ParseMode.HTML,
             reply_markup=entry_keyboard([tx_id], new_kind),
         )
@@ -2423,17 +2435,16 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tx_id = int(data[2:])
         row = db.get_transaction(user_id, tx_id)
         if not row or row["kind"] not in (config.KIND_CHIQIM, config.KIND_KIRIM):
-            await query.answer("Bu yozuv turini almashtirib bo'lmaydi", show_alert=True)
+            await query.answer(tr("kind_locked"), show_alert=True)
             return
         new_kind = config.KIND_KIRIM if row["kind"] == config.KIND_CHIQIM else config.KIND_CHIQIM
         new_category = config.fallback_category(new_kind)
         db.update_kind(user_id, tx_id, new_kind, new_category)
-        await query.answer("Turi yangilandi")
+        await query.answer(tr("kind_updated"))
         row = db.get_transaction(user_id, tx_id)
         await query.edit_message_text(
-            f"🔄 {config.KIND_LABELS[new_kind]}ga almashtirildi\n\n"
-            + reports.transaction_line(row)
-            + "\n\n<i>Kategoriyani ham to'g'rilash uchun «✏️ Kategoriya» bosing.</i>",
+            tr("kind_switched", kind=i18n.kind_label(reports.resolve_lang(None), new_kind))
+            + "\n\n" + reports.transaction_line(row) + tr("hint_fix_category"),
             parse_mode=ParseMode.HTML,
             reply_markup=entry_keyboard([tx_id], new_kind),
         )
@@ -2575,8 +2586,7 @@ async def on_subscription_callback(update: Update, context: ContextTypes.DEFAULT
         return
 
     if not data.startswith("sub:"):
-        await query.answer("Bu tugma endi ishlamaydi. /obuna dan qayta boshlang.",
-                           show_alert=True)
+        await query.answer(tr("old_button"), show_alert=True)
         return
 
     # Faqat hozir sotilayotgan tarif: eski xabardagi 3/6 oylik tugmasi yoki
@@ -2726,7 +2736,7 @@ async def on_proof_choice_callback(update: Update, context: ContextTypes.DEFAULT
         return
     except Exception:
         log.exception("Chek faylini yuklab olishda xatolik")
-        await query.message.reply_text("⚠️ Faylni yuklab olishda xatolik yuz berdi.")
+        await query.message.reply_text(tr("err_download"))
         return
     # Tugma allaqachon javob oldi — chek oqimi callback'ga qayta javob
     # bermasin (paywall show_alert bilan ikkinchi answer xato beradi).
@@ -2815,16 +2825,8 @@ async def cmd_rate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     today = reports.today()
 
     rate = await asyncio.to_thread(rates.get, "usd", today)
-    source = db.rate_source("usd", today) or ""
-    manba = "Markaziy bank" if source.startswith("cbu") else "Markaziy bank"
-    await msg.reply_text(
-        f"\U0001F4B1 <b>Valyuta kursi</b>\n\n"
-        f"1 $ = <b>{reports.fmt_money(rate)}</b>\n"
-        f"<i>Manba: {manba} \u2014 har kuni ertalab yangilanadi</i>\n\n"
-        f"Dollarda yozgan yozuvlaringiz shu kurs bilan umumiy hisobga "
-        f"qo\'shiladi. Har bir yozuv o\'z kunidagi kursni saqlab qoladi "
-        f"\u2014 kurs o\'zgarsa ham eski hisobot o\'zgarmaydi.",
-        parse_mode=ParseMode.HTML)
+    await msg.reply_text(tr("fx_rate_page", rate=reports.fmt_money(rate)),
+                         parse_mode=ParseMode.HTML)
 
 
 async def job_refresh_rates(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2861,6 +2863,7 @@ async def on_lang_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code = i18n.normalize((query.data or "lang:uz").split(":")[1])
     db.set_lang(user.id, code)
     context.user_data["_lang"] = code
+    reports.set_lang(code)
     await query.answer(i18n.LANGS[code])
     await query.edit_message_text(i18n.t(code, "lang_set"))
     # Klaviatura yangi tilda qayta chiziladi.
@@ -3033,8 +3036,11 @@ _MULTIPLIERS = {
     "ming": 1_000, "k": 1_000, "минг": 1_000,
     "mln": 1_000_000, "million": 1_000_000, "mil": 1_000_000,
     "lim": 1_000_000, "m": 1_000_000, "млн": 1_000_000,
-    "тысяч": 1_000, "тыс": 1_000,
+    "тысяч": 1_000, "тыс": 1_000, "тысяча": 1_000, "тысячи": 1_000,
+    "миллион": 1_000_000, "миллиона": 1_000_000, "миллионов": 1_000_000,
     "mlrd": 1_000_000_000, "milliard": 1_000_000_000,
+    "млрд": 1_000_000_000, "миллиард": 1_000_000_000,
+    "миллиарда": 1_000_000_000, "миллиардов": 1_000_000_000,
 }
 
 
@@ -3109,6 +3115,9 @@ def match_expense_category(text: str) -> str | None:
     by_norm = {_cat_norm(c): c for c in config.EXPENSE_CATEGORIES}
     by_norm.update({_cat_norm(config.category_label(c)): c
                     for c in config.EXPENSE_CATEGORIES})
+    # Rus foydalanuvchi «/byudjet продукты 2 млн» deb yozadi.
+    by_norm.update({_cat_norm(i18n.CATEGORY_RU[c]): c
+                    for c in config.EXPENSE_CATEGORIES if c in i18n.CATEGORY_RU})
     if want in by_norm:
         return by_norm[want]
     hits = {c for n, c in by_norm.items() if n.startswith(want) or want in n}
@@ -3120,7 +3129,8 @@ def budget_category_keyboard(amount: float) -> InlineKeyboardMarkup:
     for name in config.EXPENSE_CATEGORIES:
         idx = config.CATEGORY_REGISTRY.index(name)
         row.append(InlineKeyboardButton(
-            f"{config.CATEGORY_ICONS.get(name, '•')} {config.category_label(name)}",
+            f"{config.CATEGORY_ICONS.get(name, '•')} "
+            f"{i18n.category_name(reports.resolve_lang(None), name)}",
             callback_data=f"bset:{idx}:{int(amount)}"))
         if len(row) == 2:
             rows.append(row)
@@ -3133,9 +3143,8 @@ def budget_category_keyboard(amount: float) -> InlineKeyboardMarkup:
 async def _confirm_budget(msg, user_id: int, category: str, amount: float,
                           edit: bool = False) -> None:
     db.set_budget(user_id, category, amount)
-    text = (f"✅ <b>{category}</b> uchun oylik byudjet: "
-            f"<b>{reports.fmt_money(amount, 'som')}</b>\n\n"
-            f"80% va 100% ga yetganda ogohlantiraman.")
+    text = tr("budget_set", cat=i18n.category_name(reports.resolve_lang(None), category),
+              amount=reports.fmt_money(amount, "som"))
     if edit:
         await msg.edit_text(text, parse_mode=ParseMode.HTML)
     else:
@@ -3153,7 +3162,7 @@ async def on_budget_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     idx, amount = int(raw_idx), int(raw_amount)
     name = config.CATEGORY_REGISTRY[idx] if 0 <= idx < len(config.CATEGORY_REGISTRY) else None
     if name not in config.EXPENSE_CATEGORIES or amount <= 0:
-        await query.answer("Noto'g'ri tanlov", show_alert=True)
+        await query.answer(tr("bad_choice"), show_alert=True)
         return
     await query.answer("✅")
     await _confirm_budget(query.message, user_id, name, amount, edit=True)
@@ -3170,33 +3179,27 @@ async def cmd_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.effective_message
 
     if args:
-        if args[-1].lower() in ("o'chir", "ochir", "0"):
+        if args[-1].lower() in ("o'chir", "ochir", "0", "удалить", "удали", "убрать"):
             category = match_expense_category(" ".join(args[:-1]))
             if category is None:
-                await msg.reply_text(
-                    "Qaysi kategoriya? Masalan: <code>/byudjet transport o'chir</code>",
-                    parse_mode=ParseMode.HTML)
+                await msg.reply_text(tr("budget_which_off"), parse_mode=ParseMode.HTML)
                 return
             ok = db.delete_budget(user_id, category)
-            await msg.reply_text(
-                f"🗑 «{category}» byudjeti o'chirildi." if ok
-                else f"«{category}» uchun byudjet yo'q edi.")
+            shown = i18n.category_name(reports.resolve_lang(None), category)
+            await msg.reply_text(tr("budget_deleted", cat=shown) if ok
+                                 else tr("budget_none", cat=shown))
             return
 
         words, amount = split_budget_args(args)
         if not amount or amount <= 0:
-            await msg.reply_text(
-                "Summani tushunmadim.\n\n"
-                "Masalan: <code>/byudjet oziq-ovqat 2 mln</code>",
-                parse_mode=ParseMode.HTML)
+            await msg.reply_text(tr("budget_bad_amount"), parse_mode=ParseMode.HTML)
             return
         category = match_expense_category(words)
         if category is None:
             # Topilmagan kategoriya jimgina «boshqa chiqim» ga yozilmasin —
             # tanlatamiz (summa tugmada saqlanadi).
             await msg.reply_text(
-                f"Qaysi kategoriyaga <b>{reports.fmt_money(amount, 'som')}</b> "
-                f"oylik byudjet qo'yamiz?",
+                tr("budget_which_set", amount=reports.fmt_money(amount, "som")),
                 parse_mode=ParseMode.HTML,
                 reply_markup=budget_category_keyboard(amount))
             return
@@ -3205,38 +3208,34 @@ async def cmd_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     rows = db.budget_status(user_id)
     if not rows:
-        cats = ", ".join(config.EXPENSE_CATEGORIES[:6])
+        lang = reports.resolve_lang(None)
+        cats = ", ".join(i18n.category_name(lang, c) for c in config.EXPENSE_CATEGORIES[:6])
         await msg.reply_text(
-            "💰 <b>Oylik byudjet</b>\n\n"
-            "Kategoriyaga oylik chegara qo'ying — oshib ketsa ogohlantiraman.\n\n"
-            "<b>O'rnatish:</b>\n"
-            "<code>/byudjet oziq-ovqat 2 mln</code>\n"
-            "<code>/byudjet transport 500 ming</code>\n\n"
-            "<b>O'chirish:</b>\n"
-            "<code>/byudjet transport o'chir</code>\n\n"
-            f"<i>Kategoriyalar: {cats} …</i>",
+            tr("budget_intro") + "\n\n" + tr("budget_cats", cats=cats),
             parse_mode=ParseMode.HTML)
         return
 
-    lines = ["💰 <b>Shu oylik byudjet</b>", ""]
+    lang = reports.resolve_lang(None)
+    lines = [tr("budget_title"), ""]
     for r in rows:
         pct = r["percent"]
         bar_len = 10
         filled = min(bar_len, int(round(pct / 100 * bar_len)))
         bar = "█" * filled + "░" * (bar_len - filled)
         icon = "🔴" if pct >= 100 else ("🟡" if pct >= 80 else "🟢")
-        lines.append(f"{icon} <b>{r['category']}</b>")
+        lines.append(f"{icon} <b>{i18n.category_name(lang, r['category'])}</b>")
         lines.append(
             f"    {bar} {pct:.0f}%\n"
             f"    {reports.fmt_money(r['spent'], r['currency'])} / "
             f"{reports.fmt_money(r['limit'], r['currency'])}")
         if r["left"] >= 0:
-            lines.append(f"    qoldi: {reports.fmt_money(r['left'], r['currency'])}")
+            lines.append("    " + tr("budget_left",
+                                      amount=reports.fmt_money(r["left"], r["currency"])))
         else:
-            lines.append(f"    ⚠️ oshib ketdi: "
-                         f"{reports.fmt_money(-r['left'], r['currency'])}")
+            lines.append("    " + tr("budget_over",
+                                      amount=reports.fmt_money(-r["left"], r["currency"])))
         lines.append("")
-    lines.append("<i>O'zgartirish: /byudjet &lt;kategoriya&gt; &lt;summa&gt;</i>")
+    lines.append(tr("budget_change"))
     await msg.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
 
 
@@ -3472,8 +3471,7 @@ async def on_savings_add_callback(update: Update, context: ContextTypes.DEFAULT_
 
     offer = _savings_offer.pop(user_id)
     if not offer:
-        await query.answer("Taklif eskirdi. Summani o'zingiz yozing.",
-                           show_alert=True)
+        await query.answer(tr("offer_expired"), show_alert=True)
         return
     # Eski (bot qayta ishga tushmasdan oldingi) taklif — faqat summa edi.
     if not isinstance(offer, dict):
@@ -3603,7 +3601,7 @@ async def on_goal_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     goal = goals.get(user_id, int(arg)) if arg.isdigit() else None
     if not goal:
-        await query.answer("Maqsad topilmadi", show_alert=True)
+        await query.answer(tr("goal_not_found"), show_alert=True)
         return
 
     if prefix == "glp":
@@ -3737,7 +3735,7 @@ async def on_due_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tx_id = int(parts[1])
     row = db.get_transaction(user_id, tx_id)
     if not row or row["kind"] not in config.DEBT_OPEN_KINDS:
-        await query.answer("Qarz topilmadi", show_alert=True)
+        await query.answer(tr("debt_not_found"), show_alert=True)
         return
 
     if parts[0] == "due":
@@ -3829,20 +3827,20 @@ async def check_budget_alerts(context: ContextTypes.DEFAULT_TYPE, user_id: int,
         if not level:
             continue
         tag = f"{month}:{level}"
+        cat_name = i18n.category_name(reports.resolve_lang(None), r["category"])
         already = r["notified"]
         if already == tag or (already.startswith(month) and
                               already.endswith(":100")):
             continue
         db.mark_budget_notified(user_id, r["category"], r["currency"], tag)
         if level == 100:
-            text = (f"🔴 <b>{r['category']}</b> byudjeti oshib ketdi!\n\n"
-                    f"Sarflandi: {reports.fmt_money(r['spent'], r['currency'])}\n"
-                    f"Chegara: {reports.fmt_money(r['limit'], r['currency'])}\n"
-                    f"Oshgan: {reports.fmt_money(-r['left'], r['currency'])}")
+            text = tr("budget_alert_100", cat=cat_name,
+                      spent=reports.fmt_money(r["spent"], r["currency"]),
+                      limit=reports.fmt_money(r["limit"], r["currency"]),
+                      over=reports.fmt_money(-r["left"], r["currency"]))
         else:
-            text = (f"🟡 <b>{r['category']}</b> byudjetining "
-                    f"{r['percent']:.0f}% i sarflandi.\n\n"
-                    f"Qoldi: {reports.fmt_money(r['left'], r['currency'])}")
+            text = tr("budget_alert_80", cat=cat_name, pct=f"{r['percent']:.0f}",
+                      left=reports.fmt_money(r["left"], r["currency"]))
         try:
             await context.bot.send_message(user_id, text, parse_mode=ParseMode.HTML)
         except Exception:
@@ -4072,6 +4070,10 @@ async def _private_chat_guard(update: object, context: ContextTypes.DEFAULT_TYPE
     """
     chat = getattr(update, "effective_chat", None)
     if chat is None or chat.type == "private":
+        # Summa va sana formatlari shu foydalanuvchining tilida chiqsin.
+        user = getattr(update, "effective_user", None)
+        if user is not None:
+            reports.set_lang(lang_of(user.id, context))
         return
     if getattr(update, "my_chat_member", None) is not None:
         try:
@@ -4101,7 +4103,7 @@ async def job_daily_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
     for item in users:
         user_id = item["user_id"]
         try:
-            lang = lang_of(user_id)
+            lang = _job_lang(user_id)
             markup = None
             s = db.day_summary(user_id, today) if item["mode"] == "summary" else None
             if s and s["count"]:
@@ -4135,7 +4137,7 @@ async def job_expiry_warning(context: ContextTypes.DEFAULT_TYPE) -> None:
     for r in rows:
         user_id = r["user_id"]
         try:
-            lang = lang_of(user_id)
+            lang = _job_lang(user_id)
             head = (i18n.t(lang, "expiry_sub", days=r["days_left"])
                     if r["days_left"] > 0
                     else i18n.t(lang, "expiry_sub_today"))
@@ -4192,7 +4194,7 @@ async def job_trial_notices(context: ContextTypes.DEFAULT_TYPE) -> None:
     for r in db.trial_notices():
         user_id = r["user_id"]
         try:
-            lang = lang_of(user_id)
+            lang = _job_lang(user_id)
             if r["kind"] == "day5":
                 text = trial_summary_text(user_id, lang, r["days_left"])
                 if not await notify.send(context.bot, user_id, text,
@@ -4217,7 +4219,7 @@ async def job_trial_notices(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 def debt_reminder_text(debt: dict, lang: str, when_key: str) -> str:
     """«Akmal 200 ming qarzini ertaga qaytarishi kerak.» — qoldiq bilan."""
-    person = reports.esc(debt["person"] or "Qarz")
+    person = reports.esc(debt["person"] or i18n.t(lang, "debt_person_default"))
     amount = reports.fmt_money(debt["remaining"], debt["currency"] or "som")
     key = "debt_due_them" if debt["kind"] == config.KIND_QARZ_BERDIM else "debt_due_me"
     return i18n.t(lang, key, person=person, amount=amount, when=i18n.t(lang, when_key))
@@ -4241,7 +4243,7 @@ async def job_debt_reminders(context: ContextTypes.DEFAULT_TYPE) -> None:
                 continue
             if not tiers.allows(db.access_status(user_id), "debt_reminders"):
                 continue
-            lang = lang_of(user_id)
+            lang = _job_lang(user_id)
             if not await notify.send(
                     context.bot, user_id, debt_reminder_text(debt, lang, f"when_{stage}"),
                     parse_mode=ParseMode.HTML):
@@ -4312,7 +4314,7 @@ async def job_weekly_digest(context: ContextTypes.DEFAULT_TYPE) -> None:
     for row in db.users_for_digest():
         user_id = row["user_id"]
         try:
-            lang = lang_of(user_id)
+            lang = _job_lang(user_id)
             text = digest_text(user_id, lang, row)
             if text and await notify.send(context.bot, user_id, text,
                                           parse_mode=ParseMode.HTML):
@@ -4331,7 +4333,7 @@ async def job_winback(context: ContextTypes.DEFAULT_TYPE) -> None:
     sent = 0
     for r in rows:
         try:
-            lang = lang_of(r["user_id"])
+            lang = _job_lang(r["user_id"])
             try:
                 gap = (today - date.fromisoformat(r["last_tx"])).days
             except (TypeError, ValueError):
@@ -4383,6 +4385,7 @@ async def job_savings_monthly(context: ContextTypes.DEFAULT_TYPE) -> None:
     for r in rows:
         user_id = r["user_id"]
         lang = r["lang"]
+        reports.set_lang(lang)
         income, saved = r["income"], r["saved"]
         balance = r["balance"]
         rate = r.get("rate") or config.SAVINGS_RATE
@@ -4639,6 +4642,12 @@ BOT_COMMANDS = [("start", "Boshlash va yordam")] + [
     for icon, _, items in COMMAND_SECTIONS
     for name, desc in items
 ]
+# Telegram ilovasi rus tilida bo'lganlarga «/» menyusi ruscha ko'rinadi.
+BOT_COMMANDS_RU = [("start", i18n.COMMAND_RU["start"])] + [
+    (name, f"{icon} {i18n.COMMAND_RU.get(name, desc)}")
+    for icon, _, items in COMMAND_SECTIONS
+    for name, desc in items
+]
 
 # Profil matnlari (tavsif, qisqa tavsif) — profile_texts.py da, har bir
 # til uchun; _post_init ularni o'rnatadi.
@@ -4698,6 +4707,12 @@ async def _post_init(app: Application) -> None:
                 await app.bot.delete_my_commands(scope=scope, language_code=code)
             except Exception as exc:
                 log.warning("Eski «%s» ro'yxatini o'chirib bo'lmadi: %s", code, exc)
+    ru_commands = [BotCommand(c, d) for c, d in BOT_COMMANDS_RU]
+    for scope in (BotCommandScopeDefault(), BotCommandScopeAllPrivateChats()):
+        try:
+            await app.bot.set_my_commands(ru_commands, scope=scope, language_code="ru")
+        except Exception as exc:
+            log.warning("Ruscha «/» menyusini o'rnatib bo'lmadi (%s): %s", scope.type, exc)
     log.info("«/» menyusi hammaga o'rnatildi: %d ta buyruq", len(commands))
 
     # Profil matnlari — har bir til uchun (standart, «uz», «ru»). Telegram

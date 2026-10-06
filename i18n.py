@@ -1656,3 +1656,115 @@ def menu_lookup() -> dict[str, str]:
         out[translit.to_cyrillic(variants.get("uz", ""))] = key
     out.pop("", None)
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Hisobotlar uchun nomlar. Kodda va bazada kategoriya/tur o'z (o'zbekcha)
+# kaliti bilan qoladi — bu yerda faqat ko'rinadigan nom.
+# --------------------------------------------------------------------------- #
+
+def pick(lang: str | None, uz: str, ru: str | None = None) -> str:
+    """Satr ichidagi shablon matni uchun: ruscha berilgan bo'lsa rus
+    foydalanuvchiga u, kirillga lotinchadan o'girilgani, qolganiga lotin.
+
+    Faqat shablon bo'lagi uchun — foydalanuvchi kiritgan matn (ism, izoh,
+    do'kon) bu yerdan o'tmasligi kerak, aks holda u ham o'giriladi.
+    """
+    lang = normalize(lang)
+    if lang == "ru" and ru is not None:
+        return ru
+    return translit.to_cyrillic(uz) if lang == "uzc" else uz
+
+
+MONTHS_UZ = [
+    "yanvar", "fevral", "mart", "aprel", "may", "iyun",
+    "iyul", "avgust", "sentabr", "oktabr", "noyabr", "dekabr",
+]
+# «6 октября» (kim?) va «Октябрь» (nominativ) shakllari farq qiladi.
+MONTHS_RU_GEN = [
+    "января", "февраля", "марта", "апреля", "мая", "июня",
+    "июля", "августа", "сентября", "октября", "ноября", "декабря",
+]
+MONTHS_RU_NOM = [
+    "январь", "февраль", "март", "апрель", "май", "июнь",
+    "июль", "август", "сентябрь", "октябрь", "ноябрь", "декабрь",
+]
+
+
+def month_name(lang: str | None, month: int, *, nominative: bool = False) -> str:
+    """Oy nomi (kichik harf). `nominative` — «Октябрь» (sarlavha) shakli;
+    boshqa tillarda ikkala shakl bir xil."""
+    if normalize(lang) == "ru":
+        return (MONTHS_RU_NOM if nominative else MONTHS_RU_GEN)[month - 1]
+    return pick(lang, MONTHS_UZ[month - 1])
+
+
+CATEGORY_RU = {
+    "oziq-ovqat": "продукты",
+    "kafe va restoran": "кафе и рестораны",
+    "transport": "транспорт",
+    "uy-joy": "жильё",
+    "kommunal": "коммунальные",
+    "aloqa va internet": "связь и интернет",
+    "salomatlik": "здоровье",
+    "kiyim-kechak": "одежда",
+    "ta'lim": "образование",
+    "dam olish": "отдых",
+    "sovg'a": "подарки",
+    "xizmatlar": "услуги",
+    "biznes xarajat": "расходы на бизнес",
+    "uy-ro'zg'or va gigiyena": "хозтовары и гигиена",
+    "boshqa chiqim": "прочие расходы",
+    "oylik": "зарплата",
+    "biznes daromadi": "доход от бизнеса",
+    "qo'shimcha ish": "подработка",
+    "sotuvdan": "продажи",
+    "sovg'a olindi": "полученные подарки",
+    "investitsiya": "инвестиции",
+    "boshqa kirim": "прочие доходы",
+    "qarz": "долг",
+    "jamg'arma": "накопления",
+}
+
+KIND_RU = {
+    "chiqim": "Расход",
+    "kirim": "Доход",
+    "qarz_berdim": "Дал в долг",
+    "qarz_oldim": "Взял в долг",
+    "jamgarma": "В накопления",
+    "jamgarma_yechdim": "Снял с накоплений",
+    "qarz_qaytardim": "Вернул долг",
+    "qarz_qaytdi": "Мне вернули долг",
+}
+
+
+def category_name(lang: str | None, name: str) -> str:
+    """Kategoriyaning ko'rinadigan nomi (HTML-qochirilmagan)."""
+    import config
+    label = config.category_label(name)
+    if normalize(lang) == "ru":
+        return CATEGORY_RU.get(name, label)
+    return pick(lang, label)
+
+
+def kind_label(lang: str | None, kind: str) -> str:
+    import config
+    label = config.KIND_LABELS.get(kind, kind)
+    if normalize(lang) == "ru":
+        return KIND_RU.get(kind, label)
+    return pick(lang, label)
+
+
+def money_unit(lang: str | None) -> str:
+    """Valyuta nomi («so'm» / «сум» / «сўм»). `CURRENCY` boshqa qilib
+    o'zgartirilgan bo'lsa (masalan «UZS») o'zgarishsiz qoladi."""
+    import config
+    if config.CURRENCY != "so'm":
+        return config.CURRENCY
+    return pick(lang, config.CURRENCY, "сум")
+
+
+# Bot xabarlari (tugmalar, xatolar, buyruqlar) — alohida faylda.
+from i18n_extra import COMMAND_RU, SECTION_RU, TEXTS as _EXTRA_TEXTS  # noqa: E402
+
+T.update(_EXTRA_TEXTS)
