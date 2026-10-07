@@ -10,6 +10,7 @@ import base64
 import io
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import date, datetime, timedelta
@@ -742,9 +743,17 @@ def main_menu(lang: str = "uz") -> ReplyKeyboardMarkup:
     rows = [["today", "month"], ["goals", "debts"]]
     keyboard = [[KeyboardButton(i18n.btn(lang, key)) for key in row] for row in rows]
     if config.WEBAPP_URL:
+        # «Panel» bu yerda ATAYLAB oddiy matn tugmasi, web_app emas.
+        # Telegram klaviatura tugmasidan ochilgan Mini App'ga initData
+        # BERMAYDI (hujjat: «It is empty if the Mini App was launched from
+        # a keyboard button»), server esa har so'rovni shu imzo bilan
+        # tekshiradi. Natijada panel faqat pastki chap menyu tugmasidan
+        # ochadigan egada ishlab, klaviaturani bosgan hamma odamda
+        # «faqat Telegram ichida ishlaydi» deb to'xtardi. Endi tugma
+        # bosilganda bot inline web_app tugmasini yuboradi (cmd_open_panel)
+        # — inline tugma initData beradi.
         keyboard.append([
-            KeyboardButton(i18n.btn(lang, "panel"),
-                           web_app=WebAppInfo(url=config.WEBAPP_URL)),
+            KeyboardButton(i18n.btn(lang, "panel")),
             KeyboardButton(i18n.btn(lang, "pro")),
         ])
         keyboard.append([KeyboardButton(i18n.btn(lang, "more"))])
@@ -772,6 +781,38 @@ async def cmd_more(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(
         i18n.t(lang, "more_menu"), parse_mode=ParseMode.HTML,
         reply_markup=more_keyboard(lang))
+
+
+def panel_keyboard(lang: str = "uz") -> InlineKeyboardMarkup:
+    """Mini App'ni ochadigan inline tugma — initData faqat shu yo'l bilan
+    (va pastki menyu tugmasi bilan) keladi, klaviatura tugmasidan emas."""
+    return InlineKeyboardMarkup([[InlineKeyboardButton(
+        i18n.t(lang, "panel_open_btn"), web_app=WebAppInfo(url=config.WEBAPP_URL))]])
+
+
+async def cmd_open_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Klaviaturadagi «📱 Panel» tugmasi."""
+    if not config.WEBAPP_URL:
+        return
+    lang = lang_of(update.effective_user.id, context)
+    await update.effective_message.reply_text(
+        i18n.t(lang, "panel_open"), reply_markup=panel_keyboard(lang))
+
+
+@private_only
+async def on_web_app_data(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Eski klaviaturadan ochilgan panel (initData'siz) shu yerga «panel»
+    deb yozadi (app.js, sendData). Foydalanuvchi ekranida hali eski
+    web_app tugmali klaviatura turibdi — uni yangisiga almashtiramiz va
+    ishlaydigan tugmani beramiz. Bir marta bo'ladi: keyingi safar yangi
+    klaviatura ishlaydi."""
+    data = getattr(update.effective_message.web_app_data, "data", "")
+    if data != "panel" or not config.WEBAPP_URL:
+        return
+    lang = lang_of(update.effective_user.id, context)
+    await update.effective_message.reply_text(
+        i18n.t(lang, "panel_kb_updated"), reply_markup=main_menu(lang))
+    await cmd_open_panel(update, context)
 
 
 async def on_more_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1167,14 +1208,51 @@ async def cmd_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
 PRO_PERIODS = ("otgan_oy", "yil")
 
 
+CAPTION_LIMIT = 1024     # Telegram: rasm izohi, ko'rinadigan belgilar
+
+
+def _visible_len(html_text: str) -> int:
+    import html as html_lib
+    return len(html_lib.unescape(re.sub(r"<[^>]+>", "", html_text)))
+
+
+async def send_compare(message, context: ContextTypes.DEFAULT_TYPE, user_id: int) -> None:
+    """Oylar solishtirmasi: grafik (PNG) va uning ostida matn.
+
+    Matn izohga sig'sa — bitta xabar; sig'masa — rasm, keyin matn.
+    Grafik chizilmasa (Pillow/shrift yo'q, yozuv yo'q) — avvalgidek faqat
+    matn: rasm qo'shimcha, uning yo'qligi hisobotni to'xtatmaydi.
+    """
+    lang = reports.resolve_lang(None)
+    text = reports.compare_text(user_id, lang=lang)
+    png = None
+    if sharecard.available():
+        try:
+            await context.bot.send_chat_action(message.chat_id, ChatAction.UPLOAD_PHOTO)
+        except Exception:
+            pass
+        png = await asyncio.to_thread(
+            reports.compare_chart, user_id, lang=lang,
+            bot_username=getattr(context.bot, "username", "") or "")
+    if not png:
+        await message.reply_text(text, parse_mode=ParseMode.HTML)
+        return
+    photo = io.BytesIO(png)
+    photo.name = "solishtirish.png"
+    if _visible_len(text) <= CAPTION_LIMIT:
+        await message.reply_photo(photo, caption=text, parse_mode=ParseMode.HTML)
+    else:
+        await message.reply_photo(photo)
+        await message.reply_text(text, parse_mode=ParseMode.HTML)
+
+
 @private_only
 async def cmd_compare(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/solishtir — shu oy va o'tgan oyning bir xil kunlari (PRO)."""
     if not tiers.allows(context.user_data.get("access"), "history"):
         await show_paywall(update, context, "history")
         return
-    await update.effective_message.reply_text(
-        reports.compare_text(update.effective_user.id), parse_mode=ParseMode.HTML)
+    await send_compare(update.effective_message, context, update.effective_user.id)
 
 
 async def on_compare_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1184,9 +1262,8 @@ async def on_compare_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not tiers.allows(db.access_status(user_id), "history"):
         await show_paywall(update, context, "history")
         return
-    await query.answer()
-    await query.message.reply_text(reports.compare_text(user_id),
-                                   parse_mode=ParseMode.HTML)
+    await query.answer("📊")
+    await send_compare(query.message, context, user_id)
 
 
 def _period_command(period: str):
@@ -5079,6 +5156,7 @@ def build_menu_actions() -> None:
         "goals": cmd_goals,
         "pro": cmd_plans,
         "more": cmd_more,
+        "panel": cmd_open_panel,
     })
     # Ikkala tildagi tugma matni ham qabul qilinadi: foydalanuvchi tilni
     # almashtirsa, eski klaviatura hali ekranda turgan bo'lishi mumkin.
@@ -5200,6 +5278,8 @@ def register_handlers(app) -> None:
         (filters.VOICE | filters.AUDIO) & filters.ChatType.PRIVATE, on_voice))
     app.add_handler(MessageHandler(
         filters.VIDEO_NOTE & filters.ChatType.PRIVATE, on_video_note))
+    app.add_handler(MessageHandler(
+        filters.StatusUpdate.WEB_APP_DATA & filters.ChatType.PRIVATE, on_web_app_data))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)
     schedule_jobs(app)

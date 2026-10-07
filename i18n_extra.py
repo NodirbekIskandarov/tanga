@@ -286,6 +286,15 @@ TEXTS = {
     "wa_person_needed": {"uz": "Qarz uchun shaxs ismi kerak",
                          "ru": "Для долга нужно имя человека"},
 
+    # ---- «📱 Panel» tugmasi (inline web_app orqali ochiladi) ----
+    "panel_open": {
+        "uz": "📱 Grafiklar, filtrlar va barcha yozuvlar — panelda.",
+        "ru": "📱 Графики, фильтры и все записи — в панели.",
+    },
+    "panel_open_btn": {"uz": "📱 Panelni ochish", "ru": "📱 Открыть панель"},
+    "panel_kb_updated": {"uz": "🔄 Tugmalar yangilandi.",
+                         "ru": "🔄 Кнопки обновлены."},
+
     # ---- Valyuta kursi ----
     "fx_rate_page": {
         "uz": ("\U0001F4B1 <b>Valyuta kursi</b>\n\n"

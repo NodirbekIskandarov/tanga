@@ -41,7 +41,8 @@ Bot egasi akkauntidan bajariladi. Taxminan 10 daqiqa.
 | `12 mingga suv oldim` / `suv puliga 45 ming to'ladim` | oziq-ovqat / kommunal |
 | Chegirmali chek (jami = mahsulotlar yig'indisi) | Ogohlantirishsiz; «Oxirgi» da bitta qator |
 | Chek mahsulotini «✏️ Kategoriya» bilan tuzating | Javobda «Eslab qoldim: …»; o'sha do'konning keyingi chekida aniqlanmagan mahsulotlar shu kategoriyaga tushadi |
-| `/oy` → «📊 O'tgan oy bilan solishtirish» | Bir xil kunlar solishtiriladi, ▲/▼ bilan |
+| `/oy` → «📊 O'tgan oy bilan solishtirish» | Grafik (jamlangan chiqim chizig'i, kirim/chiqim, kategoriyalar) va ostida matn; bir xil kunlar, ▲/▼ bilan |
+| **Ega bo'lmagan** akkauntdan klaviaturadagi «📱 Panel» | Bot «📱 Panelni ochish» inline tugmasini yuboradi; u bosilganda panel ma'lumot bilan ochiladi |
 | `/maqsad Uy 300 mln 2028-mart` → `uy uchun 1 mln qo'ydim` | Maqsad progressi; 🎯 Maqsadlar da bashorat |
 
 ## Telegram profili

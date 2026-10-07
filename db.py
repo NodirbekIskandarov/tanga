@@ -890,6 +890,25 @@ def totals_unified(user_id: int, start: date, end: date) -> dict:
     return {"totals": totals, "foreign": foreign}
 
 
+def daily_unified(user_id: int, start: date, end: date, kind: str) -> dict[date, float]:
+    """Kunlik jamlar asosiy valyutada — solishtirish grafigi uchun.
+
+    totals_unified bilan AYNAN bir xil filtr: kunlar yig'indisi hisobot
+    matnidagi jamiga teng bo'lishi shart, aks holda grafik va matn bir-
+    biriga zid chiqadi. Yozuv bo'lmagan kunlar lug'atda yo'q.
+    """
+    with get_conn() as conn:
+        rows = conn.execute(
+            """SELECT occurred_on, COALESCE(SUM(amount_base), 0) AS base
+               FROM transactions
+               WHERE user_id = ? AND kind = ? AND occurred_on BETWEEN ? AND ?
+               GROUP BY occurred_on""",
+            (user_id, kind, start.isoformat(), end.isoformat()),
+        ).fetchall()
+    return {date.fromisoformat(r["occurred_on"]): round(float(r["base"]), 2)
+            for r in rows}
+
+
 def by_category_unified(
     user_id: int, start: date, end: date, kind: str
 ) -> list[tuple[str, float, int]]:

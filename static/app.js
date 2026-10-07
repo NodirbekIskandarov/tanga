@@ -1625,6 +1625,13 @@
   async function main() {
     applyStatic();
     if (!INIT_DATA) {
+      // Telegram ichida, lekin initData yo'q — demak panel klaviatura
+      // tugmasidan ochilgan (Telegram bu holda initData bermaydi). Bu eski
+      // klaviatura: botga «panel» deb yozamiz, u klaviaturani yangilab,
+      // ishlaydigan inline tugmani yuboradi. sendData oynani o'zi yopadi.
+      if (tg && tg.platform && tg.platform !== "unknown" && tg.sendData) {
+        try { tg.sendData("panel"); return; } catch (_) { /* pastdagi xabar */ }
+      }
       document.getElementById("app").innerHTML =
         `<div class="empty-state" style="padding-top:60px">${t("⚠️ Bu sahifa faqat Telegram ichida ishlaydi.<br>Botdagi «📱 Panel» tugmasini bosing.")}</div>`;
       return;

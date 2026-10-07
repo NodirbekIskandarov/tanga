@@ -15,11 +15,14 @@ from datetime import date, datetime, timedelta
 from html import escape
 
 import contextvars
+import logging
 
 import config
 import db
 import i18n
 from i18n import pick
+
+log = logging.getLogger("tanga.reports")
 
 UZ_MONTHS = i18n.MONTHS_UZ
 
@@ -210,6 +213,23 @@ def _delta(now: float, was: float, currency: str = "som",
     return f"{arrow}{pct} ({sign}{fmt_money(abs(diff), currency, lang)})"
 
 
+def _category_changes(user_id: int, cur: tuple[date, date],
+                      prev: tuple[date, date]) -> list[tuple[str, float, float]]:
+    """Chiqim kategoriyalari (nom, joriy, o'tgan) — eng katta o'zgarish
+    birinchi. Matn ham, grafik ham shu tartibni ishlatadi."""
+    now = {c: s for c, s, _ in db.by_category_unified(user_id, *cur, config.KIND_CHIQIM)}
+    was = {c: s for c, s, _ in db.by_category_unified(user_id, *prev, config.KIND_CHIQIM)}
+    names = sorted(set(now) | set(was),
+                   key=lambda c: abs(now.get(c, 0) - was.get(c, 0)), reverse=True)
+    return [(c, now.get(c, 0), was.get(c, 0)) for c in names]
+
+
+def _day_span(start: date, end: date, lang: str | None) -> str:
+    """«1–3 oktabr», bitta kun bo'lsa «1 oktabr» («1–1» emas)."""
+    days = f"{start.day}" if start == end else f"{start.day}–{end.day}"
+    return f"{days} {i18n.month_name(lang, start.month)}"
+
+
 def compare_text(user_id: int, day: date | None = None, lang: str | None = None) -> str:
     """Oylarni solishtirish (PRO): jamlar va kategoriyalar bo'yicha o'zgarish.
 
@@ -224,14 +244,12 @@ def compare_text(user_id: int, day: date | None = None, lang: str | None = None)
     # qaratqich kelishigida («1–6 октября»).
     cur_m = i18n.month_name(lang, cs.month, nominative=True)
     prev_m = i18n.month_name(lang, ps.month, nominative=True)
-    cur_d = i18n.month_name(lang, cs.month)
-    prev_d = i18n.month_name(lang, ps.month)
     and_ = pick(lang, "va", "и")
 
     lines = [
         f"📊 <b>{cur_m.capitalize()} {and_} {prev_m}</b>",
         "<i>" + pick(lang, "Bir xil kunlar:", "Одинаковые дни:")
-        + f" {cs.day}–{ce.day} {cur_d} {and_} {ps.day}–{pe.day} {prev_d}</i>",
+        + f" {_day_span(cs, ce, lang)} {and_} {_day_span(ps, pe, lang)}</i>",
         "",
     ]
     for kind, icon, label in (
@@ -246,24 +264,55 @@ def compare_text(user_id: int, day: date | None = None, lang: str | None = None)
                      f"<b>{fmt_money(farq_now, lang=lang)}</b>  "
                      f"{_delta(farq_now, farq_was, lang=lang)}")
 
-    cats_now = {c: s for c, s, _ in db.by_category_unified(user_id, cs, ce, config.KIND_CHIQIM)}
-    cats_was = {c: s for c, s, _ in db.by_category_unified(user_id, ps, pe, config.KIND_CHIQIM)}
-    changes = sorted(set(cats_now) | set(cats_was),
-                     key=lambda c: abs(cats_now.get(c, 0) - cats_was.get(c, 0)),
-                     reverse=True)
+    changes = _category_changes(user_id, (cs, ce), (ps, pe))
     if changes:
         lines += ["", pick(lang, "<b>Chiqim kategoriyalari — eng katta o'zgarish:</b>",
                            "<b>Категории расходов — самые большие изменения:</b>")]
-        for name in changes[:6]:
+        for name, amount, before in changes[:6]:
             icon = config.CATEGORY_ICONS.get(name, "•")
-            amount = cats_now.get(name, 0)
             lines.append(f"{icon} {esc(i18n.category_name(lang, name))} — "
                          f"{fmt_money(amount, lang=lang)}  "
-                         f"{_delta(amount, cats_was.get(name, 0), lang=lang)}")
+                         f"{_delta(amount, before, lang=lang)}")
     if not any(now.values()) and not any(was.values()):
         lines += ["", pick(lang, "<i>Bu davrlarda yozuv yo'q.</i>",
                            "<i>За эти периоды записей нет.</i>")]
     return "\n".join(lines)
+
+
+def compare_chart(user_id: int, day: date | None = None, lang: str | None = None,
+                  bot_username: str = "") -> bytes | None:
+    """compare_text ning grafik ko'rinishi (PNG). Ikkala davrda ham yozuv
+    bo'lmasa yoki rasm chizib bo'lmasa None — chaqiruvchi faqat matn yuboradi."""
+    import sharecard
+    lang = _L(lang)
+    (cs, ce), (ps, pe) = compare_ranges(day or today())
+    now = db.totals_unified(user_id, cs, ce)["totals"]
+    was = db.totals_unified(user_id, ps, pe)["totals"]
+    if not any(now.values()) and not any(was.values()):
+        return None
+    cur_m = i18n.month_name(lang, cs.month, nominative=True)
+    prev_m = i18n.month_name(lang, ps.month, nominative=True)
+    and_ = pick(lang, "va", "и")
+    subtitle = (pick(lang, "Bir xil kunlar:", "Одинаковые дни:")
+                + f" {_day_span(cs, ce, lang)} {and_} {_day_span(ps, pe, lang)}")
+    try:
+        return sharecard.build_compare(
+            title=f"{cur_m.capitalize()} {and_} {prev_m}",
+            subtitle=subtitle,
+            cur_label=cur_m.capitalize(), prev_label=prev_m.capitalize(),
+            cur_start=cs, prev_start=ps,
+            # O'tgan oy qisqaroq bo'lsa (31-mart / 28-fevral) chiziq joriy
+            # oy uzunligida, o'tgan oyniki oxirgi kunidan keyin tekis qoladi.
+            days=(ce - cs).days + 1,
+            cur_daily=db.daily_unified(user_id, cs, ce, config.KIND_CHIQIM),
+            prev_daily=db.daily_unified(user_id, ps, pe, config.KIND_CHIQIM),
+            now={"kirim": now[config.KIND_KIRIM], "chiqim": now[config.KIND_CHIQIM]},
+            was={"kirim": was[config.KIND_KIRIM], "chiqim": was[config.KIND_CHIQIM]},
+            categories=_category_changes(user_id, (cs, ce), (ps, pe)),
+            bot_username=bot_username, lang=lang)
+    except Exception:
+        log.exception("Solishtirish grafigini chizib bo'lmadi")
+        return None
 
 
 def _income_share(pct: str, lang: str | None) -> str:
