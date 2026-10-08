@@ -3,6 +3,8 @@ user_id bo'yicha ajratilgan — kerak bo'lsa bir nechta odam ishlatishi mumkin."
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import math
 import sqlite3
 from contextlib import contextmanager
@@ -269,6 +271,15 @@ CREATE TABLE IF NOT EXISTS private_erase_queue (
     user_id  INTEGER PRIMARY KEY,
     asked_at TEXT NOT NULL DEFAULT (datetime('now')),
     done_at  TEXT
+);
+
+-- O'zini o'chirgan hisoblar: faqat Telegram ID'ning kalitli heshi va
+-- sana (oy aniqligida). Na ism, na yozuv. Kerakligi: o'chirib qaytgan
+-- odam yangidek bepul PRO sinov va taklif bonusini qayta olmasin
+-- (erase_user). Ma'lumotlarning o'zi o'chiriladi — bu faqat belgi.
+CREATE TABLE IF NOT EXISTS erased_accounts (
+    uid_hash   TEXT PRIMARY KEY,
+    erased_on  TEXT NOT NULL
 );
 """
 
@@ -1317,13 +1328,42 @@ def _parse_dt(raw: str | None) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=config.TZ)
 
 
+def _erased_hash(user_id: int) -> str:
+    """O'chirilgan hisob belgisi: Telegram ID'ning HMAC'i.
+
+    Oddiy SHA256 emas — ID atigi ~10 xonali, baza qo'lga tushsa hamma
+    ID'ni sanab chiqib ochish mumkin bo'lardi. Kalit bot tokenidan
+    olinadi va bazada saqlanmaydi. Token almashtirilsa eski belgilar
+    mos kelmay qoladi — bu faqat himoyani zaiflashtiradi, hech kimni
+    noto'g'ri bloklamaydi.
+    """
+    key = hashlib.sha256(b"tanga-erased|" + config.TELEGRAM_TOKEN.encode()).digest()
+    return hmac.new(key, str(user_id).encode(), hashlib.sha256).hexdigest()
+
+
+def was_erased(user_id: int, conn=None) -> bool:
+    """Bu Telegram akkaunti ilgari o'z hisobini o'chirganmi."""
+    query = "SELECT 1 FROM erased_accounts WHERE uid_hash = ?"
+    if conn is not None:
+        return conn.execute(query, (_erased_hash(user_id),)).fetchone() is not None
+    with get_conn() as c:
+        return c.execute(query, (_erased_hash(user_id),)).fetchone() is not None
+
+
 def get_or_create_user(user_id: int, first_name: str = "", username: str | None = None) -> sqlite3.Row:
     """Foydalanuvchini qaytaradi; birinchi marta ko'rilsa bepul sinov muddati
-    bilan yaratadi."""
+    bilan yaratadi.
+
+    Hisobini o'chirib qaytgan odamga sinov qayta BERILMAYDI — u darhol
+    Bepul darajada boshlaydi. Aks holda /ochirish cheksiz bepul PRO
+    (har safar 7 kun va yangi chek limiti) bo'lib qolardi.
+    """
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
         if row is None:
             trial_ends = _now() + timedelta(days=config.trial_days())
+            if was_erased(user_id, conn):
+                trial_ends = _now()
             conn.execute(
                 """INSERT INTO users (user_id, first_name, username, trial_ends_at, last_seen_at)
                    VALUES (?, ?, ?, ?, ?)""",
@@ -1601,6 +1641,10 @@ def set_referrer(user_id: int, referrer_id: int) -> bool:
             (user_id,)).fetchone()
         if row is None or row["referred_by"] is not None:
             return False
+        # O'chirib qaytgan odam «yangi do'st» emas: aks holda bitta akkaunt
+        # o'chirib-qaytib taklif qiluvchiga qayta-qayta bonus berardi.
+        if was_erased(user_id, conn):
+            return False
         if not conn.execute("SELECT 1 FROM users WHERE user_id = ?",
                             (referrer_id,)).fetchone():
             return False
@@ -1726,19 +1770,34 @@ def list_budgets(user_id: int) -> list[sqlite3.Row]:
 
 
 def budget_status(user_id: int) -> list[dict]:
-    """Har bir byudjet bo'yicha shu oyda qancha sarflanganini qaytaradi."""
+    """Har bir byudjet bo'yicha shu oyda qancha sarflanganini qaytaradi.
+
+    So'mdagi byudjet oylik hisobot bilan AYNAN bir xil hisoblanadi
+    (by_category_unified): dollar xarajati o'z kunidagi kurs bilan so'mga
+    o'girilib qo'shiladi. Ilgari faqat so'mdagi yozuvlar sanalardi —
+    hisobot «1.2 mln, byudjet oshdi» deganda byudjet «60%» deb turar va
+    ogohlantirish kelmasdi. Oy oxiridan keyingi sanadagi yozuv joriy oy
+    byudjetiga kirmaydi.
+    """
     today = datetime.now(config.TZ).date()
-    start = today.replace(day=1).isoformat()
+    start = today.replace(day=1)
+    end = (start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    unified = {c: total for c, total, _ in
+               by_category_unified(user_id, start, end, config.KIND_CHIQIM)}
     out = []
     with get_conn() as conn:
         for b in conn.execute("SELECT * FROM budgets WHERE user_id = ?",
                               (user_id,)).fetchall():
-            spent = float(conn.execute(
-                """SELECT COALESCE(SUM(amount), 0) FROM transactions
-                   WHERE user_id = ? AND kind = ? AND category = ? AND currency = ?
-                     AND occurred_on >= ?""",
-                (user_id, config.KIND_CHIQIM, b["category"], b["currency"], start)
-            ).fetchone()[0])
+            if b["currency"] == config.CURRENCY_SOM:
+                spent = float(unified.get(b["category"], 0) or 0)
+            else:
+                # Chet el valyutasidagi (eski) byudjet — o'z valyutasida.
+                spent = float(conn.execute(
+                    """SELECT COALESCE(SUM(amount), 0) FROM transactions
+                       WHERE user_id = ? AND kind = ? AND category = ? AND currency = ?
+                         AND occurred_on BETWEEN ? AND ?""",
+                    (user_id, config.KIND_CHIQIM, b["category"], b["currency"],
+                     start.isoformat(), end.isoformat())).fetchone()[0])
             limit = float(b["amount"])
             out.append({
                 "category": b["category"], "limit": limit, "spent": spent,
@@ -2473,6 +2532,10 @@ def erase_user(user_id: int) -> dict:
         conn.execute("DELETE FROM entry_counts WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM events WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM private_erase_queue WHERE user_id = ?", (user_id,))
+        # Ma'lumot o'chdi, faqat anonim belgi qoladi (was_erased).
+        conn.execute(
+            "INSERT OR REPLACE INTO erased_accounts (uid_hash, erased_on) VALUES (?, ?)",
+            (_erased_hash(user_id), _now().strftime("%Y-%m")))
     return {"transactions": tx, "usage": usage}
 
 

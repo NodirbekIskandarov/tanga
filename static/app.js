@@ -1442,7 +1442,7 @@
 
       <div class="sheet-row">
         <div class="sheet-label">${t("Sana")}</div>
-        <input id="fDate" class="field-input" type="date" value="${addForm.date}" />
+        <input id="fDate" class="field-input" type="date" value="${addForm.date}" max="${todayIso()}" />
       </div>
 
       <div class="sheet-actions">

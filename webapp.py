@@ -717,7 +717,12 @@ def api_create_transaction(body: TxCreate, user: dict = Depends(current_user)):
         raise _err(user, 400, "wa_person_needed")
     if body.kind not in config.DEBT_KINDS:
         person = None
-    occurred_on = _parse_date(body.date, reports.today(), user["lang"]).isoformat()
+    occurred_on_d = _parse_date(body.date, reports.today(), user["lang"])
+    # Kelajakdagi xarajat bo'lmaydi; bunday yozuv bugungi va oylik
+    # hisobotdan «yo'qolib», byudjetni esa noto'g'ri oyda buzardi.
+    if occurred_on_d > reports.today():
+        raise _err(user, 400, "wa_future_date")
+    occurred_on = occurred_on_d.isoformat()
 
     tx_id = db.add_transaction(
         user_id=user["user_id"], kind=body.kind, amount=body.amount,

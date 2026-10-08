@@ -55,6 +55,22 @@ def _parse_system_prompt() -> str:
     return ai_prompts.parse_system_prompt()
 
 
+# Yozuv sanasi bugundan keyin yoki shundan eski bo'lsa — shubhali: model
+# yilni adashtirgan bo'lishi mumkin (chekdagi «08.10.26», «1-noyabrda»).
+# Bot bunday sanani jimgina saqlamaydi — matnda so'raydi, chekda bugunga
+# almashtirib aytadi. Eski qarzni yozish kabi haqiqiy holat ham bor,
+# shuning uchun rad etilmaydi, faqat tasdiqlanadi.
+DATE_PAST_LIMIT_DAYS = 365
+
+
+def date_suspicious(sana: str, today: date) -> bool:
+    try:
+        d = date.fromisoformat(sana)
+    except (TypeError, ValueError):
+        return True
+    return d > today or (today - d).days > DATE_PAST_LIMIT_DAYS
+
+
 def _coerce_date(raw: Any, today: date) -> str:
     if isinstance(raw, str) and len(raw) == 10:
         try:
@@ -498,20 +514,39 @@ async def parse_receipt(
 QA_SYSTEM = ai_prompts.QA_SYSTEM
 
 
-def _rows_to_json(rows) -> str:
-    data = [
-        {
-            "sana": r["occurred_on"],
-            "turi": r["kind"],
-            "summa": r["amount"],
-            "valyuta": r["currency"] if "currency" in r.keys() else "som",
-            "kategoriya": r["category"],
-            "izoh": r["note"],
-            "shaxs": r["person"],
-        }
-        for r in rows
-    ]
-    return json.dumps(data, ensure_ascii=False)
+# Savol-javobda xom yozuvlar JSON emas, jadval bo'lib yuboriladi.
+#
+# Nega: savol eng qimmat amal (2026-10 da AI sarfining 80% i), uning
+# kirishi esa asosan shu ro'yxat. JSON'da har bir qatorda yettita kalit
+# («"sana":», «"kategoriya":» ...) va bo'sh «"shaxs": null» takrorlanardi.
+# Jadvalda ustun nomlari BIR marta yoziladi — ma'lumot aynan o'sha
+# (har bir maydon, har bir qator), faqat takror yo'q.
+ROW_COLUMNS = "sana|turi|summa|valyuta|kategoriya|izoh|shaxs"
+
+
+def _num(value) -> str:
+    """45000.0 -> «45000», 12.5 -> «12.5» (aniqlik yo'qolmaydi)."""
+    v = float(value)
+    return str(int(v)) if v.is_integer() else repr(round(v, 2))
+
+
+def _cell(text) -> str:
+    """Jadval katagi: ajratgich «|» va qator ko'chishi bo'lmasin."""
+    return " ".join(str(text or "").replace("|", "/").split())
+
+
+def _rows_table(rows) -> str:
+    lines = [ROW_COLUMNS]
+    for r in rows:
+        currency = r["currency"] if "currency" in r.keys() else "som"
+        lines.append("|".join((r["occurred_on"], r["kind"], _num(r["amount"]), currency,
+                               _cell(r["category"]), _cell(r["note"]), _cell(r["person"]))))
+    return "\n".join(lines)
+
+
+def _compact_json(data) -> str:
+    """Bo'sh joysiz JSON: indent va «, » / «: » ham token — mazmun bir xil."""
+    return json.dumps(data, ensure_ascii=False, separators=(",", ":"))
 
 
 def _aggregate(rows) -> dict[str, Any]:
@@ -561,7 +596,7 @@ def _monthly_json(monthly: list[dict]) -> str:
     for m in monthly:
         bucket = out.setdefault(m["oy"], {}).setdefault(m["currency"], {})
         bucket[m["kind"]] = float(m["total"])
-    return json.dumps(out, ensure_ascii=False, indent=1)
+    return _compact_json(out)
 
 
 async def answer_question(
@@ -589,14 +624,15 @@ async def answer_question(
         f"Bugungi sana: {today.isoformat()}\n"
         f"Valyutalar: som ({config.CURRENCY}) va usd ($) — alohida-alohida.\n",
         f"Tayyor jamlanmalar (dastur aniq hisoblagan{period}):\n"
-        f"{json.dumps(_aggregate(agg_rows), ensure_ascii=False, indent=1)}\n",
+        f"{_compact_json(_aggregate(agg_rows))}\n",
     ]
     if monthly:
         parts.append("Oylar bo'yicha jamlar (oxirgi 12 oy, to'liq; "
                      "{oy: {valyuta: {turi: summa}}}):\n"
                      f"{_monthly_json(monthly)}\n")
-    parts.append(f"Oxirgi yozuvlar (JSON, eng ko'pi {len(rows)} ta — "
-                 f"to'liq ro'yxat bo'lmasligi mumkin):\n{_rows_to_json(rows)}\n")
+    parts.append(f"Oxirgi yozuvlar (jadval: birinchi qator — ustunlar, «|» bilan "
+                 f"ajratilgan, bo'sh katak — ma'lumot yo'q; eng ko'pi {len(rows)} ta — "
+                 f"to'liq ro'yxat bo'lmasligi mumkin):\n{_rows_table(rows)}\n")
     parts.append(f"Savol: {question}")
     content = "\n".join(parts)
 

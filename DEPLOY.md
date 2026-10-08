@@ -71,42 +71,27 @@ Bot AI uchun **Google Gemini API** dan foydalanadi (`gemini.py`).
 
 ## O'tish kuni: Claude → Gemini
 
-Bir martalik tartib. **Baholash (`docs/gemini-baholash.md`) o'tmaguncha
-bajarilmaydi.**
+**Bajarildi: 2026-10-06.** Serverdagi `.env` da `GEMINI_API_KEY` bor,
+`ANTHROPIC_API_KEY` va `claude-*` model qatorlari olib tashlangan, `anthropic`
+paketi o'chirilgan. O'tishdan oldingi `.env` nusxasi: `/root/env.claude-zaxira`.
+Ovoz hammaga ochiq (`VOICE_ENABLED=true`, `VOICE_BETA_USER_IDS` bo'sh).
 
-1. Bazaning zaxira nusxasi: `tanga-backup --local`.
-2. Git tegi: `git tag oxirgi-claude` (allaqachon bor; qaytish nuqtasi).
-3. `.env` ni tayyorlang — bitta buyruq (zaxira nusxa oladi, `GEMINI_API_KEY`
-   ni qo'yadi, eski `claude-*` model qatorlarini va `ANTHROPIC_API_KEY` ni
-   olib tashlaydi; qiymatlarni chop etmaydi):
-   ```bash
-   read -rs NEW_GEMINI_KEY && export NEW_GEMINI_KEY
-   bash /opt/tanga/deploy/gemini-otish.sh && unset NEW_GEMINI_KEY
-   ```
-   Ovoz avval yopiq qoladi (`VOICE_ENABLED=false` — standart).
-4. `pip install -r requirements.txt`; eski paketni olib tashlang:
-   `.venv/bin/pip uninstall -y anthropic`.
-5. `systemctl restart tanga tanga-webapp`; loglarni kuzating.
-6. Hamma foydalanuvchidan qayta rozilik so'raladi (`CONSENT_VERSION` oshgan:
-   AI xizmat ko'rsatuvchisi almashdi).
-
-Keyingi bosqichlar (ovoz): 2–3 kun kuzatish → `VOICE_ENABLED=true` va
-`VOICE_BETA_USER_IDS=<ega va 5–10 sinovchi>` bir hafta → hammaga ochish
-(`VOICE_BETA_USER_IDS` bo'sh, `/xabar_yubor` bilan o'zbek va rus tilida
-e'lon). Muammosiz 2 hafta o'tgach Anthropic konsolida eski kalitni **ega
-qo'lda bekor qiladi**.
+Qolgan bitta qo'lda ish: Anthropic konsolida eski kalitni **ega bekor
+qiladi** (u endi hech qayerda ishlatilmaydi).
 
 ### Qaytish yo'li (faqat git orqali)
 
+`oxirgi-claude` tegi qo'yilmagan — Claude'dagi oxirgi commit `d11d729`.
+
 ```bash
 cd /opt/tanga
-git checkout oxirgi-claude
-cp /root/env.claude-zaxira /opt/tanga/.env     # eski .env (ANTHROPIC_API_KEY bilan)
+git checkout d11d729
+cp /root/env.claude-zaxira /opt/tanga/.env     # eski .env (Claude kaliti bilan)
 .venv/bin/pip install -q -r requirements.txt
 systemctl restart tanga tanga-webapp
 ```
 
-Eski `.env` nusxasini 3-qadamdan OLDIN saqlab qo'ying. Ikki provayderli
+Eski kalit bekor qilingan bo'lsa bu yo'l ishlamaydi. Ikki provayderli
 rejim va almashtirgich ATAYLAB yo'q.
 
 ## Mini App xizmati

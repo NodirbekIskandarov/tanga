@@ -31,6 +31,8 @@ FORECAST_WINDOW_DAYS = 90
 # Bundan qisqa tarixdan sur'at chiqarilmaydi — bitta katta o'tkazma
 # «oyiga 50 mln» degan yolg'on bashorat bermasin.
 MIN_HISTORY_DAYS = 14
+# Bashoratning yuqori chegarasi: undan uzoq sana ko'rsatilmaydi (goal_slow).
+ETA_MAX_DAYS = 100 * 365
 
 UZ_MONTHS = ["yanvar", "fevral", "mart", "aprel", "may", "iyun", "iyul",
              "avgust", "sentabr", "oktabr", "noyabr", "dekabr"]
@@ -214,7 +216,13 @@ def forecast(user_id: int, goal: dict) -> dict:
     pace = monthly_pace(user_id, goal)
     eta = None
     if pace and pace > 0 and goal["left"] > 0:
-        eta = today() + timedelta(days=goal["left"] / pace * MONTH_DAYS)
+        days = goal["left"] / pace * MONTH_DAYS
+        # Juda sekin sur'at (masalan qo'yib, deyarli hammasini yechgan):
+        # sana 9999-yildan oshib, timedelta OverflowError berardi va
+        # /maqsadlar hamda Mini App jamg'arma bo'limi yiqilardi. Yuz yildan
+        # uzoq bashorat amalda «bu sur'atda erishilmaydi» — eta None.
+        if days <= ETA_MAX_DAYS:
+            eta = today() + timedelta(days=days)
     need = None
     if goal.get("deadline") and goal["left"] > 0:
         deadline = date.fromisoformat(goal["deadline"])

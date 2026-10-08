@@ -1,9 +1,8 @@
 # Gemini baholash hisoboti
 
-**Holat: JONLI BAHOLASH O'TKAZILMAGAN → production'ga CHIQARILMAYDI.**
-Kod va oflayn testlar tayyor (321 ta o'tadi), lekin quyidagi qabul mezonlari
-hali o'lchanmagan. Jadvalda bo'sh joylar — haqiqatan o'lchanmagan
-ko'rsatkichlar; ular to'qib yozilmagan.
+**Holat: production'da 2026-10-06 dan.** To'liq jonli baholash (30+ ovoz,
+20 chek namunasi) hali o'tkazilmagan. Jadvalda bo'sh joylar — haqiqatan
+o'lchanmagan ko'rsatkichlar; ular to'qib yozilmagan.
 
 ## Nima tayyor, nima yo'q
 
@@ -13,7 +12,7 @@ ko'rsatkichlar; ular to'qib yozilmagan.
 | Narx jadvali (sanaga bog'langan), `cost_usd` | ✅ hujjatdan (2026-10-06) tasdiqlangan, testlangan |
 | Ovozli kiritish (handler, tasdiq, limit, bayroq) | ✅ oflayn testlar yashil |
 | Jonli SDK/API chaqiruvi | ✅ 2026-10-06 bajarildi (1-bo'lim; faqat kesh ochiq) |
-| **Claude bazasi** (`docs/ai-baseline-claude.md`) | ❌ Claude kaliti va chek namunalari yo'q |
+| **Claude bazasi** | ❌ o'lchanmadi va endi o'lchab bo'lmaydi: Claude olib tashlangan |
 | **30+ ovoz namunasi, 20 chek** | ❌ yig'ilmagan (`tests/live_voice/`, `tests/live_receipts/`) |
 
 ## 1. Birinchi jonli tekshiruv (2026-10-06, haqiqiy kalit, pullik daraja)
@@ -59,12 +58,34 @@ kattaroq):
 | Chek (xuddi shu, PDF) | 3.8-flash, medium | ~$0.0030 |
 | Ovozli yozuv (OGG/Opus, ~5 s) | flash-lite, minimal | ~$0.0020 (4 472 kirish, shundan 108 audio) |
 
+## 1a. Production sarfi va savol-javobni ixchamlashtirish (2026-10-08)
+
+Birinchi 2 kun (6–8-oktabr, 5 foydalanuvchi), `usage_log` dan. Google
+konsolidagi $0.27 bilan mos: $0.20 production + ~$0.07 6-oktabrdagi jonli
+sinovlar (ular `usage_log` ga yozilmaydi).
+
+| Amal | Soni | Bir amal | Jami | Ulushi |
+|---|---|---|---|---|
+| Savol-javob (3.8-flash) | 11 | $0.0145 | $0.160 | 80% |
+| Ovoz (3.5-flash-lite) | 13 | $0.0015 | $0.019 | 9% |
+| Matn (3.5-flash-lite) | 14 | $0.0011 | $0.016 | 8% |
+| Chek (3.8-flash) | 1 | $0.0066 | $0.007 | 3% |
+
+Savolning kirishi ~13 950 token, uning 83% i xom yozuvlar ro'yxati edi
+(har qatorda takrorlanuvchi JSON kalitlari). Yozuvlar jadvalga, jamlanmalar
+bo'sh joysiz JSON'ga o'tkazildi — ma'lumot aynan o'sha:
+
+- `count_tokens` (bepul, sintetik 150 yozuv): 13 227 → 6 853 token (−48%);
+- jonli A/B, 5 ta javobi aniq ma'lum savol (jamlanma va jadvaldan qidirish):
+  eski 5/5, yangi 5/5; kirish 13 920 → 7 550 token. Savol narxi
+  ~$0.0146 → ~$0.0094 (−35%; qolgani — o'ylash tokenlari).
+
 ## 2. Qabul mezonlari (7-bo'lim)
 
 | Mezon | Talab | Natija |
 |---|---|---|
-| Matn: to'g'ri javoblar soni | Claude bazasidan kam emas | — |
-| Chek: «jami bilan mos» ulushi | Claude bazasidan kam emas | — |
+| Matn: to'g'ri javoblar soni | Claude bazasi yo'q — mutlaq natija | 18/18 (2026-10-06) |
+| Chek: «jami bilan mos» ulushi | Claude bazasi yo'q — mutlaq natija | — |
 | Ovoz: tur va summa (30+ namuna) | ≥ 90% | — |
 | Ovoz: jimgina noto'g'ri summa | 0 ta | — |
 | Narx: matn / ovoz / chek / savol (o'rtacha) | yozib olinadi, README yangilanadi | — |

@@ -85,8 +85,14 @@ def fmt_date(iso: str, lang: str | None = None) -> str:
         d = date.fromisoformat(iso)
     except (ValueError, TypeError):
         return str(iso)
+    # Boshqa yildagi sana yil bilan: ilgari «8-oktabr» ko'rinardi va AI
+    # yilni adashtirgani (2027 yoki 2016) tasdiq xabaridan bilinmasdi.
+    other_year = d.year != today().year
     if _is_ru(lang):
-        return f"{d.day} {i18n.month_name(lang, d.month)}"
+        text = f"{d.day} {i18n.month_name(lang, d.month)}"
+        return f"{text} {d.year}" if other_year else text
+    if other_year:
+        return pick(lang, f"{d.year}-yil {d.day}-{UZ_MONTHS[d.month - 1]}")
     return pick(lang, f"{d.day}-{UZ_MONTHS[d.month - 1]}")
 
 

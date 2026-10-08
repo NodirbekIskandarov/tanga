@@ -295,6 +295,28 @@ TEXTS = {
     "panel_kb_updated": {"uz": "🔄 Tugmalar yangilandi.",
                          "ru": "🔄 Кнопки обновлены."},
 
+    # ---- Shubhali sana (AI yilni adashtirgan bo'lishi mumkin) ----
+    "date_check": {
+        "uz": ("📅 <b>Sanani tekshiring: {dates}</b>\n"
+               "Bu bugundan keyin yoki bir yildan ko'proq oldin. Yil "
+               "noto'g'ri tushunilgan bo'lishi mumkin — hali hech narsa "
+               "saqlanmadi."),
+        "ru": ("📅 <b>Проверьте дату: {dates}</b>\n"
+               "Она позже сегодняшней или больше года назад. Возможно, "
+               "год распознан неверно — пока ничего не сохранено."),
+    },
+    "date_btn_today": {"uz": "📅 Bugungi sana bilan saqlash",
+                       "ru": "📅 Сохранить с сегодняшней датой"},
+    "date_btn_keep": {"uz": "✅ Sana to'g'ri", "ru": "✅ Дата верна"},
+    "receipt_date_fixed": {
+        "uz": ("📅 <i>Chekdagi sana ({date}) shubhali — bugungi sana "
+               "qo'yildi.</i>"),
+        "ru": ("📅 <i>Дата на чеке ({date}) сомнительная — поставлена "
+               "сегодняшняя.</i>"),
+    },
+    "wa_future_date": {"uz": "Kelajakdagi sana bo'lmaydi",
+                       "ru": "Дата не может быть в будущем"},
+
     # ---- Valyuta kursi ----
     "fx_rate_page": {
         "uz": ("\U0001F4B1 <b>Valyuta kursi</b>\n\n"

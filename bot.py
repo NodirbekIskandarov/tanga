@@ -1416,7 +1416,7 @@ async def _debt_payment_from_text(update: Update, context: ContextTypes.DEFAULT_
                 [InlineKeyboardButton(i18n.t(lang, "debt_btn_cancel"),
                                       callback_data="dzx:0")]]))
         return
-    db.add_debt_payment(user_id, debt_id, amount)
+    await asyncio.to_thread(db.add_debt_payment, user_id, debt_id, amount)
     await _reply_debt_paid(message, lang, debt_id, user_id, amount)
 
 
@@ -1496,7 +1496,7 @@ async def on_debt_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "dzf":
         context.user_data.pop("await_debt_pay", None)
         amount = d["remaining"]
-        db.add_debt_payment(user_id, debt_id, amount)
+        await asyncio.to_thread(db.add_debt_payment, user_id, debt_id, amount)
         await query.answer("✅")
         await query.edit_message_reply_markup(reply_markup=None)
         await _reply_debt_paid(query.message, lang, debt_id, user_id, amount)
@@ -1808,10 +1808,24 @@ async def _process_receipt(update: Update, context, images: list, caption: str,
         item["kategoriya"] = learning.apply_receipt_item(
             rules, data["dokon"], item["nomi"], item["kategoriya"])
 
+    # Chekdagi yil qisqa bosiladi («08.10.26») va ko'p adashtiriladi.
+    # Chek deyarli doim xariddan keyin darhol yuboriladi, shuning uchun
+    # shubhali sana (kelajak yoki bir yildan eski) bugungiga almashtiriladi
+    # va bu javobda ochiq aytiladi — jimgina boshqa yilga tushib, hisobotdan
+    # yo'qolib qolmaydi.
+    date_note = ""
+    if ai.date_suspicious(data["sana"], reports.today()):
+        date_note = "\n\n" + tr("receipt_date_fixed",
+                                 date=reports.esc(reports.fmt_date(data["sana"])))
+        data["sana"] = reports.today().isoformat()
+
     receipt_id = uuid.uuid4().hex[:10]
     shop = data["dokon"]
     currency = data.get("valyuta") or "som"
-    db.add_receipt(
+    # Fonda: dollarli chekda kurs Markaziy bankdan olinishi mumkin
+    # (sinxron tarmoq so'rovi) — event loop'da bo'lsa butun bot kutardi.
+    await asyncio.to_thread(
+        db.add_receipt,
         user_id, receipt_id, shop=shop, occurred_on=data["sana"],
         currency=currency, printed_total=data.get("chekdagi_jami"),
         discount=data.get("chegirma"),
@@ -1839,7 +1853,7 @@ async def _process_receipt(update: Update, context, images: list, caption: str,
     })
 
     await status.edit_text(
-        reports.receipt_text(data, day_total),
+        reports.receipt_text(data, day_total) + date_note,
         parse_mode=ParseMode.HTML,
         reply_markup=receipt_keyboard(receipt_id),
     )
@@ -2240,8 +2254,8 @@ async def on_voice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if action == "ok":
         await query.answer(i18n.t(lang, "voice_saved"))
-        await _save_parsed(update, context, pending["parsed"], pending["raw_text"],
-                           query.message, prefix_html=prefix)
+        await _save_or_confirm_dates(update, context, pending["parsed"],
+                                     pending["raw_text"], query.message, prefix)
     elif action == "no":
         await query.answer()
         await query.message.reply_text(i18n.t(lang, "voice_cancelled"))
@@ -2379,7 +2393,82 @@ async def _dispatch_parsed(update: Update, context: ContextTypes.DEFAULT_TYPE,
                                  parse_mode=ParseMode.HTML)
         return
 
-    await _save_parsed(update, context, parsed, raw_text, message, prefix_html)
+    await _save_or_confirm_dates(update, context, parsed, raw_text, message, prefix_html)
+
+
+# Shubhali sanali yozuv tasdiq kutadi: token -> {user_id, parsed, raw_text, prefix}.
+_date_pending = TTLStore(ttl_seconds=900, max_items=500)
+
+
+async def _save_or_confirm_dates(update: Update, context: ContextTypes.DEFAULT_TYPE,
+                                 parsed: dict, raw_text: str, message,
+                                 prefix_html: str = "") -> None:
+    """Sanasi shubhali (kelajak yoki bir yildan eski) yozuv jimgina
+    saqlanmaydi — AI yilni adashtirgan bo'lishi mumkin va bunday yozuv
+    bugungi/oylik hisobotdan «yo'qolib» qoladi. Foydalanuvchi tanlaydi:
+    bugungi sana bilan, shundayligicha yoki bekor."""
+    today = reports.today()
+    odd = [r for r in parsed["yozuvlar"] if ai.date_suspicious(r["sana"], today)]
+    if not odd:
+        await _save_parsed(update, context, parsed, raw_text, message, prefix_html)
+        return
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    token = uuid.uuid4().hex[:10]
+    _date_pending.set(token, {"user_id": user_id, "parsed": parsed,
+                              "raw_text": raw_text, "prefix": prefix_html})
+    dates = ", ".join(reports.fmt_date(d, lang) for d in sorted({r["sana"] for r in odd}))
+    lines = [i18n.t(lang, "date_check", dates=dates), ""]
+    lines += [reports.saved_line(r, lang) for r in parsed["yozuvlar"]]
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton(i18n.t(lang, "date_btn_today"),
+                              callback_data=f"dt:today:{token}")],
+        [InlineKeyboardButton(i18n.t(lang, "date_btn_keep"),
+                              callback_data=f"dt:keep:{token}"),
+         InlineKeyboardButton(i18n.t(lang, "voice_btn_cancel"),
+                              callback_data=f"dt:no:{token}")],
+    ])
+    await message.reply_text(_with_prefix(prefix_html, "\n".join(lines)),
+                             parse_mode=ParseMode.HTML, reply_markup=markup)
+
+
+async def on_date_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """dt:today|keep|no:<token> — shubhali sanani tasdiqlash."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    lang = lang_of(user_id, context)
+    parts = (query.data or "").split(":", 2)
+    pending = _date_pending.get(parts[2]) if len(parts) == 3 else None
+    if not pending or pending["user_id"] != user_id:
+        await query.answer(i18n.t(lang, "voice_expired"), show_alert=True)
+        try:
+            await query.edit_message_reply_markup(None)
+        except Exception:
+            pass
+        return
+    _date_pending.pop(parts[2], None)
+    try:
+        await query.edit_message_reply_markup(None)
+    except Exception:
+        pass
+    action = parts[1]
+    if action == "no":
+        await query.answer()
+        await query.message.reply_text(i18n.t(lang, "voice_cancelled"))
+        return
+
+    parsed = pending["parsed"]
+    if action == "today":
+        today = reports.today()
+        for r in parsed["yozuvlar"]:
+            if ai.date_suspicious(r["sana"], today):
+                r["sana"] = today.isoformat()
+                # Qaytarish muddati yozuv sanasidan keyin bo'lishi shart.
+                if r.get("muddat") and r["muddat"] <= r["sana"]:
+                    r["muddat"] = None
+    await query.answer("✅")
+    await _save_parsed(update, context, parsed, pending["raw_text"],
+                       query.message, pending["prefix"])
 
 
 def _with_prefix(prefix_html: str, body_html: str) -> str:
@@ -2449,7 +2538,11 @@ async def _save_parsed(update: Update, context: ContextTypes.DEFAULT_TYPE,
         # maqsadga. Qarz — aytilgan qaytarish muddati bilan.
         goal_id = (goals.match(user_id, item.get("maqsad"))
                    if item["turi"] == config.KIND_JAMGARMA else None)
-        tx_id = db.add_transaction(
+        # Fonda: dollar yozuvi uchun o'sha kunning kursi bazada bo'lmasa
+        # u Markaziy bankdan SINXRON olinadi (4 urinish × 8 s). Event loop'da
+        # bo'lsa, cbu.uz sekinlashganda butun bot hamma uchun to'xtardi.
+        tx_id = await asyncio.to_thread(
+            db.add_transaction,
             user_id=user_id,
             kind=item["turi"],
             amount=item["summa"],
@@ -2636,6 +2729,9 @@ async def on_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     if data.startswith("vs:"):
         await on_voice_callback(update, context)
+        return
+    if data.startswith("dt:"):
+        await on_date_callback(update, context)
         return
 
     if data.startswith("d:"):

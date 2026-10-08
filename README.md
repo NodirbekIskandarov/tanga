@@ -204,7 +204,7 @@ Migratsiya skriptlari va chiqarish tartibi — `DEPLOY.md` da.
 | `TIMEZONE` | `Asia/Tashkent` | Vaqt mintaqasi |
 | `SMALL_NUMBERS_ARE_THOUSANDS` | `true` | `obedga 50` → 50 000 so'm deb tushunilsinmi |
 | `DB_PATH` | `tanga.db` | Baza fayli joyi |
-| `QA_MAX_ROWS` | `500` | Savolga javob berishda AI ko'radigan yozuvlar soni |
+| `QA_MAX_ROWS` | `150` | Savolga javob berishda AI ko'radigan yozuvlar soni |
 | `MAX_RECEIPT_PARTS` | `8` | Bitta chek uchun maksimal rasm soni |
 | `MAX_IMAGE_BYTES` | `8000000` | Bitta rasm uchun maksimal hajm (xom bayt) |
 | `MAX_PDF_BYTES` | `12000000` | Bitta PDF uchun maksimal hajm |
@@ -226,7 +226,7 @@ AI ro'yxatni avtomatik ravishda o'z sxemasidan oladi.
 |---|---|---|
 | Matnli yozuv | `gemini-3.5-flash-lite` | ~4 000 kirish (prompt + sxema; keshdan ~10 baravar arzon), ~150–250 chiqish: **~$0.001–0.002** |
 | Ovozli yozuv (10 s) | `gemini-3.5-flash-lite` | + ~320 audio token (32 tok/s): **~$0.001–0.002** |
-| Savolga javob | `gemini-3.8-flash` | yozuvlar soniga bog'liq: **~$0.01–0.02** |
+| Savolga javob | `gemini-3.8-flash` | 150 yozuvli foydalanuvchida **~$0.009** (2026-10-08 gacha JSON formatda ~$0.015 edi — production o'lchovi, `docs/gemini-baholash.md`) |
 | **Chek rasmi** | `gemini-3.8-flash` | rasm bir necha ming token + o'ylash: **~$0.015** (2027-01-01 dan **~$0.03**) |
 
 Narxlar (pullik daraja, 1M token, [hujjat](https://ai.google.dev/gemini-api/docs/pricing)):
