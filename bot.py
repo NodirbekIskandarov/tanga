@@ -15,6 +15,7 @@ import time
 import uuid
 from datetime import date, datetime, timedelta
 from functools import wraps
+from collections import deque
 from types import SimpleNamespace
 from urllib.parse import quote
 
@@ -4492,6 +4493,33 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 _error_notified: dict[str, float] = {}
 ERROR_NOTIFY_EVERY = 600
 
+# Telegram'dan yangilanish so'rash (getUpdates) paytidagi tarmoq uzilishi —
+# «Bad Gateway», «httpx.ReadError», TimedOut. Kutubxona so'rovni o'zi qayta
+# yuboradi (oraliq 1 s dan 30 s gacha), Telegram esa yangilanishni bot
+# tasdiqlaguncha saqlaydi — xabar yo'qolmaydi. Ilgari har biri egaga
+# «⚠️ Botda xato» bo'lib kelardi va haqiqiy xatolarni ko'mib yuborardi.
+# Endi faqat uzilish DAVOM etsa xabar beriladi: 10 daqiqada 10 ta (30 s
+# oraliqda bu ~5 daqiqalik uzilish; 5 soniyalik bir martalik to'lqin emas).
+POLL_NET_WINDOW = 600
+POLL_NET_ALERT = 10
+_poll_net_errors: deque = deque()
+
+
+def is_transient_network_error(update: object, err: BaseException | None) -> bool:
+    """Yangilanishga bog'lanmagan (polling yoki vazifa) vaqtinchalik tarmoq
+    xatosi. BadRequest ham NetworkError'dan meros oladi, lekin u haqiqiy
+    xato (noto'g'ri so'rov) — u bu yerga kirmaydi."""
+    from telegram.error import BadRequest, NetworkError
+    return (update is None and isinstance(err, NetworkError)
+            and not isinstance(err, BadRequest))
+
+
+def _poll_outage_count(now: float) -> int:
+    _poll_net_errors.append(now)
+    while _poll_net_errors and now - _poll_net_errors[0] > POLL_NET_WINDOW:
+        _poll_net_errors.popleft()
+    return len(_poll_net_errors)
+
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
     """Kutilmagan xato (M11): log, foydalanuvchiga javob, egaga xabar.
@@ -4500,7 +4528,27 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
     «qotib qolgandek»), ega esa bilmasdi. Egaga ketadigan xabarda
     foydalanuvchi ma'lumoti YO'Q — faqat xato turi va joyi.
     """
-    log.exception("Handler xatoligi", exc_info=context.error)
+    err = context.error
+    if is_transient_network_error(update, err):
+        count = _poll_outage_count(time.monotonic())
+        log.warning("Telegram bilan aloqa vaqtincha uzildi (%s: %s) — kutubxona "
+                    "qayta urinadi", type(err).__name__, err)
+        if count < POLL_NET_ALERT:
+            return
+        _poll_net_errors.clear()
+        text = (f"⚠️ <b>Telegram bilan aloqa uzilib turibdi</b>\n"
+                f"{POLL_NET_WINDOW // 60} daqiqada {count} marta: "
+                f"<code>{reports.esc(type(err).__name__)}</code> "
+                f"{reports.esc(str(err))[:200]}\n\n"
+                f"<i>Bot qayta urinyapti. To'liq: journalctl -u tanga</i>")
+        for owner in config.OWNER_IDS:
+            try:
+                await context.bot.send_message(owner, text, parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
+        return
+
+    log.exception("Handler xatoligi", exc_info=err)
     message = getattr(update, "effective_message", None)
     user = getattr(update, "effective_user", None)
     if message is not None and user is not None:
@@ -4509,7 +4557,6 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-    err = context.error
     kind = type(err).__name__ if err else "Xato"
     where = ""
     tb = getattr(err, "__traceback__", None)

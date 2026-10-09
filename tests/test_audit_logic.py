@@ -371,3 +371,77 @@ def test_qa_rows_table_is_lossless_and_compact(user_id, monkeypatch):
     # Takrorlanuvchi JSON kalitlari va bo'sh joy endi yuborilmaydi.
     assert '"kategoriya":' not in prompt and '"shaxs": null' not in prompt
     assert "\n " not in prompt.split("Savol:")[0]                # indent yo'q
+
+
+# --------------------------------------------------------------------------- #
+# 7. Telegram tarmog'idagi vaqtincha uzilish egaga «xato» bo'lib kelmaydi
+#    (production, 2026-10-09: getUpdates -> Bad Gateway / httpx.ReadError)
+# --------------------------------------------------------------------------- #
+
+class _OwnerBot:
+    def __init__(self):
+        self.sent = []
+
+    async def send_message(self, chat_id, text, **kw):
+        self.sent.append((chat_id, text))
+
+
+def _on_error(err, update=None, tg=None):
+    import bot
+    tg = tg or _OwnerBot()
+    ctx = SimpleNamespace(bot=tg, error=err, user_data={}, bot_data={})
+    asyncio.run(bot.on_error(update, ctx))
+    return tg
+
+
+def _fresh_error_state():
+    import bot
+    bot._poll_net_errors.clear()
+    bot._error_notified.clear()
+
+
+def test_polling_blips_do_not_alert_owner(monkeypatch):
+    from telegram.error import NetworkError, TimedOut
+    monkeypatch.setattr(config, "OWNER_IDS", {777})
+    _fresh_error_state()
+    tg = _OwnerBot()
+    # 03:12 dagi to'lqin: 4 ta Bad Gateway + 12:01 dagi ReadError + timeout.
+    for err in [NetworkError("Bad Gateway")] * 4 + [NetworkError("httpx.ReadError: "),
+                                                    TimedOut()]:
+        _on_error(err, tg=tg)
+    assert tg.sent == []
+
+
+def test_sustained_telegram_outage_alerts_owner_once(monkeypatch):
+    import bot
+    from telegram.error import NetworkError
+    monkeypatch.setattr(config, "OWNER_IDS", {777})
+    _fresh_error_state()
+    tg = _OwnerBot()
+    for _ in range(bot.POLL_NET_ALERT):
+        _on_error(NetworkError("Bad Gateway"), tg=tg)
+    assert len(tg.sent) == 1 and "aloqa uzilib turibdi" in tg.sent[0][1]
+    _on_error(NetworkError("Bad Gateway"), tg=tg)          # hisob boshidan
+    assert len(tg.sent) == 1
+
+
+def test_old_polling_errors_fall_out_of_window():
+    import bot
+    _fresh_error_state()
+    step = bot.POLL_NET_WINDOW // 2                     # har biri 5 daqiqa keyin
+    counts = [bot._poll_outage_count(i * step) for i in range(bot.POLL_NET_ALERT * 2)]
+    assert max(counts) < bot.POLL_NET_ALERT              # kun bo'yi siyrak — xabar yo'q
+    _fresh_error_state()
+    burst = [bot._poll_outage_count(1000 + i * 30) for i in range(bot.POLL_NET_ALERT)]
+    assert burst[-1] == bot.POLL_NET_ALERT               # 30 s oraliqda ~5 daqiqa
+
+
+def test_real_errors_still_alert_owner(monkeypatch):
+    from telegram.error import BadRequest, Conflict
+    monkeypatch.setattr(config, "OWNER_IDS", {777})
+    for err in (BadRequest("Message is too long"),          # NetworkError'dan meros!
+                Conflict("terminated by other getUpdates request"),
+                ValueError("kod xatosi")):
+        _fresh_error_state()
+        tg = _on_error(err)
+        assert len(tg.sent) == 1 and type(err).__name__ in tg.sent[0][1], err
